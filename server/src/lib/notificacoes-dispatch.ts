@@ -231,7 +231,7 @@ export async function dispatchNotifications(
             "EMAIL",
             result.status,
             email,
-            result.error,
+            result.error ?? null,
             now,
           );
         } else {

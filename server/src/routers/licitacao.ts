@@ -1656,7 +1656,11 @@ export const licitacaoRouter = router({
     });
 
     if (processo.foraDoFluxo) {
-      const licitacaoAfter = { ...licitacao, statusLicitacao: "HOMOLOGACAO", dataHomologacao: dataHomologacao ? new Date(`${dataHomologacao}T12:00:00`) : new Date() };
+      const licitacaoAfter: typeof licitacao = {
+        ...licitacao,
+        statusLicitacao: "HOMOLOGACAO",
+        dataHomologacao: dataHomologacao ? new Date(`${dataHomologacao}T12:00:00`) : new Date(),
+      };
       const processoAfter = { ...processo, homologado: true, statusId: input.statusId ?? processo.statusId };
       await logAuditoriaDetalhada(ctx, {
         tabela: "licitacoes",

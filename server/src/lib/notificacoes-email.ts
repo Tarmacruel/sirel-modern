@@ -13,7 +13,7 @@ type EmailPayload = {
   priority?: string;
 };
 
-let cachedTransport: nodemailer.Transporter | null = null;
+let cachedTransport: import("nodemailer").Transporter | null = null;
 
 function resolveTransport() {
   if (cachedTransport) return cachedTransport;
