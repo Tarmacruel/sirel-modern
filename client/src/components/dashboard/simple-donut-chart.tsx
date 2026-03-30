@@ -1,0 +1,69 @@
+import { chartPalette } from "@/styles/theme";
+
+const palette = [...chartPalette];
+
+interface SimpleDonutChartItem {
+  id?: number | string | null;
+  label: string;
+  value: number;
+}
+
+export function SimpleDonutChart({
+  items,
+  onSliceClick,
+  selected,
+}: {
+  items: SimpleDonutChartItem[];
+  onSliceClick?: (item: SimpleDonutChartItem) => void;
+  selected?: number | string | null;
+}) {
+  const total = items.reduce((acc, item) => acc + item.value, 0);
+  if (!total) {
+    return <div className="rounded-3xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">Sem dados para exibir.</div>;
+  }
+
+  let accumulated = 0;
+  const gradientStops = items
+    .map((item, index) => {
+      const start = (accumulated / total) * 100;
+      accumulated += item.value;
+      const end = (accumulated / total) * 100;
+      const color = palette[index % palette.length];
+      return `${color} ${start}% ${end}%`;
+    })
+    .join(", ");
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[180px_1fr] md:items-center">
+      <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-full" style={{ background: `conic-gradient(${gradientStops})` }}>
+        <div className="flex h-28 w-28 flex-col items-center justify-center rounded-full bg-[var(--surface-card)] text-center shadow-inner">
+          <span className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">Total</span>
+          <span className="mt-1 text-2xl font-black text-[var(--text-primary)]">{total.toLocaleString("pt-BR")}</span>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {items.map((item, index) => {
+          const percentage = total ? (item.value / total) * 100 : 0;
+          const isSelected = selected !== undefined && selected !== null && item.id === selected;
+          return (
+            <button
+              key={`${item.label}-${index}`}
+              type="button"
+              onClick={() => onSliceClick?.(item)}
+              className={`w-full rounded-2xl border px-4 py-3 text-left transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isSelected ? "border-[var(--accent-color)] bg-[var(--surface-highlight)] shadow-sm" : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)]"}`}
+            >
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: palette[index % palette.length] }} />
+                  <span className="truncate font-medium text-[var(--text-secondary)]">{item.label}</span>
+                </div>
+                <span className="font-black text-[var(--text-primary)]">{item.value.toLocaleString("pt-BR")}</span>
+              </div>
+              <div className="mt-1 text-xs text-[var(--text-muted)]">{percentage.toFixed(1).replace(".", ",")}%</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
