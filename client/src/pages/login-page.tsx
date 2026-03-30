@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Fingerprint, LogIn, ShieldCheck, Smartphone, Workflow } from "lucide-react";
+import { ArrowRight, Fingerprint, LogIn, ShieldCheck, Workflow } from "lucide-react";
 
 import type { AuthSession } from "@/lib/auth-session";
 import { trpc } from "@/lib/trpc";
@@ -17,17 +17,12 @@ const supportItems = [
   {
     icon: ShieldCheck,
     title: "Acesso protegido",
-    description: "Autenticação local segura, trilha de auditoria e controle por perfil operacional.",
+    description: "Autenticação local segura e rastreabilidade por perfil operacional.",
   },
   {
     icon: Workflow,
     title: "Fluxo unificado",
-    description: "Planejamento, licitação, contratos, prazos e documentos em uma única superfície de trabalho.",
-  },
-  {
-    icon: Smartphone,
-    title: "Uso em mobilidade",
-    description: "Experiência pensada para consulta rápida no celular e operação completa no desktop.",
+    description: "Planejamento, licitação, contratos e documentos em um só ambiente.",
   },
 ] as const;
 
@@ -56,8 +51,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-300/10 blur-3xl sm:h-72 sm:w-72" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col gap-5 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,520px)] lg:items-stretch lg:gap-8 lg:px-8">
-        <section className="order-1 flex min-h-[calc(100svh-2rem)] flex-col justify-end lg:order-2 lg:min-h-0 lg:justify-center">
+      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(400px,500px)_minmax(0,1fr)] lg:items-center lg:gap-8 lg:px-8">
+        <section className="order-2 flex lg:order-2 lg:items-center">
           <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(15,23,42,0.94)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-transparent" />
             <div className="p-5 sm:p-7 lg:p-8">
@@ -87,18 +82,17 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </div>
               </div>
 
-              <div className="mt-8 max-w-xl">
+              <div className="mt-8 max-w-2xl">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-200/70">Registro e gestão de licitações</p>
-                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-black leading-[1.02] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3.25rem]">
-                  Operação institucional clara, rápida e pronta para toda a rotina do município.
+                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-black leading-[1.02] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3rem]">
+                  Operação institucional mais clara para a rotina do município.
                 </h2>
                 <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300 sm:text-[15px]">
-                  A nova entrada do sistema prioriza foco, legibilidade e continuidade operacional para equipes de planejamento,
-                  licitação, contratos, documentos e auditoria.
+                  Entrada enxuta, leitura confortável e acesso rápido aos módulos principais do SIREL.
                 </p>
               </div>
 
-              <div className="mt-8 grid gap-4 border-t border-white/10 pt-6 sm:gap-5 sm:pt-7">
+              <div className="mt-8 grid gap-4 border-t border-white/10 pt-6 sm:grid-cols-2">
                 {supportItems.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -115,21 +109,16 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 })}
               </div>
 
-              <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
-                  <p className="mt-2 max-w-md">{branding.prefeituraLines[1]}</p>
-                </div>
-                <div className="sm:text-right">
-                  <p>{branding.prefeituraLines[2]}</p>
-                  <p>{branding.prefeituraLines[3]}</p>
-                </div>
+              <div className="mt-8 flex flex-col gap-2 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400">
+                <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
+                <p>{branding.prefeituraLines[1]}</p>
+                <p>{branding.prefeituraLines[2]}</p>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="order-2 flex lg:order-1 lg:items-center">
+        <section className="order-1 flex lg:order-1 lg:items-center">
           <div className="w-full rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,32,0.9)_0%,rgba(10,18,29,0.98)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
             <div className="border-b border-white/8 px-5 py-5 sm:px-7 sm:py-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-sky-300/15 bg-sky-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100">
@@ -140,7 +129,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 Entrar no painel operacional
               </h2>
               <p className="mt-3 max-w-md text-sm leading-7 text-slate-300">
-                Use seu login para acessar os módulos do {branding.systemName} com a nova navegação lateral, tema adaptável e visão operacional consolidada.
+                Acesse o {branding.systemName} com seu login institucional.
               </p>
             </div>
 
@@ -191,19 +180,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </Button>
               </form>
 
-              <div className="mt-6 grid gap-3 border-t border-white/8 pt-5 text-sm text-slate-300 sm:grid-cols-2">
-                <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-100/80">Segurança</p>
-                  <p className="mt-2 leading-6">Sessões protegidas, histórico de acesso e rastreabilidade por usuário.</p>
-                </div>
-                <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-100/80">Experiência</p>
-                  <p className="mt-2 leading-6">Entrada otimizada para celular e continuidade de uso no desktop sem ruído visual.</p>
-                </div>
-              </div>
-
               <div className="mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <p className="max-w-sm">Todos os acessos ao ambiente institucional são registrados para segurança, conformidade e auditoria.</p>
+                <p className="max-w-sm">Todos os acessos são registrados para segurança e auditoria.</p>
                 <div className="inline-flex items-center gap-2 text-sky-100/80">
                   <span>Ambiente autenticado</span>
                   <ArrowRight className="h-4 w-4" />
