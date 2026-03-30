@@ -46,9 +46,35 @@ const WorkflowPage = lazy(() => import("@/pages/workflow-page").then((module) =>
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
-    <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-6 text-sm text-[var(--color-neutral-600)] shadow-[var(--shadow-card)]">
-      {title} será detalhado nas próximas iterações da SIREL.
-    </div>
+    <section className="overflow-hidden rounded-[32px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)]">
+      <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-soft)] px-6 py-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--text-muted)]">Em estruturação</p>
+        <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-black tracking-tight text-[var(--text-primary)]">{title}</h2>
+      </div>
+      <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.2fr)_320px]">
+        <div className="space-y-4">
+          <p className="max-w-3xl text-sm leading-7 text-[var(--text-secondary)]">
+            Este módulo entra na próxima rodada de detalhamento visual do SIREL. Mantivemos a navegação, o shell operacional
+            e a identidade nova prontos para a continuidade sem quebrar o restante do sistema.
+          </p>
+          <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-5 py-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">O que já está garantido</p>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
+              <li>Shell responsivo com sidebar fixa e conteúdo rolando separadamente.</li>
+              <li>Tema claro/escuro consistente com a nova identidade institucional.</li>
+              <li>Base pronta para receber filtros, KPIs, tabelas e painéis específicos do módulo.</li>
+            </ul>
+          </div>
+        </div>
+        <aside className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-5 py-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">Próxima etapa</p>
+          <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+            Estruturar a superfície operacional de {title.toLowerCase()} com visão executiva, filtros rápidos, lista principal
+            e ações contextuais integradas ao restante da jornada.
+          </p>
+        </aside>
+      </div>
+    </section>
   );
 }
 

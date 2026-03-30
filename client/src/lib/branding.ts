@@ -39,6 +39,13 @@ function isHexColor(value: string) {
   return /^#[0-9A-F]{6}$/i.test(value);
 }
 
+function normalizeLogoUrl(value: string) {
+  if (!value) return prefeituraLogoUrl;
+  if (value === "/dist/prefeitura-teixeira-freitas.svg") return prefeituraLogoUrl;
+  if (value.startsWith("/dist/")) return value.replace(/^\/dist\//, "/");
+  return value;
+}
+
 export function useRuntimeBranding() {
   const nomeOrgao = trpc.parametros.obterValor.useQuery({ chave: "INSTITUCIONAL.NOME_ORGAO" }, { retry: false, staleTime: 300_000 });
   const cnpjOrgao = trpc.parametros.obterValor.useQuery({ chave: "INSTITUCIONAL.CNPJ_ORGAO" }, { retry: false, staleTime: 300_000 });
@@ -66,7 +73,7 @@ export function useRuntimeBranding() {
     return {
       systemName,
       systemFooterText: asString(rodape.data?.valor, systemFooterText),
-      prefeituraLogoUrl: asString(logoUrl.data?.valor, prefeituraLogoUrl),
+      prefeituraLogoUrl: normalizeLogoUrl(asString(logoUrl.data?.valor, prefeituraLogoUrl)),
       prefeituraLines: [
         "MUNICIPIO DE TEIXEIRA DE FREITAS",
         nome,

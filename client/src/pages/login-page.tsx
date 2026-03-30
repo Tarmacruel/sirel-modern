@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { LockKeyhole, LogIn, ShieldCheck, Zap } from "lucide-react";
+import { ArrowRight, Fingerprint, LogIn, ShieldCheck, Smartphone, Workflow } from "lucide-react";
 
 import type { AuthSession } from "@/lib/auth-session";
 import { trpc } from "@/lib/trpc";
@@ -13,10 +13,29 @@ interface LoginPageProps {
   onLogin: (session: AuthSession) => void;
 }
 
+const supportItems = [
+  {
+    icon: ShieldCheck,
+    title: "Acesso protegido",
+    description: "Autenticação local segura, trilha de auditoria e controle por perfil operacional.",
+  },
+  {
+    icon: Workflow,
+    title: "Fluxo unificado",
+    description: "Planejamento, licitação, contratos, prazos e documentos em uma única superfície de trabalho.",
+  },
+  {
+    icon: Smartphone,
+    title: "Uso em mobilidade",
+    description: "Experiência pensada para consulta rápida no celular e operação completa no desktop.",
+  },
+] as const;
+
 export function LoginPage({ onLogin }: LoginPageProps) {
   const branding = useRuntimeBranding();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [logoFailed, setLogoFailed] = useState(false);
   const mutation = trpc.auth.login.useMutation({
     onSuccess: (session) => {
       onLogin(session);
@@ -29,91 +48,167 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(135deg,_#e2e8f0_0%,_#cce1ff_25%,_#dbeafe_50%,_#e0e7ff_75%,_#f3e8ff_100%)] px-4 py-6 md:py-10">
-      <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-6xl gap-6 lg:min-h-[calc(100vh-5rem)] lg:grid-cols-[1.05fr_0.95fr]">
-        {/* Left Side - Brand & Features */}
-        <section className="flex flex-col justify-between rounded-[32px] border border-white/80 bg-[linear-gradient(135deg,_#0f1a6d_0%,_#192d8a_50%,_#2440a7_100%)] px-6 py-6 text-white shadow-2xl shadow-slate-900/30 md:px-8 md:py-8">
-          <div>
-            <div className="flex items-center gap-3">
-              <img src={branding.prefeituraLogoUrl} alt="Prefeitura Municipal de Teixeira de Freitas" className="h-16 w-auto rounded-2xl bg-white px-3 py-2 shadow-lg" />
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.24em] text-sky-200">Sistema oficial</p>
-                <h1 className="text-lg font-black leading-tight text-white">{branding.systemName}</h1>
+    <div className="relative min-h-screen overflow-hidden bg-[#09111b] text-white">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(93,173,226,0.24),_transparent_38%),radial-gradient(circle_at_80%_18%,_rgba(39,174,96,0.16),_transparent_24%),linear-gradient(180deg,_rgba(9,17,27,0.92)_0%,_rgba(9,17,27,1)_100%)]" />
+        <div className="absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,0.22)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.18)_1px,transparent_1px)] [background-size:32px_32px]" />
+        <div className="absolute -left-16 top-20 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl sm:h-64 sm:w-64" />
+        <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-300/10 blur-3xl sm:h-72 sm:w-72" />
+      </div>
+
+      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col gap-5 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,520px)] lg:items-stretch lg:gap-8 lg:px-8">
+        <section className="order-1 flex min-h-[calc(100svh-2rem)] flex-col justify-end lg:order-2 lg:min-h-0 lg:justify-center">
+          <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(15,23,42,0.94)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-transparent" />
+            <div className="p-5 sm:p-7 lg:p-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-[20px] border border-white/10 bg-white/95 px-2 py-2 shadow-[0_12px_32px_-18px_rgba(255,255,255,0.65)]">
+                    {logoFailed ? (
+                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-sm font-black tracking-[0.22em] text-slate-950">
+                        TF
+                      </span>
+                    ) : (
+                      <img
+                        src={branding.prefeituraLogoUrl}
+                        alt="Prefeitura Municipal de Teixeira de Freitas"
+                        className="max-h-full w-auto object-contain"
+                        onError={() => setLogoFailed(true)}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-sky-200/80">Ambiente seguro</p>
+                    <h1 className="mt-1 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] text-white sm:text-[2.5rem]">{branding.systemName}</h1>
+                  </div>
+                </div>
+                <div className="hidden rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100 sm:inline-flex">
+                  Prefeitura
+                </div>
+              </div>
+
+              <div className="mt-8 max-w-xl">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-200/70">Registro e gestão de licitações</p>
+                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-black leading-[1.02] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3.25rem]">
+                  Operação institucional clara, rápida e pronta para toda a rotina do município.
+                </h2>
+                <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300 sm:text-[15px]">
+                  A nova entrada do sistema prioriza foco, legibilidade e continuidade operacional para equipes de planejamento,
+                  licitação, contratos, documentos e auditoria.
+                </p>
+              </div>
+
+              <div className="mt-8 grid gap-4 border-t border-white/10 pt-6 sm:gap-5 sm:pt-7">
+                {supportItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <article key={item.title} className="grid grid-cols-[auto_1fr] items-start gap-3 rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
+                      <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-300/20 bg-sky-300/10 text-sky-200">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">{item.title}</h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-300">{item.description}</p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
+                  <p className="mt-2 max-w-md">{branding.prefeituraLines[1]}</p>
+                </div>
+                <div className="sm:text-right">
+                  <p>{branding.prefeituraLines[2]}</p>
+                  <p>{branding.prefeituraLines[3]}</p>
+                </div>
               </div>
             </div>
-
-            <div className="mt-8 space-y-4">
-              <p className="text-base font-bold leading-relaxed text-white">Gestão transparente de licitações e contratações públicas.</p>
-              <p className="text-sm leading-7 text-sky-100">{branding.prefeituraLines[1]}</p>
-              <p className="text-xs leading-6 text-sky-200">{branding.prefeituraLines[2]} · {branding.prefeituraLines[3]}</p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <article className="group rounded-2xl border border-white/15 bg-white/8 px-5 py-5 transition hover:bg-white/12">
-              <div className="rounded-xl bg-sky-400/20 p-2 w-fit">
-                <ShieldCheck className="h-5 w-5 text-sky-300" />
-              </div>
-              <p className="mt-3 text-sm font-bold text-white">Segurança robusta</p>
-              <p className="mt-2 text-xs leading-6 text-sky-100">Autenticação segura com sessões assinadas e controle de acesso por perfil de operação.</p>
-            </article>
-
-            <article className="group rounded-2xl border border-white/15 bg-white/8 px-5 py-5 transition hover:bg-white/12">
-              <div className="rounded-xl bg-sky-400/20 p-2 w-fit">
-                <Zap className="h-5 w-5 text-sky-300" />
-              </div>
-              <p className="mt-3 text-sm font-bold text-white">Performance</p>
-              <p className="mt-2 text-xs leading-6 text-sky-100">Interface responsiva e otimizada para desktop, tablet e smartphone com operação contínua.</p>
-            </article>
           </div>
         </section>
 
-        {/* Right Side - Login Form */}
-        <section className="flex items-center justify-center rounded-[32px] border border-white/80 bg-white/95 px-5 py-6 shadow-2xl shadow-slate-200/50 backdrop-blur md:px-6 md:py-8">
-          <div className="w-full max-w-md space-y-6">
-            <div>
-              <div className="inline-flex rounded-full bg-[var(--color-primary-50)] px-4 py-2">
-                <p className="text-xs font-bold uppercase tracking-[0.24em] text-[var(--color-primary-700)]">🔐 Acesso seguro</p>
+        <section className="order-2 flex lg:order-1 lg:items-center">
+          <div className="w-full rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,32,0.9)_0%,rgba(10,18,29,0.98)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
+            <div className="border-b border-white/8 px-5 py-5 sm:px-7 sm:py-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-sky-300/15 bg-sky-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100">
+                <Fingerprint className="h-3.5 w-3.5" />
+                Login institucional
               </div>
-              <h2 className="mt-4 text-3xl font-black tracking-tight text-[var(--color-neutral-950)]">Entrar no {branding.systemName}</h2>
-              <p className="mt-3 text-sm leading-6 text-[var(--color-neutral-600)]">Informe seus dados de acesso para explorar o sistema de gestão de licitações.</p>
+              <h2 className="mt-4 font-[var(--font-heading)] text-2xl font-black tracking-[-0.03em] text-white sm:text-[2rem]">
+                Entrar no painel operacional
+              </h2>
+              <p className="mt-3 max-w-md text-sm leading-7 text-slate-300">
+                Use seu login para acessar os módulos do {branding.systemName} com a nova navegação lateral, tema adaptável e visão operacional consolidada.
+              </p>
             </div>
 
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <FormField label="Usuário ou e-mail">
-                <Input
-                  required
-                  autoFocus
-                  value={login}
-                  onChange={(event) => setLogin(event.target.value)}
-                  placeholder="seu.usuario"
-                  className="border-[var(--color-primary-200)] focus:border-[var(--color-primary-500)]"
-                />
-              </FormField>
+            <div className="px-5 py-5 sm:px-7 sm:py-6">
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                <FormField
+                  label="Usuário ou e-mail"
+                  description="Informe o login institucional ou e-mail cadastrado no sistema."
+                  className="text-slate-100"
+                >
+                  <Input
+                    required
+                    autoFocus
+                    autoComplete="username"
+                    value={login}
+                    onChange={(event) => setLogin(event.target.value)}
+                    placeholder="seu.usuario"
+                    className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 text-white placeholder:text-slate-500 focus:border-sky-300/40"
+                  />
+                </FormField>
 
-              <FormField label="Senha">
-                <Input
-                  required
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="••••••••"
-                  className="border-[var(--color-primary-200)] focus:border-[var(--color-primary-500)]"
-                />
-              </FormField>
+                <FormField
+                  label="Senha"
+                  description="O acesso é auditado e vinculado ao seu perfil operacional."
+                  className="text-slate-100"
+                >
+                  <Input
+                    required
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Digite sua senha"
+                    className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 text-white placeholder:text-slate-500 focus:border-sky-300/40"
+                  />
+                </FormField>
 
-              {mutation.error ? <Alert variant="error">{mutation.error.message}</Alert> : null}
+                {mutation.error ? <Alert variant="error">{mutation.error.message}</Alert> : null}
 
-              <Button type="submit" className="w-full bg-[var(--color-primary-500)] hover:bg-[var(--color-primary-600)]" disabled={mutation.isPending}>
-                <LogIn className="h-4 w-4" />
-                {mutation.isPending ? "Validando acesso..." : "Entrar"}
-              </Button>
-            </form>
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="mt-2 h-12 w-full rounded-[20px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#76c8ff_100%)] text-slate-950 shadow-[0_20px_40px_-24px_rgba(93,173,226,0.95)] hover:brightness-105"
+                  disabled={mutation.isPending}
+                >
+                  <LogIn className="h-4 w-4" />
+                  {mutation.isPending ? "Validando acesso..." : "Entrar no sistema"}
+                </Button>
+              </form>
 
-            <div className="pt-4 border-t border-[var(--color-neutral-200)]">
-              <p className="text-xs text-[var(--color-neutral-500)]">
-                Sistema seguro de gestão de licitações da Prefeitura Municipal de Teixeira de Freitas. Todos os acessos são registrados.
-              </p>
+              <div className="mt-6 grid gap-3 border-t border-white/8 pt-5 text-sm text-slate-300 sm:grid-cols-2">
+                <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-100/80">Segurança</p>
+                  <p className="mt-2 leading-6">Sessões protegidas, histórico de acesso e rastreabilidade por usuário.</p>
+                </div>
+                <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-100/80">Experiência</p>
+                  <p className="mt-2 leading-6">Entrada otimizada para celular e continuidade de uso no desktop sem ruído visual.</p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-sm">Todos os acessos ao ambiente institucional são registrados para segurança, conformidade e auditoria.</p>
+                <div className="inline-flex items-center gap-2 text-sky-100/80">
+                  <span>Ambiente autenticado</span>
+                  <ArrowRight className="h-4 w-4" />
+                </div>
+              </div>
             </div>
           </div>
         </section>

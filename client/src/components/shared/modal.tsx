@@ -47,21 +47,21 @@ export function Modal({ open, title, description, onClose, actions, size = "lg",
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
+    <div className="fixed inset-0 z-[120] overflow-y-auto px-0 py-0 sm:px-6 sm:py-8">
       <button
         type="button"
         onClick={onClose}
         className="fixed inset-0 bg-[var(--surface-overlay)] backdrop-blur-sm"
         aria-label="Fechar modal"
       />
-      <div className="relative flex min-h-full items-start justify-center md:items-center">
+      <div className="relative flex min-h-full items-end justify-center sm:items-center">
         <div
           className={[
-            "relative z-10 flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-[32px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)]",
+            "relative z-10 flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-[32px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)] sm:max-h-[calc(100vh-3rem)] sm:rounded-[32px]",
             sizeClasses[size],
           ].join(" ")}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-soft)] px-6 py-5">
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4 sm:px-6 sm:py-5">
             <div>
               <h3 className="font-[var(--font-heading)] text-xl font-black tracking-tight text-[var(--text-primary)]">{title}</h3>
               {description ? <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{description}</p> : null}
@@ -70,8 +70,8 @@ export function Modal({ open, title, description, onClose, actions, size = "lg",
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-6 py-5">{children}</div>
-          {actions ? <div className="border-t border-[var(--border-subtle)] px-6 py-4">{actions}</div> : null}
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-5">{children}</div>
+          {actions ? <div className="border-t border-[var(--border-subtle)] px-4 py-4 sm:px-6">{actions}</div> : null}
         </div>
       </div>
     </div>,
