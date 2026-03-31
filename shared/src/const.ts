@@ -8,7 +8,10 @@
   "DOCUMENTOS",
 ] as const;
 
-export const workflowMacroPhaseLabels: Record<"PLANEJAMENTO" | "COMPRAS" | "LICITACAO" | "CONTRATOS", string> = {
+export const workflowMacroPhaseLabels: Record<
+  "PLANEJAMENTO" | "COMPRAS" | "LICITACAO" | "CONTRATOS",
+  string
+> = {
   PLANEJAMENTO: "Planejamento",
   COMPRAS: "Compras",
   LICITACAO: "Licitacao",
@@ -30,6 +33,27 @@ export const modoDisputaOptions = [
   "ABERTO_FECHADO",
   "FECHADO_ABERTO",
 ] as const;
+
+export const processoTipoObjetoOptions = [
+  "PRODUTO",
+  "SERVICO_COMUM",
+  "SERVICO_ESPECIAL",
+  "SERVICO",
+  "OBRA",
+  "SERVICO_ENG",
+] as const;
+
+export const processoTipoObjetoLabels: Record<
+  (typeof processoTipoObjetoOptions)[number],
+  string
+> = {
+  PRODUTO: "Produto",
+  SERVICO_COMUM: "Serviço comum",
+  SERVICO_ESPECIAL: "Serviço especial",
+  SERVICO: "Serviço (legado)",
+  OBRA: "Obra",
+  SERVICO_ENG: "Serviço de engenharia",
+};
 
 export const grauPrioridadeOptions = [
   "BAIXA",
@@ -147,7 +171,10 @@ export const agendaCompartilhamentoPermissaoOptions = [
   "COMENTARIOS",
 ] as const;
 
-export const modoDisputaLabels: Record<(typeof modoDisputaOptions)[number], string> = {
+export const modoDisputaLabels: Record<
+  (typeof modoDisputaOptions)[number],
+  string
+> = {
   NAO_SE_APLICA: "N\u00e3o se aplica",
   ABERTO: "Aberto",
   FECHADO: "Fechado",
@@ -155,20 +182,29 @@ export const modoDisputaLabels: Record<(typeof modoDisputaOptions)[number], stri
   FECHADO_ABERTO: "Fechado-aberto",
 };
 
-export const grauPrioridadeLabels: Record<(typeof grauPrioridadeOptions)[number], string> = {
+export const grauPrioridadeLabels: Record<
+  (typeof grauPrioridadeOptions)[number],
+  string
+> = {
   BAIXA: "Baixa",
   MEDIA: "M\u00e9dia",
   ALTA: "Alta",
   URGENTE: "Urgente",
 };
 
-export const metodologiaCotacaoLabels: Record<(typeof metodologiaCotacaoOptions)[number], string> = {
+export const metodologiaCotacaoLabels: Record<
+  (typeof metodologiaCotacaoOptions)[number],
+  string
+> = {
   MENOR_PRECO: "Menor pre\u00e7o",
   MEDIA: "M\u00e9dia",
   MEDIANA: "Mediana",
 };
 
-export const licitacaoStatusLabels: Record<(typeof licitacaoStatusOptions)[number], string> = {
+export const licitacaoStatusLabels: Record<
+  (typeof licitacaoStatusOptions)[number],
+  string
+> = {
   PREPARACAO: "Preparação do edital",
   PUBLICACAO: "Publicação do edital",
   RECEBIMENTO_PROPOSTAS: "Recebimento de propostas",
@@ -183,26 +219,38 @@ export const licitacaoStatusLabels: Record<(typeof licitacaoStatusOptions)[numbe
   CANCELADA: "Licitação cancelada",
 };
 
-export const habilitacaoStatusLabels: Record<(typeof habilitacaoStatusOptions)[number], string> = {
+export const habilitacaoStatusLabels: Record<
+  (typeof habilitacaoStatusOptions)[number],
+  string
+> = {
   PENDENTE: "Pendente",
   HABILITADO: "Habilitado",
   INABILITADO: "Inabilitado",
 };
 
-export const propostaSituacaoLabels: Record<(typeof propostaSituacaoOptions)[number], string> = {
+export const propostaSituacaoLabels: Record<
+  (typeof propostaSituacaoOptions)[number],
+  string
+> = {
   VALIDA: "Válida",
   DESCLASSIFICADA: "Desclassificada",
   VENCEDORA: "Vencedora",
 };
 
-export const recursoResultadoLabels: Record<(typeof recursoResultadoOptions)[number], string> = {
+export const recursoResultadoLabels: Record<
+  (typeof recursoResultadoOptions)[number],
+  string
+> = {
   PENDENTE: "Pendente",
   PROVIDO: "Provido",
   IMPROVIDO: "Improvido",
   PARCIALMENTE_PROVIDO: "Parcialmente provido",
 };
 
-export const prazoProcessualTipoLabels: Record<(typeof prazoProcessualTipoOptions)[number], string> = {
+export const prazoProcessualTipoLabels: Record<
+  (typeof prazoProcessualTipoOptions)[number],
+  string
+> = {
   PUBLICACAO_EDITAL: "Publicação do edital",
   RECEBIMENTO_PROPOSTAS: "Recebimento de propostas",
   SESSAO_PUBLICA: "Sessão pública",
@@ -219,13 +267,19 @@ export const prazoProcessualTipoLabels: Record<(typeof prazoProcessualTipoOption
   ASSINATURA_CONTRATO: "Assinatura do contrato",
 };
 
-export const prazoProcessualStatusLabels: Record<(typeof prazoProcessualStatusOptions)[number], string> = {
+export const prazoProcessualStatusLabels: Record<
+  (typeof prazoProcessualStatusOptions)[number],
+  string
+> = {
   PENDENTE: "Pendente",
   EM_ATRASO: "Em atraso",
   CONCLUIDO: "Concluído",
 };
 
-export const tarefaEquipeStatusLabels: Record<(typeof tarefaEquipeStatusOptions)[number], string> = {
+export const tarefaEquipeStatusLabels: Record<
+  (typeof tarefaEquipeStatusOptions)[number],
+  string
+> = {
   PENDENTE: "Pendente",
   EM_ANDAMENTO: "Em andamento",
   AGUARDANDO: "Aguardando",
@@ -233,13 +287,19 @@ export const tarefaEquipeStatusLabels: Record<(typeof tarefaEquipeStatusOptions)
   CONCLUIDO: "Concluído",
 };
 
-export const tarefaEquipePrioridadeLabels: Record<(typeof tarefaEquipePrioridadeOptions)[number], string> = {
+export const tarefaEquipePrioridadeLabels: Record<
+  (typeof tarefaEquipePrioridadeOptions)[number],
+  string
+> = {
   BAIXA: "Baixa",
   MEDIA: "Média",
   ALTA: "Alta",
 };
 
-export const agendaCompartilhamentoPermissaoLabels: Record<(typeof agendaCompartilhamentoPermissaoOptions)[number], string> = {
+export const agendaCompartilhamentoPermissaoLabels: Record<
+  (typeof agendaCompartilhamentoPermissaoOptions)[number],
+  string
+> = {
   SOMENTE_VISUALIZACAO: "Somente visualizacao",
   COMENTARIOS: "Comentarios",
 };
@@ -248,7 +308,8 @@ export const licitacaoStepCatalog = [
   {
     key: "PREPARACAO_INTERNA",
     label: "Preparação interna",
-    description: "Checklist documental interno obrigatório antes da publicidade.",
+    description:
+      "Checklist documental interno obrigatório antes da publicidade.",
   },
   {
     key: "PUBLICACAO",
@@ -263,7 +324,8 @@ export const licitacaoStepCatalog = [
   {
     key: "LANCES",
     label: "Lances",
-    description: "Fase competitiva aplicável às modalidades que admitem lances.",
+    description:
+      "Fase competitiva aplicável às modalidades que admitem lances.",
   },
   {
     key: "JULGAMENTO",
@@ -293,13 +355,19 @@ export const licitacaoFluxoOptions = [
   "CONTRATACAO_DIRETA",
 ] as const;
 
-export const licitacaoFluxoLabels: Record<(typeof licitacaoFluxoOptions)[number], string> = {
+export const licitacaoFluxoLabels: Record<
+  (typeof licitacaoFluxoOptions)[number],
+  string
+> = {
   COMPETITIVO_COMPLETO: "Competitivo completo",
   COMPETITIVO_SIMPLIFICADO: "Competitivo simplificado",
   CONTRATACAO_DIRETA: "Contratação direta",
 };
 
-export const licitacaoFluxoStepKeys: Record<(typeof licitacaoFluxoOptions)[number], (typeof licitacaoStepCatalog)[number]["key"][]> = {
+export const licitacaoFluxoStepKeys: Record<
+  (typeof licitacaoFluxoOptions)[number],
+  (typeof licitacaoStepCatalog)[number]["key"][]
+> = {
   COMPETITIVO_COMPLETO: [
     "PREPARACAO_INTERNA",
     "PUBLICACAO",
@@ -327,7 +395,10 @@ export const licitacaoFluxoStepKeys: Record<(typeof licitacaoFluxoOptions)[numbe
   ],
 };
 
-export function getLicitacaoFluxo(modalidadeCodigo?: string | null, modoDisputa?: string | null) {
+export function getLicitacaoFluxo(
+  modalidadeCodigo?: string | null,
+  modoDisputa?: string | null,
+) {
   if (!modalidadeCodigo) {
     return "COMPETITIVO_COMPLETO" as const;
   }
@@ -359,9 +430,11 @@ export function getLicitacaoFlowConfig(params: {
   suportaLances?: boolean | null;
 }) {
   const fluxo = getLicitacaoFluxo(params.modalidadeCodigo, params.modoDisputa);
-  const hasDisputa = (params.modoDisputa ?? "NAO_SE_APLICA") !== "NAO_SE_APLICA";
+  const hasDisputa =
+    (params.modoDisputa ?? "NAO_SE_APLICA") !== "NAO_SE_APLICA";
   const showCompetitivoSteps = fluxo !== "CONTRATACAO_DIRETA";
-  const showLances = showCompetitivoSteps && (Boolean(params.suportaLances) || hasDisputa);
+  const showLances =
+    showCompetitivoSteps && (Boolean(params.suportaLances) || hasDisputa);
   const showRecursos = fluxo === "COMPETITIVO_COMPLETO";
   const stepKeys = licitacaoFluxoStepKeys[fluxo].filter((key) => {
     if (key === "LANCES") return showLances;
@@ -380,7 +453,10 @@ export function getLicitacaoFlowConfig(params: {
   };
 }
 
-export function getLicitacaoModalidadeHelp(modalidadeCodigo?: string | null, modoDisputa?: string | null) {
+export function getLicitacaoModalidadeHelp(
+  modalidadeCodigo?: string | null,
+  modoDisputa?: string | null,
+) {
   if (!modalidadeCodigo) return null;
 
   if (/INEXIGIBILIDADE/.test(modalidadeCodigo)) {
@@ -419,7 +495,10 @@ export const licitacaoChecklistFlexStatusOptions = [
   "CONCLUIDO_FISICO",
 ] as const;
 
-export const licitacaoChecklistFlexStatusLabels: Record<(typeof licitacaoChecklistFlexStatusOptions)[number], string> = {
+export const licitacaoChecklistFlexStatusLabels: Record<
+  (typeof licitacaoChecklistFlexStatusOptions)[number],
+  string
+> = {
   PADRAO: "Exigir evidência",
   NAO_APLICAVEL: "Não aplicável",
   OUTRO_SETOR: "Em outro setor",
@@ -465,7 +544,10 @@ const licitacaoChecklistCompetitivoSimplificado = [
   "LICITACAO_PARECER_JURIDICO",
 ];
 
-export function getLicitacaoChecklistCategories(params: { modalidadeCodigo?: string | null; modoDisputa?: string | null }) {
+export function getLicitacaoChecklistCategories(params: {
+  modalidadeCodigo?: string | null;
+  modoDisputa?: string | null;
+}) {
   const fluxo = getLicitacaoFluxo(params.modalidadeCodigo, params.modoDisputa);
 
   if (fluxo === "COMPETITIVO_COMPLETO") {
@@ -491,7 +573,8 @@ export const licitacaoInternalDocumentChecklist = [
   {
     category: "LICITACAO_DECRETO_COMISSAO",
     label: "Decreto da comissão",
-    description: "Documento de designação da comissão aplicável à fase licitatória.",
+    description:
+      "Documento de designação da comissão aplicável à fase licitatória.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
@@ -526,7 +609,8 @@ export const licitacaoInternalDocumentChecklist = [
   {
     category: "LICITACAO_ATO_AUTORIZACAO_AUTORIDADE",
     label: "Ato de autorização da autoridade competente",
-    description: "Autorização formal da autoridade competente para o prosseguimento.",
+    description:
+      "Autorização formal da autoridade competente para o prosseguimento.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
@@ -541,28 +625,32 @@ export const licitacaoInternalDocumentChecklist = [
   {
     category: "LICITACAO_JUSTIFICATIVA_DISPENSA",
     label: "Justificativa da dispensa",
-    description: "Justificativa formal da dispensa, indicando o fundamento legal aplicável.",
+    description:
+      "Justificativa formal da dispensa, indicando o fundamento legal aplicável.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
   {
     category: "LICITACAO_JUSTIFICATIVA_INEXIGIBILIDADE",
     label: "Justificativa de inexigibilidade (Art. 74)",
-    description: "Justificativa formal demonstrando a inviabilidade de competição.",
+    description:
+      "Justificativa formal demonstrando a inviabilidade de competição.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
   {
     category: "LICITACAO_COMPROVANTE_EXCLUSIVIDADE",
     label: "Comprovante de fornecedor exclusivo",
-    description: "Documento comprobatório da exclusividade do fornecedor ou representante.",
+    description:
+      "Documento comprobatório da exclusividade do fornecedor ou representante.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
   {
     category: "LICITACAO_PESQUISA_PRECOS",
     label: "Pesquisa de preços",
-    description: "Pesquisa de preços para aferição do valor estimado na contratação.",
+    description:
+      "Pesquisa de preços para aferição do valor estimado na contratação.",
     tipo: "OUTRO",
     obrigatorio: true,
   },
@@ -611,15 +699,43 @@ export const licitacaoInternalDocumentChecklist = [
 ] as const;
 
 export const modalidadeCatalog = [
-  { codigo: "CONCORRENCIA_ELETRONICA", nome: "Concorr\u00eancia Eletr\u00f4nica", siglaEdital: "CE" },
-  { codigo: "CONCORRENCIA_PRESENCIAL", nome: "Concorr\u00eancia Presencial", siglaEdital: "CP" },
+  {
+    codigo: "CONCORRENCIA_ELETRONICA",
+    nome: "Concorr\u00eancia Eletr\u00f4nica",
+    siglaEdital: "CE",
+  },
+  {
+    codigo: "CONCORRENCIA_PRESENCIAL",
+    nome: "Concorr\u00eancia Presencial",
+    siglaEdital: "CP",
+  },
   { codigo: "CREDENCIAMENTO", nome: "Credenciamento", siglaEdital: "CD" },
-  { codigo: "DISPENSA_SIMPLIFICADA", nome: "Dispensa Simplificada", siglaEdital: "DLS" },
-  { codigo: "DISPENSA_ELETRONICA", nome: "Dispensa Eletr\u00f4nica", siglaEdital: "DLE" },
+  {
+    codigo: "DISPENSA_SIMPLIFICADA",
+    nome: "Dispensa Simplificada",
+    siglaEdital: "DLS",
+  },
+  {
+    codigo: "DISPENSA_ELETRONICA",
+    nome: "Dispensa Eletr\u00f4nica",
+    siglaEdital: "DLE",
+  },
   { codigo: "INEXIGIBILIDADE", nome: "Inexigibilidade", siglaEdital: "IL" },
-  { codigo: "LEILAO_ELETRONICO", nome: "Leil\u00e3o Eletr\u00f4nico", siglaEdital: "LE" },
-  { codigo: "PREGAO_ELETRONICO", nome: "Preg\u00e3o Eletr\u00f4nico", siglaEdital: "PE" },
-  { codigo: "PREGAO_PRESENCIAL", nome: "Preg\u00e3o Presencial", siglaEdital: "PP" },
+  {
+    codigo: "LEILAO_ELETRONICO",
+    nome: "Leil\u00e3o Eletr\u00f4nico",
+    siglaEdital: "LE",
+  },
+  {
+    codigo: "PREGAO_ELETRONICO",
+    nome: "Preg\u00e3o Eletr\u00f4nico",
+    siglaEdital: "PE",
+  },
+  {
+    codigo: "PREGAO_PRESENCIAL",
+    nome: "Preg\u00e3o Presencial",
+    siglaEdital: "PP",
+  },
 ] as const;
 
 export const modalidadeCodes = modalidadeCatalog.map((item) => item.codigo) as [
@@ -627,7 +743,10 @@ export const modalidadeCodes = modalidadeCatalog.map((item) => item.codigo) as [
   ...(typeof modalidadeCatalog)[number]["codigo"][],
 ];
 
-export const licitacaoPrazoBasePorModalidade: Record<(typeof modalidadeCatalog)[number]["codigo"], number> = {
+export const licitacaoPrazoBasePorModalidade: Record<
+  (typeof modalidadeCatalog)[number]["codigo"],
+  number
+> = {
   CONCORRENCIA_ELETRONICA: 10,
   CONCORRENCIA_PRESENCIAL: 10,
   CREDENCIAMENTO: 15,
@@ -668,7 +787,10 @@ export const relatorioTipoOptions = [
   "ATIVIDADE_USUARIOS",
 ] as const;
 
-export const relatorioTipoLabels: Record<(typeof relatorioTipoOptions)[number], string> = {
+export const relatorioTipoLabels: Record<
+  (typeof relatorioTipoOptions)[number],
+  string
+> = {
   PROCESSOS_POR_STATUS: "Processos por status",
   PRAZOS_CRITICOS: "Prazos críticos",
   VALORES_POR_SECRETARIA: "Valores por secretaria",

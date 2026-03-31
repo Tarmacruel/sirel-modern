@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 
-import { calcularPrazoLegalMinimo, differenceInBusinessDays, startOfDay } from "@sirel/shared/prazos-legais";
+import {
+  calcularPrazoLegalMinimo,
+  differenceInBusinessDays,
+  startOfDay,
+} from "@sirel/shared/prazos-legais";
 
 import { Alert } from "@/components/ui/alert";
 import { FormField } from "@/components/ui/form-field";
@@ -18,6 +22,7 @@ interface DatePickerLegalProps {
   publicarEmJornal?: boolean;
   foraDoFluxo?: boolean;
   acrescimoMunicipal?: number;
+  feriadosLocais?: Array<string | Date>;
   comparisonDate?: string | Date | null;
   comparisonLabel?: string;
   justificationValue?: string;
@@ -27,12 +32,19 @@ interface DatePickerLegalProps {
 
 function parseFlexibleDate(value?: string | Date | null) {
   if (!value) return null;
-  const parsed = value instanceof Date
-    ? value
-    : /^\d{4}-\d{2}-\d{2}$/.test(value)
-      ? new Date(`${value}T12:00:00`)
-      : new Date(value);
+  const parsed =
+    value instanceof Date
+      ? value
+      : /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00`)
+        : new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseHolidayDates(values: Array<string | Date> = []) {
+  return values
+    .map((value) => parseFlexibleDate(value))
+    .filter((value): value is Date => Boolean(value));
 }
 
 function getModalidadeNome(modalidadeCodigo?: string | null) {
@@ -53,6 +65,7 @@ export function DatePickerLegal({
   publicarEmJornal = false,
   foraDoFluxo = false,
   acrescimoMunicipal = 1,
+  feriadosLocais = [],
   comparisonDate,
   comparisonLabel = "Sessão / disputa",
   justificationValue = "",
@@ -60,7 +73,14 @@ export function DatePickerLegal({
   label = "Data de publicação no PNCP",
 }: DatePickerLegalProps) {
   const dataPublicacao = useMemo(() => parseFlexibleDate(value), [value]);
-  const comparison = useMemo(() => parseFlexibleDate(comparisonDate), [comparisonDate]);
+  const comparison = useMemo(
+    () => parseFlexibleDate(comparisonDate),
+    [comparisonDate],
+  );
+  const holidayDates = useMemo(
+    () => parseHolidayDates(feriadosLocais),
+    [feriadosLocais],
+  );
 
   const regra = useMemo(() => {
     if (!dataPublicacao || !modalidadeCodigo) return null;
@@ -69,6 +89,7 @@ export function DatePickerLegal({
       modalidadeCodigo,
       tipoObjeto,
       criterioJulgamento,
+      feriadosLocais: holidayDates,
       acrescimoMunicipal,
       publicarNoDou,
       publicarEmJornal,
@@ -77,34 +98,50 @@ export function DatePickerLegal({
     acrescimoMunicipal,
     criterioJulgamento,
     dataPublicacao,
+    holidayDates,
     modalidadeCodigo,
     publicarEmJornal,
     publicarNoDou,
     tipoObjeto,
   ]);
 
-  const comparisonBeforeMinimum = Boolean(regra && comparison && startOfDay(comparison).getTime() < regra.dataMinima.getTime());
-  const diasAposMinimo = regra && comparison ? differenceInBusinessDays(startOfDay(comparison), regra.dataMinima) : 0;
+  const comparisonBeforeMinimum = Boolean(
+    regra &&
+    comparison &&
+    startOfDay(comparison).getTime() < regra.dataMinima.getTime(),
+  );
+  const diasAposMinimo =
+    regra && comparison
+      ? differenceInBusinessDays(startOfDay(comparison), regra.dataMinima)
+      : 0;
 
   return (
     <div className="space-y-3">
       <FormField label={label}>
-        <Input type="date" value={value} onChange={(event) => onChange(event.target.value)} />
+        <Input
+          type="date"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
       </FormField>
 
       {!regra ? (
         <Alert variant="info">
-          Selecione a data de publicação para o SIREL calcular automaticamente o prazo mínimo legal conforme o Art. 55 e a regra de contagem do Art. 183 da Lei 14.133/2021.
+          Selecione a data de publicação para o SIREL calcular automaticamente o
+          prazo mínimo legal conforme o Art. 55 e a regra de contagem do Art.
+          183 da Lei 14.133/2021.
         </Alert>
       ) : (
         <>
-          <div className={`rounded-2xl border px-4 py-3 text-sm ${
-            comparisonBeforeMinimum
-              ? "border-amber-300 bg-amber-50 text-amber-900"
-              : diasAposMinimo > 10
-                ? "border-sky-200 bg-sky-50 text-sky-900"
-                : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          }`}>
+          <div
+            className={`rounded-2xl border px-4 py-3 text-sm ${
+              comparisonBeforeMinimum
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : diasAposMinimo > 10
+                  ? "border-sky-200 bg-sky-50 text-sky-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+            }`}
+          >
             <div className="font-semibold">
               {comparison
                 ? comparisonBeforeMinimum
@@ -122,17 +159,29 @@ export function DatePickerLegal({
           </div>
 
           <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-4 text-sm text-[var(--text-secondary)] shadow-[0_14px_30px_-28px_rgba(15,26,109,0.35)]">
-            <div className="font-semibold text-[var(--text-primary)]">Regra aplicada</div>
+            <div className="font-semibold text-[var(--text-primary)]">
+              Regra aplicada
+            </div>
             <div className="mt-2">
               {regra.regraAplicada.baseLegal}
-              {regra.regraAplicada.observacao ? ` · ${regra.regraAplicada.observacao}` : ""}
+              {regra.regraAplicada.observacao
+                ? ` · ${regra.regraAplicada.observacao}`
+                : ""}
             </div>
             <div className="mt-2 text-[var(--text-muted)]">
-              Publicação: {formatShortDateBR(dataPublicacao)} · Início da contagem: {formatShortDateBR(regra.dataInicioContagem)} · Prazo: {regra.diasUteisTotais} dia(s) útil(eis)
+              Publicação: {formatShortDateBR(dataPublicacao)} · Início da
+              contagem: {formatShortDateBR(regra.dataInicioContagem)} · Prazo:{" "}
+              {regra.diasUteisTotais} dia(s) útil(eis)
             </div>
             <div className="mt-1 text-[var(--text-muted)]">
-              Modalidade: {getModalidadeNome(modalidadeCodigo)} · Mínima legal: {formatShortDateBR(regra.dataMinima)}
+              Modalidade: {getModalidadeNome(modalidadeCodigo)} · Mínima legal:{" "}
+              {formatShortDateBR(regra.dataMinima)}
             </div>
+            {holidayDates.length ? (
+              <div className="mt-1 text-[var(--text-muted)]">
+                Feriados locais considerados: {holidayDates.length}
+              </div>
+            ) : null}
           </div>
 
           {foraDoFluxo && comparisonBeforeMinimum && onJustificationChange ? (

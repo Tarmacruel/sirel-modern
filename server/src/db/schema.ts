@@ -28,6 +28,8 @@ export const escopoDisputaEnum = pgEnum("escopo_disputa", [
 ]);
 export const tipoObjetoEnum = pgEnum("tipo_objeto", [
   "PRODUTO",
+  "SERVICO_COMUM",
+  "SERVICO_ESPECIAL",
   "SERVICO",
   "OBRA",
   "SERVICO_ENG",
@@ -107,10 +109,11 @@ export const notificacaoCanalEnum = pgEnum("notificacao_canal", [
   "EMAIL",
   "PUSH",
 ]);
-export const notificacaoEnvioStatusEnum = pgEnum(
-  "notificacao_envio_status",
-  ["ENVIADO", "FALHA", "IGNORADO"],
-);
+export const notificacaoEnvioStatusEnum = pgEnum("notificacao_envio_status", [
+  "ENVIADO",
+  "FALHA",
+  "IGNORADO",
+]);
 export const agendaCompartilhamentoPermissaoEnum = pgEnum(
   "agenda_compartilhamento_permissao",
   ["SOMENTE_VISUALIZACAO", "COMENTARIOS"],
@@ -299,7 +302,9 @@ export const parametrosHistorico = pgTable(
     valorNovo: jsonb("valor_novo").notNull(),
     alteradoPor: integer("alterado_por"),
     alteradoPorNome: varchar("alterado_por_nome", { length: 150 }).notNull(),
-    dataAlteracao: timestamp("data_alteracao", { withTimezone: true }).notNull().defaultNow(),
+    dataAlteracao: timestamp("data_alteracao", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     justificativa: text("justificativa"),
     ipOrigem: varchar("ip_origem", { length: 45 }),
     requerAprovacao: boolean("requer_aprovacao").notNull().default(false),
@@ -307,8 +312,12 @@ export const parametrosHistorico = pgTable(
     dataAprovacao: timestamp("data_aprovacao", { withTimezone: true }),
   },
   (table) => ({
-    idxParametro: index("parametros_historico_parametro_idx").on(table.parametroId),
-    idxDataAlteracao: index("parametros_historico_data_alteracao_idx").on(table.dataAlteracao),
+    idxParametro: index("parametros_historico_parametro_idx").on(
+      table.parametroId,
+    ),
+    idxDataAlteracao: index("parametros_historico_data_alteracao_idx").on(
+      table.dataAlteracao,
+    ),
   }),
 );
 
@@ -865,10 +874,14 @@ export const licitacaoChecklistExcecoes = pgTable(
       .notNull()
       .references(() => processos.id, { onDelete: "cascade" }),
     categoria: varchar("categoria", { length: 160 }).notNull(),
-    statusFlexivel: varchar("status_flexivel", { length: 40 }).notNull().default("PADRAO"),
+    statusFlexivel: varchar("status_flexivel", { length: 40 })
+      .notNull()
+      .default("PADRAO"),
     naoAplicavel: boolean("nao_aplicavel").notNull().default(false),
     justificativa: text("justificativa"),
-    departamentoResponsavel: varchar("departamento_responsavel", { length: 160 }),
+    departamentoResponsavel: varchar("departamento_responsavel", {
+      length: 160,
+    }),
     previsaoRecebimento: date("previsao_recebimento"),
     processoFisicoNumero: varchar("processo_fisico_numero", { length: 120 }),
     localArquivamento: varchar("local_arquivamento", { length: 255 }),
@@ -881,11 +894,12 @@ export const licitacaoChecklistExcecoes = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    idxProcesso: index("licitacao_checklist_excecoes_processo_idx").on(table.processoId),
-    uqProcessoCategoria: uniqueIndex("licitacao_checklist_excecoes_processo_categoria_uq").on(
+    idxProcesso: index("licitacao_checklist_excecoes_processo_idx").on(
       table.processoId,
-      table.categoria,
     ),
+    uqProcessoCategoria: uniqueIndex(
+      "licitacao_checklist_excecoes_processo_categoria_uq",
+    ).on(table.processoId, table.categoria),
   }),
 );
 
@@ -1316,9 +1330,7 @@ export const notificacoesPreferencias = pgTable(
     frequencia: notificacaoFrequenciaEnum("frequencia")
       .notNull()
       .default("IMEDIATA"),
-    escopo: notificacaoEscopoEnum("escopo")
-      .notNull()
-      .default("MEUS_ITENS"),
+    escopo: notificacaoEscopoEnum("escopo").notNull().default("MEUS_ITENS"),
     canalInApp: boolean("canal_in_app").notNull().default(true),
     canalEmail: boolean("canal_email").notNull().default(false),
     canalPush: boolean("canal_push").notNull().default(false),
@@ -1371,9 +1383,7 @@ export const notificacoesEnvios = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     chave: varchar("chave", { length: 255 }).notNull(),
     canal: notificacaoCanalEnum("canal").notNull(),
-    status: notificacaoEnvioStatusEnum("status")
-      .notNull()
-      .default("ENVIADO"),
+    status: notificacaoEnvioStatusEnum("status").notNull().default("ENVIADO"),
     destino: varchar("destino", { length: 255 }),
     erro: text("erro"),
     tentativas: integer("tentativas").notNull().default(0),
@@ -1572,9 +1582,7 @@ export const importacaoBllProcessos = pgTable(
       table.ultimaExecucaoId,
     ),
     // Phase 1: Indexes for new fields
-    idxPncp: index("importacao_bll_processos_pncp_idx").on(
-      table.codigoPncp,
-    ),
+    idxPncp: index("importacao_bll_processos_pncp_idx").on(table.codigoPncp),
     idxCompletude: index("importacao_bll_processos_completude_idx").on(
       table.completenessScore,
     ),
@@ -1604,9 +1612,9 @@ export const importacaoBllFornecedores = pgTable(
     uqNome: uniqueIndex("importacao_bll_fornecedores_nome_uq").on(
       table.nomeNormalizado,
     ),
-    uqDocumento: uniqueIndex(
-      "importacao_bll_fornecedores_documento_uq",
-    ).on(table.documento),
+    uqDocumento: uniqueIndex("importacao_bll_fornecedores_documento_uq").on(
+      table.documento,
+    ),
   }),
 );
 
@@ -1877,8 +1885,9 @@ export const importacaoPncpContratacoes = pgTable(
   "importacao_pncp_contratacoes",
   {
     id: serial("id").primaryKey(),
-    numeroControlePncp: varchar("numero_controle_pncp", { length: 120 })
-      .notNull(),
+    numeroControlePncp: varchar("numero_controle_pncp", {
+      length: 120,
+    }).notNull(),
     anoCompra: integer("ano_compra"),
     sequencialCompra: integer("sequencial_compra"),
     modalidade: varchar("modalidade", { length: 160 }),
@@ -1964,9 +1973,10 @@ export const importacaoPncpItensContratacao = pgTable(
     idxContratacao: index("importacao_pncp_itens_contratacao_idx").on(
       table.contratacaoId,
     ),
-    uqContratacaoItem: uniqueIndex(
-      "importacao_pncp_itens_contratacao_uq",
-    ).on(table.contratacaoId, table.numeroItem),
+    uqContratacaoItem: uniqueIndex("importacao_pncp_itens_contratacao_uq").on(
+      table.contratacaoId,
+      table.numeroItem,
+    ),
   }),
 );
 

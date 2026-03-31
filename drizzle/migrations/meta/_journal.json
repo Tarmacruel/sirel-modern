@@ -274,6 +274,20 @@
                         "when":  1774633200000,
                         "tag":  "0038_licitacao_checklist_status_flexivel",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  39,
+                        "version":  "7",
+                        "when":  1774954200000,
+                        "tag":  "0039_prazos_municipio_feriados",
+                        "breakpoints":  true
+                    },
+                    {
+                        "idx":  40,
+                        "version":  "7",
+                        "when":  1774954800000,
+                        "tag":  "0040_expand_tipo_objeto_servicos",
+                        "breakpoints":  true
                     }
                 ]
 }

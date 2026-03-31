@@ -1,4 +1,12 @@
-﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type RefObject } from "react";
+﻿import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import {
   ArrowLeft,
   CalendarClock,
@@ -52,9 +60,20 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { deleteProcessoDocumento, resolveServerAssetUrl, uploadProcessoDocumento } from "@/lib/document-upload";
+import {
+  deleteProcessoDocumento,
+  resolveServerAssetUrl,
+  uploadProcessoDocumento,
+} from "@/lib/document-upload";
 import {
   formatCurrencyBRL,
   formatShortDateBR,
@@ -212,7 +231,15 @@ function toTimeInputValue(value: string | Date | null | undefined) {
 }
 
 function combineDateAndTime(date: Date, hours = 8, minutes = 0) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0, 0);
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hours,
+    minutes,
+    0,
+    0,
+  );
 }
 
 function parseTimeInput(value?: string) {
@@ -227,9 +254,25 @@ function parseTimeInput(value?: string) {
   };
 }
 
+function normalizeHolidayDates(values: Array<string | Date> = []) {
+  return values
+    .map((value) => {
+      if (value instanceof Date) return value;
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00`)
+        : new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    })
+    .filter((value): value is Date => Boolean(value));
+}
+
 function formatAuditValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return String(value);
   }
   try {
@@ -239,7 +282,10 @@ function formatAuditValue(value: unknown) {
   }
 }
 
-function isStepAtOrBeyond(currentStatus: string | undefined, targets: string[]) {
+function isStepAtOrBeyond(
+  currentStatus: string | undefined,
+  targets: string[],
+) {
   if (!currentStatus) return false;
   const current = mapStatusToVisualStep(currentStatus);
   const order = [
@@ -253,7 +299,10 @@ function isStepAtOrBeyond(currentStatus: string | undefined, targets: string[]) 
     "HOMOLOGACAO",
   ];
   const currentIndex = order.indexOf(current);
-  return targets.some((target) => order.indexOf(target) > -1 && currentIndex >= order.indexOf(target));
+  return targets.some(
+    (target) =>
+      order.indexOf(target) > -1 && currentIndex >= order.indexOf(target),
+  );
 }
 
 function buildSchedulePreview(params: {
@@ -265,41 +314,56 @@ function buildSchedulePreview(params: {
   publicarEmJornal?: boolean;
   horaDisputa?: string;
   acrescimoMunicipal?: number;
+  feriadosLocais?: Array<string | Date>;
 }) {
   if (!params.modalidadeCodigo || !params.dataPublicacaoEdital) return null;
 
   const publicacaoDia = new Date(`${params.dataPublicacaoEdital}T12:00:00`);
+  const holidayDates = normalizeHolidayDates(params.feriadosLocais);
   const legalWindow = calcularPrazoLegalMinimo({
     dataPublicacaoPNCP: publicacaoDia,
     modalidadeCodigo: params.modalidadeCodigo,
     tipoObjeto: params.tipoObjeto,
     criterioJulgamento: params.criterioJulgamento,
+    feriadosLocais: holidayDates,
     acrescimoMunicipal: params.acrescimoMunicipal ?? 1,
     publicarNoDou: params.publicarNoDou,
     publicarEmJornal: params.publicarEmJornal,
   });
   const disputeTime = parseTimeInput(params.horaDisputa);
-  const abertura = combineDateAndTime(legalWindow.dataMinima, disputeTime.hours, disputeTime.minutes);
+  const abertura = combineDateAndTime(
+    legalWindow.dataMinima,
+    disputeTime.hours,
+    disputeTime.minutes,
+  );
   const encerramento = new Date(abertura.getTime() - 15 * 60 * 1000);
 
   return {
     baseDays: legalWindow.diasUteisLegais,
     municipioExtra: legalWindow.acrescimoMunicipal,
     canaisExtra: legalWindow.acrescimoCanais,
-    startOffset: 1 + legalWindow.acrescimoMunicipal + legalWindow.acrescimoCanais,
+    startOffset:
+      1 + legalWindow.acrescimoMunicipal + legalWindow.acrescimoCanais,
     totalBusinessDays: legalWindow.diasUteisTotais,
     regraAplicada: legalWindow.regraAplicada,
     dataMinimaLegal: legalWindow.dataMinima,
     dataInicioContagem: legalWindow.dataInicioContagem,
     dataPublicacaoEdital: publicacaoDia,
     horaDisputa: `${String(disputeTime.hours).padStart(2, "0")}:${String(disputeTime.minutes).padStart(2, "0")}`,
-    dataRecebimentoPropostasInicio: combineDateAndTime(legalWindow.dataInicioContagem, 8, 0),
+    dataRecebimentoPropostasInicio: combineDateAndTime(
+      legalWindow.dataInicioContagem,
+      8,
+      0,
+    ),
     dataRecebimentoPropostasFim: encerramento,
     dataAberturaPropostas: abertura,
   };
 }
 
-function getUploadState(state: Record<string, UploadFormState>, category: string) {
+function getUploadState(
+  state: Record<string, UploadFormState>,
+  category: string,
+) {
   return state[category] ?? initialUploadForm;
 }
 
@@ -328,20 +392,42 @@ function mapStatusToVisualStep(status: string) {
   }
 }
 
-export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps) {
+export function LicitacaoProcessoPage({
+  processoId,
+}: LicitacaoProcessoPageProps) {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const detailQuery = trpc.licitacao.detail.useQuery({ processoId }, { retry: false });
-  const documentosQuery = trpc.documentos.listByProcesso.useQuery({ processoId }, { retry: false });
-  const catalogsQuery = trpc.cadastros.formOptions.useQuery(undefined, { retry: false });
+  const detailQuery = trpc.licitacao.detail.useQuery(
+    { processoId },
+    { retry: false },
+  );
+  const documentosQuery = trpc.documentos.listByProcesso.useQuery(
+    { processoId },
+    { retry: false },
+  );
+  const catalogsQuery = trpc.cadastros.formOptions.useQuery(undefined, {
+    retry: false,
+  });
+  const acrescimoMunicipalQuery = trpc.parametros.obterValor.useQuery(
+    { chave: "PRAZOS.MUNICIPIO.ACRESCIMO_DIAS_UTEIS" },
+    { retry: false },
+  );
+  const feriadosLocaisQuery = trpc.parametros.obterValor.useQuery(
+    { chave: "PRAZOS.MUNICIPIO.FERIADOS_LOCAIS" },
+    { retry: false },
+  );
 
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(null);
+  const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
+    null,
+  );
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
   const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
-  const [uploadForms, setUploadForms] = useState<Record<string, UploadFormState>>({});
+  const [uploadForms, setUploadForms] = useState<
+    Record<string, UploadFormState>
+  >({});
   const [sectionOpen, setSectionOpen] = useState({
     overview: true,
     internal: false,
@@ -376,8 +462,11 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     dataFimLances: "",
     dataJulgamento: "",
   });
-  const [checklistNaoAplicavelForm, setChecklistNaoAplicavelForm] = useState<Record<string, ChecklistFlexFormState>>({});
-  const [legalDateOverrideJustification, setLegalDateOverrideJustification] = useState("");
+  const [checklistNaoAplicavelForm, setChecklistNaoAplicavelForm] = useState<
+    Record<string, ChecklistFlexFormState>
+  >({});
+  const [legalDateOverrideJustification, setLegalDateOverrideJustification] =
+    useState("");
   const [auditJustification, setAuditJustification] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditUserFilter, setAuditUserFilter] = useState("");
@@ -392,9 +481,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   const [licitanteFornecedorId, setLicitanteFornecedorId] = useState("");
   const [propostaForm, setPropostaForm] = useState(initialPropostaForm);
   const [lanceForm, setLanceForm] = useState(initialLanceForm);
-  const [habilitacaoForm, setHabilitacaoForm] = useState(initialHabilitacaoForm);
+  const [habilitacaoForm, setHabilitacaoForm] = useState(
+    initialHabilitacaoForm,
+  );
   const [recursoForm, setRecursoForm] = useState(initialRecursoForm);
-  const [homologacaoForm, setHomologacaoForm] = useState(initialHomologacaoForm);
+  const [homologacaoForm, setHomologacaoForm] = useState(
+    initialHomologacaoForm,
+  );
 
   const overviewRef = useRef<HTMLElement | null>(null);
   const internalRef = useRef<HTMLElement | null>(null);
@@ -418,61 +511,100 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     setConfigForm({
       criterioJulgamento: detail.processo.criterioJulgamento ?? "",
       modoDisputa: detail.processo.modoDisputa ?? "NAO_SE_APLICA",
-      exigeDeclaracaoNaoFracionamento: detail.licitacao.exigeDeclaracaoNaoFracionamento ?? false,
+      exigeDeclaracaoNaoFracionamento:
+        detail.licitacao.exigeDeclaracaoNaoFracionamento ?? false,
       publicarNoDou: detail.licitacao.publicarNoDou ?? false,
       publicarEmJornal: detail.licitacao.publicarEmJornal ?? false,
-      inversaoFasesHabilitada: detail.licitacao.inversaoFasesHabilitada ?? false,
-      inversaoFasesJustificativa: detail.licitacao.inversaoFasesJustificativa ?? "",
+      inversaoFasesHabilitada:
+        detail.licitacao.inversaoFasesHabilitada ?? false,
+      inversaoFasesJustificativa:
+        detail.licitacao.inversaoFasesJustificativa ?? "",
       observacoes: detail.licitacao.observacoes ?? "",
     });
 
     setManualScheduleForm({
-      dataRecebimentoPropostasInicio: toDateTimeLocalValue(detail.licitacao.dataRecebimentoPropostasInicio),
-      dataRecebimentoPropostasFim: toDateTimeLocalValue(detail.licitacao.dataRecebimentoPropostasFim),
-      dataAberturaPropostas: toDateTimeLocalValue(detail.licitacao.dataAberturaPropostas),
+      dataRecebimentoPropostasInicio: toDateTimeLocalValue(
+        detail.licitacao.dataRecebimentoPropostasInicio,
+      ),
+      dataRecebimentoPropostasFim: toDateTimeLocalValue(
+        detail.licitacao.dataRecebimentoPropostasFim,
+      ),
+      dataAberturaPropostas: toDateTimeLocalValue(
+        detail.licitacao.dataAberturaPropostas,
+      ),
       dataInicioLances: toDateTimeLocalValue(detail.licitacao.dataInicioLances),
       dataFimLances: toDateTimeLocalValue(detail.licitacao.dataFimLances),
       dataJulgamento: toDateTimeLocalValue(detail.licitacao.dataJulgamento),
     });
 
     setPublishForm({
-      condutorProcessoId: detail.processo.condutorProcesso?.id ? String(detail.processo.condutorProcesso.id) : "",
-      statusId: detail.processo.statusId ? String(detail.processo.statusId) : "",
-      dataPublicacaoEdital: toDateInputValue(detail.licitacao.dataPublicacaoEdital),
+      condutorProcessoId: detail.processo.condutorProcesso?.id
+        ? String(detail.processo.condutorProcesso.id)
+        : "",
+      statusId: detail.processo.statusId
+        ? String(detail.processo.statusId)
+        : "",
+      dataPublicacaoEdital: toDateInputValue(
+        detail.licitacao.dataPublicacaoEdital,
+      ),
       horaDisputa: toTimeInputValue(detail.licitacao.dataAberturaPropostas),
-      descricao: detail.processo.numeroEdital ? `Publicação do edital ${detail.processo.numeroEdital}` : `Publicação do processo ${detail.processo.numeroSirel}`,
+      descricao: detail.processo.numeroEdital
+        ? `Publicação do edital ${detail.processo.numeroEdital}`
+        : `Publicação do processo ${detail.processo.numeroSirel}`,
       observacao: detail.licitacao.observacoes ?? "",
     });
 
-    setLicitanteFornecedorId((current) => current || (catalogsQuery.data?.fornecedores[0]?.id ? String(catalogsQuery.data.fornecedores[0].id) : ""));
+    setLicitanteFornecedorId(
+      (current) =>
+        current ||
+        (catalogsQuery.data?.fornecedores[0]?.id
+          ? String(catalogsQuery.data.fornecedores[0].id)
+          : ""),
+    );
     setPropostaForm((current) => ({
       ...current,
-      licitanteId: current.licitanteId || (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
-      itemId: current.itemId || (detail.itens[0]?.id ? String(detail.itens[0].id) : ""),
+      licitanteId:
+        current.licitanteId ||
+        (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
+      itemId:
+        current.itemId ||
+        (detail.itens[0]?.id ? String(detail.itens[0].id) : ""),
     }));
     setLanceForm((current) => ({
       ...current,
-      propostaId: current.propostaId || (detail.propostas[0]?.id ? String(detail.propostas[0].id) : ""),
+      propostaId:
+        current.propostaId ||
+        (detail.propostas[0]?.id ? String(detail.propostas[0].id) : ""),
     }));
     setHabilitacaoForm((current) => ({
       ...current,
-      licitanteId: current.licitanteId || (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
+      licitanteId:
+        current.licitanteId ||
+        (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
     }));
     setRecursoForm((current) => ({
       ...current,
-      licitanteId: current.licitanteId || (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
+      licitanteId:
+        current.licitanteId ||
+        (detail.licitantes[0]?.id ? String(detail.licitantes[0].id) : ""),
     }));
     setHomologacaoForm((current) => ({
       ...current,
-      statusId: current.statusId || (detail.processo.statusId ? String(detail.processo.statusId) : ""),
-      dataHomologacao: current.dataHomologacao || toDateInputValue(detail.licitacao.dataHomologacao),
+      statusId:
+        current.statusId ||
+        (detail.processo.statusId ? String(detail.processo.statusId) : ""),
+      dataHomologacao:
+        current.dataHomologacao ||
+        toDateInputValue(detail.licitacao.dataHomologacao),
     }));
 
     setChecklistNaoAplicavelForm((current) => {
       const next = { ...current };
       detail.checklistInterno?.itens?.forEach((item) => {
         next[item.category] = {
-          statusFlexivel: item.statusFlexivel ?? (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
+          statusFlexivel:
+            item.statusFlexivel ??
+            (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
           justificativa: item.justificativaNaoAplicavel ?? "",
           departamentoResponsavel: item.departamentoResponsavel ?? "",
           previsaoRecebimento: toDateInputValue(item.previsaoRecebimento),
@@ -521,24 +653,27 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         utils.processos.overview.invalidate({ processoId }),
       ]);
       setErrorMessage(null);
-      setFeedback(`Processo publicado com sucesso. Edital gerado: ${payload.numeroEdital}.`);
+      setFeedback(
+        `Processo publicado com sucesso. Edital gerado: ${payload.numeroEdital}.`,
+      );
     },
     onError: (error) => {
       setFeedback(null);
       setErrorMessage(error.message);
     },
   });
-  const setChecklistNaoAplicavelMutation = trpc.licitacao.setChecklistNaoAplicavel.useMutation({
-    onSuccess: async () => {
-      await refreshAll();
-      setErrorMessage(null);
-      setFeedback("Checklist atualizado com sucesso.");
-    },
-    onError: (error) => {
-      setFeedback(null);
-      setErrorMessage(error.message);
-    },
-  });
+  const setChecklistNaoAplicavelMutation =
+    trpc.licitacao.setChecklistNaoAplicavel.useMutation({
+      onSuccess: async () => {
+        await refreshAll();
+        setErrorMessage(null);
+        setFeedback("Checklist atualizado com sucesso.");
+      },
+      onError: (error) => {
+        setFeedback(null);
+        setErrorMessage(error.message);
+      },
+    });
   const saveLicitanteMutation = trpc.licitacao.saveLicitante.useMutation({
     onSuccess: async () => {
       await refreshAll();
@@ -640,26 +775,30 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setErrorMessage(error.message);
     },
   });
-  const advanceMacroPhaseMutation = trpc.processos.advanceMacroPhase.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        refreshAll(),
-        utils.processos.list.invalidate(),
-        utils.processos.summary.invalidate(),
-        utils.processos.macroPhaseGate.invalidate({ processoId, moduloDestino: "CONTRATOS" }),
-        utils.workflow.list.invalidate(),
-        utils.contratos.list.invalidate(),
-        utils.contratos.summary.invalidate(),
-      ]);
-      setErrorMessage(null);
-      setFeedback("Processo encaminhado para Contratos com sucesso.");
-      setContractTransitionOpen(false);
-    },
-    onError: (error) => {
-      setFeedback(null);
-      setErrorMessage(error.message);
-    },
-  });
+  const advanceMacroPhaseMutation =
+    trpc.processos.advanceMacroPhase.useMutation({
+      onSuccess: async () => {
+        await Promise.all([
+          refreshAll(),
+          utils.processos.list.invalidate(),
+          utils.processos.summary.invalidate(),
+          utils.processos.macroPhaseGate.invalidate({
+            processoId,
+            moduloDestino: "CONTRATOS",
+          }),
+          utils.workflow.list.invalidate(),
+          utils.contratos.list.invalidate(),
+          utils.contratos.summary.invalidate(),
+        ]);
+        setErrorMessage(null);
+        setFeedback("Processo encaminhado para Contratos com sucesso.");
+        setContractTransitionOpen(false);
+      },
+      onError: (error) => {
+        setFeedback(null);
+        setErrorMessage(error.message);
+      },
+    });
   const detalhe = detailQuery.data;
   const documentos = documentosQuery.data ?? [];
   const isForaDoFluxo = detalhe?.processo.foraDoFluxo ?? false;
@@ -683,7 +822,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       page: 1,
       pageSize: 25,
       processoId,
-      acao: auditActionFilter ? (auditActionFilter as "CREATE" | "UPDATE" | "DELETE") : undefined,
+      acao: auditActionFilter
+        ? (auditActionFilter as "CREATE" | "UPDATE" | "DELETE")
+        : undefined,
       usuarioId: auditUserFilter ? Number(auditUserFilter) : undefined,
     },
     { enabled: isForaDoFluxo },
@@ -691,7 +832,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   const orderedFlowStepKeys = (() => {
     if (!inversaoFasesAtiva) return flowStepKeys;
     if (!flowStepKeys.includes("HABILITACAO")) return flowStepKeys;
-    const withoutHabilitacao = flowStepKeys.filter((key) => key !== "HABILITACAO");
+    const withoutHabilitacao = flowStepKeys.filter(
+      (key) => key !== "HABILITACAO",
+    );
     const publicationIndex = withoutHabilitacao.indexOf("PUBLICACAO");
     if (publicationIndex === -1) return flowStepKeys;
     return [
@@ -702,7 +845,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   })();
   const flowSteps = orderedFlowStepKeys
     .map((key) => licitacaoStepCatalog.find((item) => item.key === key))
-    .filter((item): item is (typeof licitacaoStepCatalog)[number] => Boolean(item));
+    .filter((item): item is (typeof licitacaoStepCatalog)[number] =>
+      Boolean(item),
+    );
   const docsByCategory = useMemo(() => {
     const grouped = new Map<string, typeof documentos>();
     documentos.forEach((documento) => {
@@ -716,9 +861,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     () =>
       getLicitacaoDocumentBlueprint({
         modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
-        exigeDeclaracaoNaoFracionamento: configForm.exigeDeclaracaoNaoFracionamento,
+        exigeDeclaracaoNaoFracionamento:
+          configForm.exigeDeclaracaoNaoFracionamento,
       }),
-    [configForm.exigeDeclaracaoNaoFracionamento, detalhe?.processo.modalidadeCodigo],
+    [
+      configForm.exigeDeclaracaoNaoFracionamento,
+      detalhe?.processo.modalidadeCodigo,
+    ],
   );
 
   const serverChecklistMap = useMemo(() => {
@@ -748,13 +897,17 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     () =>
       blueprint.internal.map((item) => {
         const serverItem = serverChecklistMap.get(item.category);
-        const documentosCategoria = docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
+        const documentosCategoria =
+          docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
         return {
           ...item,
           concluido: serverItem?.concluido ?? documentosCategoria.length > 0,
           naoAplicavel: serverItem?.naoAplicavel ?? false,
-          statusFlexivel: serverItem?.statusFlexivel ?? (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
-          justificativaNaoAplicavel: serverItem?.justificativaNaoAplicavel ?? null,
+          statusFlexivel:
+            serverItem?.statusFlexivel ??
+            (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
+          justificativaNaoAplicavel:
+            serverItem?.justificativaNaoAplicavel ?? null,
           departamentoResponsavel: serverItem?.departamentoResponsavel ?? null,
           previsaoRecebimento: serverItem?.previsaoRecebimento ?? null,
           processoFisicoNumero: serverItem?.processoFisicoNumero ?? null,
@@ -766,7 +919,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     [blueprint.internal, docsByCategory, serverChecklistMap],
   );
 
-  const pendingRequired = checklistItems.filter((item) => item.obrigatorio && !item.concluido);
+  const pendingRequired = checklistItems.filter(
+    (item) => item.obrigatorio && !item.concluido,
+  );
   const progressCount = checklistItems.filter((item) => item.concluido).length;
 
   const externalChecklistItems = useMemo<ChecklistCardItem[]>(() => {
@@ -781,11 +936,20 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           case "LICITACAO_PROPOSTAS_PARTICIPANTES":
             return (detalhe?.propostas.length ?? 0) > 0;
           case "LICITACAO_HABILITACAO_EMPRESAS":
-            return (detalhe?.licitantes.some((licitante) => licitante.statusHabilitacao !== "PENDENTE")) ?? false;
+            return (
+              detalhe?.licitantes.some(
+                (licitante) => licitante.statusHabilitacao !== "PENDENTE",
+              ) ?? false
+            );
           case "LICITACAO_RECURSOS":
             return (detalhe?.recursos.length ?? 0) > 0;
           case "LICITACAO_JULGAMENTO_PROPOSTA_TECNICA":
-            return isStepAtOrBeyond(statusAtual, ["JULGAMENTO", "HABILITACAO", "RECURSOS", "HOMOLOGACAO"]);
+            return isStepAtOrBeyond(statusAtual, [
+              "JULGAMENTO",
+              "HABILITACAO",
+              "RECURSOS",
+              "HOMOLOGACAO",
+            ]);
           case "LICITACAO_ATAS_SESSAO_ADJUDICACAO":
             return isStepAtOrBeyond(statusAtual, ["RECURSOS", "HOMOLOGACAO"]);
           case "LICITACAO_ATA_RELATORIO_FINAL":
@@ -805,7 +969,11 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         ...item,
         concluido: concluidoPorDocumento || concluidoPorSistema,
         documentos: documentosCategoria,
-        statusOrigem: concluidoPorDocumento ? "Documento anexado" : concluidoPorSistema ? "Evidência sistêmica" : "Pendente",
+        statusOrigem: concluidoPorDocumento
+          ? "Documento anexado"
+          : concluidoPorSistema
+            ? "Evidência sistêmica"
+            : "Pendente",
       };
     });
   }, [
@@ -818,7 +986,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     detalhe?.recursos,
     docsByCategory,
   ]);
-  const externalPendingRequired = externalChecklistItems.filter((item) => item.obrigatorio && !item.concluido);
+  const externalPendingRequired = externalChecklistItems.filter(
+    (item) => item.obrigatorio && !item.concluido,
+  );
   const auditoriaItems = auditoriaQuery.data?.items ?? [];
   const auditoriaUserOptions = useMemo(() => {
     const map = new Map<number, string>();
@@ -826,36 +996,54 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       if (!item.usuarioId) return;
       map.set(item.usuarioId, item.usuarioNome ?? `Usuário #${item.usuarioId}`);
     });
-    return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome));
+    return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) =>
+      a.nome.localeCompare(b.nome),
+    );
   }, [auditoriaItems]);
+  const acrescimoMunicipal = useMemo(() => {
+    const raw = acrescimoMunicipalQuery.data?.valor;
+    return typeof raw === "number" && Number.isFinite(raw) ? raw : 1;
+  }, [acrescimoMunicipalQuery.data?.valor]);
+  const feriadosLocais = useMemo(() => {
+    const raw = feriadosLocaisQuery.data?.valor;
+    if (!Array.isArray(raw)) return [] as string[];
+    return raw.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }, [feriadosLocaisQuery.data?.valor]);
   const legalScheduleWindow = useMemo(() => {
     if (!publishForm.dataPublicacaoEdital) return null;
     return buildSchedulePreview({
       modalidadeCodigo: detalhe?.processo.modalidadeCodigo ?? null,
       tipoObjeto: detalhe?.processo.tipoObjeto ?? null,
-      criterioJulgamento: (configForm.criterioJulgamento || detalhe?.processo.criterioJulgamento) ?? null,
+      criterioJulgamento:
+        (configForm.criterioJulgamento ||
+          detalhe?.processo.criterioJulgamento) ??
+        null,
       dataPublicacaoEdital: publishForm.dataPublicacaoEdital,
       publicarNoDou: configForm.publicarNoDou,
       publicarEmJornal: configForm.publicarEmJornal,
       horaDisputa: publishForm.horaDisputa,
-      acrescimoMunicipal: 1,
+      acrescimoMunicipal,
+      feriadosLocais,
     });
   }, [
+    acrescimoMunicipal,
     configForm.criterioJulgamento,
     configForm.publicarEmJornal,
     configForm.publicarNoDou,
     detalhe?.processo.modalidadeCodigo,
     detalhe?.processo.tipoObjeto,
     detalhe?.processo.criterioJulgamento,
+    feriadosLocais,
     publishForm.dataPublicacaoEdital,
     publishForm.horaDisputa,
   ]);
   const schedulePreview = isForaDoFluxo ? null : legalScheduleWindow;
   const manualScheduleViolatesLegalMinimum = Boolean(
-    isForaDoFluxo
-      && legalScheduleWindow
-      && manualScheduleForm.dataAberturaPropostas
-      && new Date(manualScheduleForm.dataAberturaPropostas).getTime() < legalScheduleWindow.dataMinimaLegal.getTime(),
+    isForaDoFluxo &&
+    legalScheduleWindow &&
+    manualScheduleForm.dataAberturaPropostas &&
+    new Date(manualScheduleForm.dataAberturaPropostas).getTime() <
+      legalScheduleWindow.dataMinimaLegal.getTime(),
   );
 
   useEffect(() => {
@@ -882,25 +1070,37 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     if (!isForaDoFluxo) return true;
     if (auditJustification.trim()) return true;
     setFeedback(null);
-    setErrorMessage(`Informe a justificativa de auditoria para ${actionLabel}.`);
+    setErrorMessage(
+      `Informe a justificativa de auditoria para ${actionLabel}.`,
+    );
     return false;
   }
 
-  function setUploadState(category: string, updater: (current: UploadFormState) => UploadFormState) {
+  function setUploadState(
+    category: string,
+    updater: (current: UploadFormState) => UploadFormState,
+  ) {
     setUploadForms((current) => ({
       ...current,
       [category]: updater(getUploadState(current, category)),
     }));
   }
 
-  function setChecklistNaoAplicavelState(category: string, updater: (current: ChecklistFlexFormState) => ChecklistFlexFormState) {
+  function setChecklistNaoAplicavelState(
+    category: string,
+    updater: (current: ChecklistFlexFormState) => ChecklistFlexFormState,
+  ) {
     setChecklistNaoAplicavelForm((current) => ({
       ...current,
       [category]: updater(current[category] ?? initialChecklistFlexFormState),
     }));
   }
 
-  function handleFileChange(category: string, event: ChangeEvent<HTMLInputElement>, suggestedTitle: string) {
+  function handleFileChange(
+    category: string,
+    event: ChangeEvent<HTMLInputElement>,
+    suggestedTitle: string,
+  ) {
     const nextFile = event.target.files?.[0] ?? null;
     setUploadState(category, (current) => ({
       ...current,
@@ -909,24 +1109,36 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     }));
   }
 
-  async function handleChecklistNaoAplicavel(item: Pick<ChecklistCardItem, "category" | "label">) {
+  async function handleChecklistNaoAplicavel(
+    item: Pick<ChecklistCardItem, "category" | "label">,
+  ) {
     if (!isForaDoFluxo) return;
-    const state = checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
-    const actionLabel = state.statusFlexivel === "PADRAO"
-      ? "reativar o item no checklist"
-      : `registrar ${licitacaoChecklistFlexStatusLabels[state.statusFlexivel].toLowerCase()}`;
+    const state =
+      checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
+    const actionLabel =
+      state.statusFlexivel === "PADRAO"
+        ? "reativar o item no checklist"
+        : `registrar ${licitacaoChecklistFlexStatusLabels[state.statusFlexivel].toLowerCase()}`;
     if (!ensureAuditJustification(actionLabel)) return;
     if (state.statusFlexivel !== "PADRAO" && !state.justificativa.trim()) {
       setFeedback(null);
-      setErrorMessage("Informe a justificativa para registrar este status especial.");
+      setErrorMessage(
+        "Informe a justificativa para registrar este status especial.",
+      );
       return;
     }
-    if (state.statusFlexivel === "OUTRO_SETOR" && !state.departamentoResponsavel.trim()) {
+    if (
+      state.statusFlexivel === "OUTRO_SETOR" &&
+      !state.departamentoResponsavel.trim()
+    ) {
       setFeedback(null);
       setErrorMessage("Informe o departamento responsável pelo documento.");
       return;
     }
-    if (state.statusFlexivel === "CONCLUIDO_FISICO" && !state.localArquivamento.trim()) {
+    if (
+      state.statusFlexivel === "CONCLUIDO_FISICO" &&
+      !state.localArquivamento.trim()
+    ) {
       setFeedback(null);
       setErrorMessage("Informe o local de arquivamento do processo físico.");
       return;
@@ -937,17 +1149,39 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       categoria: item.category,
       naoAplicavel: state.statusFlexivel === "NAO_APLICAVEL",
       statusFlexivel: state.statusFlexivel,
-      justificativa: state.statusFlexivel !== "PADRAO" ? state.justificativa.trim() : undefined,
-      departamentoResponsavel: state.statusFlexivel === "OUTRO_SETOR" ? state.departamentoResponsavel.trim() : undefined,
-      previsaoRecebimento: state.statusFlexivel === "OUTRO_SETOR" ? state.previsaoRecebimento || undefined : undefined,
-      processoFisicoNumero: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.processoFisicoNumero.trim() : undefined,
-      localArquivamento: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.localArquivamento.trim() : undefined,
-      digitalizarDepois: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.digitalizarDepois : undefined,
+      justificativa:
+        state.statusFlexivel !== "PADRAO"
+          ? state.justificativa.trim()
+          : undefined,
+      departamentoResponsavel:
+        state.statusFlexivel === "OUTRO_SETOR"
+          ? state.departamentoResponsavel.trim()
+          : undefined,
+      previsaoRecebimento:
+        state.statusFlexivel === "OUTRO_SETOR"
+          ? state.previsaoRecebimento || undefined
+          : undefined,
+      processoFisicoNumero:
+        state.statusFlexivel === "CONCLUIDO_FISICO"
+          ? state.processoFisicoNumero.trim()
+          : undefined,
+      localArquivamento:
+        state.statusFlexivel === "CONCLUIDO_FISICO"
+          ? state.localArquivamento.trim()
+          : undefined,
+      digitalizarDepois:
+        state.statusFlexivel === "CONCLUIDO_FISICO"
+          ? state.digitalizarDepois
+          : undefined,
       justificativaAuditoria: auditJustification.trim(),
     });
   }
 
-  async function handleUploadChecklistDocumento(item: Pick<ChecklistCardItem, "category" | "label" | "description"> & { tipo?: string }) {
+  async function handleUploadChecklistDocumento(
+    item: Pick<ChecklistCardItem, "category" | "label" | "description"> & {
+      tipo?: string;
+    },
+  ) {
     const current = getUploadState(uploadForms, item.category);
     if (!current.arquivo) {
       setFeedback(null);
@@ -960,7 +1194,17 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setErrorMessage(null);
       await uploadProcessoDocumento({
         processoId,
-        tipo: (item.tipo as "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO" | undefined) ?? "OUTRO",
+        tipo:
+          (item.tipo as
+            | "DFD"
+            | "ETP"
+            | "TR"
+            | "EDITAL"
+            | "COMUNICACAO_INTERNA"
+            | "RESULTADO"
+            | "CONTRATO"
+            | "OUTRO"
+            | undefined) ?? "OUTRO",
         categoria: item.category,
         titulo: current.titulo.trim() || item.label,
         descricao: current.descricao.trim() || item.description,
@@ -975,12 +1219,16 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setFeedback(`${item.label} anexado com sucesso.`);
     } catch (error) {
       setFeedback(null);
-      setErrorMessage(error instanceof Error ? error.message : "Falha ao anexar o documento.");
+      setErrorMessage(
+        error instanceof Error ? error.message : "Falha ao anexar o documento.",
+      );
     }
   }
 
   async function handleDeleteDocumento(documentoId: number) {
-    const confirmed = window.confirm("Deseja remover este documento do processo?");
+    const confirmed = window.confirm(
+      "Deseja remover este documento do processo?",
+    );
     if (!confirmed) return;
 
     try {
@@ -992,7 +1240,11 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setFeedback("Documento removido com sucesso.");
     } catch (error) {
       setFeedback(null);
-      setErrorMessage(error instanceof Error ? error.message : "Falha ao remover o documento.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Falha ao remover o documento.",
+      );
     } finally {
       setDeletingDocumentoId(null);
     }
@@ -1000,24 +1252,35 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
   async function persistConfiguracao() {
     const legalOverrideAudit = manualScheduleViolatesLegalMinimum
-      ? [auditJustification.trim(), legalDateOverrideJustification.trim()].filter(Boolean).join(" | ")
+      ? [auditJustification.trim(), legalDateOverrideJustification.trim()]
+          .filter(Boolean)
+          .join(" | ")
       : auditJustification.trim();
 
     await saveConfiguracaoMutation.mutateAsync({
       processoId,
       criterioJulgamento: configForm.criterioJulgamento || undefined,
       modoDisputa: configForm.modoDisputa,
-      exigeDeclaracaoNaoFracionamento: configForm.exigeDeclaracaoNaoFracionamento,
+      exigeDeclaracaoNaoFracionamento:
+        configForm.exigeDeclaracaoNaoFracionamento,
       publicarNoDou: configForm.publicarNoDou,
       publicarEmJornal: configForm.publicarEmJornal,
       inversaoFasesHabilitada: configForm.inversaoFasesHabilitada,
-      inversaoFasesJustificativa: configForm.inversaoFasesJustificativa || undefined,
-      justificativaAuditoria: isForaDoFluxo ? legalOverrideAudit || undefined : undefined,
-      dataPublicacaoEdital: publishForm.dataPublicacaoEdital ? `${publishForm.dataPublicacaoEdital}T00:00:00` : undefined,
-      dataRecebimentoPropostasInicio: manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
-      dataRecebimentoPropostasFim: manualScheduleForm.dataRecebimentoPropostasFim || undefined,
-      dataAberturaPropostas: manualScheduleForm.dataAberturaPropostas
-        || (publishForm.dataPublicacaoEdital
+      inversaoFasesJustificativa:
+        configForm.inversaoFasesJustificativa || undefined,
+      justificativaAuditoria: isForaDoFluxo
+        ? legalOverrideAudit || undefined
+        : undefined,
+      dataPublicacaoEdital: publishForm.dataPublicacaoEdital
+        ? `${publishForm.dataPublicacaoEdital}T00:00:00`
+        : undefined,
+      dataRecebimentoPropostasInicio:
+        manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
+      dataRecebimentoPropostasFim:
+        manualScheduleForm.dataRecebimentoPropostasFim || undefined,
+      dataAberturaPropostas:
+        manualScheduleForm.dataAberturaPropostas ||
+        (publishForm.dataPublicacaoEdital
           ? `${publishForm.dataPublicacaoEdital}T${publishForm.horaDisputa || "08:30"}:00`
           : undefined),
       dataInicioLances: manualScheduleForm.dataInicioLances || undefined,
@@ -1029,15 +1292,23 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
   async function handleSalvarConfiguracao(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (configForm.inversaoFasesHabilitada && !configForm.inversaoFasesJustificativa.trim()) {
+    if (
+      configForm.inversaoFasesHabilitada &&
+      !configForm.inversaoFasesJustificativa.trim()
+    ) {
       setFeedback(null);
       setErrorMessage("Informe a justificativa para a inversão de fases.");
       return;
     }
     if (!ensureAuditJustification("salvar a configuração interna")) return;
-    if (manualScheduleViolatesLegalMinimum && !legalDateOverrideJustification.trim()) {
+    if (
+      manualScheduleViolatesLegalMinimum &&
+      !legalDateOverrideJustification.trim()
+    ) {
       setFeedback(null);
-      setErrorMessage("Informe a justificativa do prazo extemporâneo para salvar o cronograma manual abaixo do mínimo legal.");
+      setErrorMessage(
+        "Informe a justificativa do prazo extemporâneo para salvar o cronograma manual abaixo do mínimo legal.",
+      );
       return;
     }
     await persistConfiguracao();
@@ -1051,37 +1322,66 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       return;
     }
     if (!ensureAuditJustification("publicar o processo")) return;
-    if (isForaDoFluxo && (!publishForm.dataPublicacaoEdital || !manualScheduleForm.dataRecebimentoPropostasFim || !manualScheduleForm.dataAberturaPropostas)) {
+    if (
+      isForaDoFluxo &&
+      (!publishForm.dataPublicacaoEdital ||
+        !manualScheduleForm.dataRecebimentoPropostasFim ||
+        !manualScheduleForm.dataAberturaPropostas)
+    ) {
       setFeedback(null);
-      setErrorMessage("Informe as datas manuais de publicação, recebimento final e abertura para publicar o processo fora do fluxo.");
+      setErrorMessage(
+        "Informe as datas manuais de publicação, recebimento final e abertura para publicar o processo fora do fluxo.",
+      );
       return;
     }
-    if (manualScheduleViolatesLegalMinimum && !legalDateOverrideJustification.trim()) {
+    if (
+      manualScheduleViolatesLegalMinimum &&
+      !legalDateOverrideJustification.trim()
+    ) {
       setFeedback(null);
-      setErrorMessage("Informe a justificativa do prazo extemporâneo antes de publicar com data inferior ao mínimo legal.");
+      setErrorMessage(
+        "Informe a justificativa do prazo extemporâneo antes de publicar com data inferior ao mínimo legal.",
+      );
       return;
     }
 
     const legalOverrideAudit = manualScheduleViolatesLegalMinimum
-      ? [auditJustification.trim(), legalDateOverrideJustification.trim()].filter(Boolean).join(" | ")
+      ? [auditJustification.trim(), legalDateOverrideJustification.trim()]
+          .filter(Boolean)
+          .join(" | ")
       : auditJustification.trim();
 
     await publishMutation.mutateAsync({
       processoId,
       condutorProcessoId: Number(publishForm.condutorProcessoId),
       statusId: publishForm.statusId ? Number(publishForm.statusId) : undefined,
-      justificativaAuditoria: isForaDoFluxo ? legalOverrideAudit || undefined : undefined,
-      dataPublicacaoEdital: publishForm.dataPublicacaoEdital ? `${publishForm.dataPublicacaoEdital}T00:00:00` : undefined,
-      dataRecebimentoPropostasInicio: manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
-      dataRecebimentoPropostasFim: manualScheduleForm.dataRecebimentoPropostasFim || undefined,
-      dataAberturaPropostas: manualScheduleForm.dataAberturaPropostas
-        || (publishForm.dataPublicacaoEdital
+      justificativaAuditoria: isForaDoFluxo
+        ? legalOverrideAudit || undefined
+        : undefined,
+      dataPublicacaoEdital: publishForm.dataPublicacaoEdital
+        ? `${publishForm.dataPublicacaoEdital}T00:00:00`
+        : undefined,
+      dataRecebimentoPropostasInicio:
+        manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
+      dataRecebimentoPropostasFim:
+        manualScheduleForm.dataRecebimentoPropostasFim || undefined,
+      dataAberturaPropostas:
+        manualScheduleForm.dataAberturaPropostas ||
+        (publishForm.dataPublicacaoEdital
           ? `${publishForm.dataPublicacaoEdital}T${publishForm.horaDisputa || "08:30"}:00`
           : undefined),
       dataInicioLances: manualScheduleForm.dataInicioLances || undefined,
       dataFimLances: manualScheduleForm.dataFimLances || undefined,
       descricao: publishForm.descricao || undefined,
-      observacao: [publishForm.observacao, manualScheduleViolatesLegalMinimum ? `Prazo extemporâneo: ${legalDateOverrideJustification.trim()}` : null].filter(Boolean).join(" | ") || undefined,
+      observacao:
+        [
+          publishForm.observacao,
+          manualScheduleViolatesLegalMinimum
+            ? `Prazo extemporâneo: ${legalDateOverrideJustification.trim()}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" | ") || undefined,
     });
   }
 
@@ -1099,7 +1399,11 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
   async function handleSaveProposta(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!propostaForm.licitanteId || !propostaForm.itemId || !propostaForm.valorUnitarioProposto) {
+    if (
+      !propostaForm.licitanteId ||
+      !propostaForm.itemId ||
+      !propostaForm.valorUnitarioProposto
+    ) {
       setFeedback(null);
       setErrorMessage("Informe licitante, item e valor unitário da proposta.");
       return;
@@ -1118,8 +1422,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       itemId: Number(propostaForm.itemId),
       valorUnitarioProposto,
       dataProposta: toDateTimeStart(propostaForm.dataProposta),
-      classificacao: propostaForm.classificacao ? Number(propostaForm.classificacao) : undefined,
-      situacao: propostaForm.situacao as "VALIDA" | "DESCLASSIFICADA" | "VENCEDORA",
+      classificacao: propostaForm.classificacao
+        ? Number(propostaForm.classificacao)
+        : undefined,
+      situacao: propostaForm.situacao as
+        | "VALIDA"
+        | "DESCLASSIFICADA"
+        | "VENCEDORA",
       justificativa: propostaForm.justificativa || undefined,
     });
   }
@@ -1154,7 +1463,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     }
     await saveHabilitacaoMutation.mutateAsync({
       licitanteId: Number(habilitacaoForm.licitanteId),
-      statusHabilitacao: habilitacaoForm.statusHabilitacao as "PENDENTE" | "HABILITADO" | "INABILITADO",
+      statusHabilitacao: habilitacaoForm.statusHabilitacao as
+        | "PENDENTE"
+        | "HABILITADO"
+        | "INABILITADO",
       observacaoHabilitacao: habilitacaoForm.observacaoHabilitacao || undefined,
     });
   }
@@ -1163,7 +1475,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     event.preventDefault();
     if (!recursoForm.licitanteId || !recursoForm.descricao.trim()) {
       setFeedback(null);
-      setErrorMessage("Selecione o licitante e descreva o recurso administrativo.");
+      setErrorMessage(
+        "Selecione o licitante e descreva o recurso administrativo.",
+      );
       return;
     }
     await saveRecursoMutation.mutateAsync({
@@ -1171,20 +1485,35 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       licitanteId: Number(recursoForm.licitanteId),
       dataInterposicao: recursoForm.dataInterposicao || undefined,
       dataJulgamento: recursoForm.dataJulgamento || undefined,
-      resultado: recursoForm.resultado as "PENDENTE" | "PROVIDO" | "IMPROVIDO" | "PARCIALMENTE_PROVIDO",
+      resultado: recursoForm.resultado as
+        | "PENDENTE"
+        | "PROVIDO"
+        | "IMPROVIDO"
+        | "PARCIALMENTE_PROVIDO",
       descricao: recursoForm.descricao,
       decisao: recursoForm.decisao || undefined,
     });
   }
 
-  async function handleAdvanceStage(statusLicitacao: "RECEBIMENTO_PROPOSTAS" | "LANCES" | "JULGAMENTO" | "HABILITACAO" | "RECURSOS", etapaAtual: string, observacao: string) {
+  async function handleAdvanceStage(
+    statusLicitacao:
+      | "RECEBIMENTO_PROPOSTAS"
+      | "LANCES"
+      | "JULGAMENTO"
+      | "HABILITACAO"
+      | "RECURSOS",
+    etapaAtual: string,
+    observacao: string,
+  ) {
     if (!ensureAuditJustification("alterar a etapa da licitação")) return;
     await advanceStageMutation.mutateAsync({
       processoId,
       statusLicitacao,
       etapaAtual,
       observacao,
-      justificativaAuditoria: isForaDoFluxo ? auditJustification.trim() : undefined,
+      justificativaAuditoria: isForaDoFluxo
+        ? auditJustification.trim()
+        : undefined,
     });
   }
 
@@ -1195,8 +1524,12 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       processoId,
       dataHomologacao: homologacaoForm.dataHomologacao || undefined,
       observacao: homologacaoForm.observacao || undefined,
-      statusId: homologacaoForm.statusId ? Number(homologacaoForm.statusId) : undefined,
-      justificativaAuditoria: isForaDoFluxo ? auditJustification.trim() : undefined,
+      statusId: homologacaoForm.statusId
+        ? Number(homologacaoForm.statusId)
+        : undefined,
+      justificativaAuditoria: isForaDoFluxo
+        ? auditJustification.trim()
+        : undefined,
     });
   }
 
@@ -1207,21 +1540,41 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       { key: "external", label: "Fase externa", ref: externalRef },
       { key: "docs", label: "Documentos do processo", ref: docsRef },
       { key: "publication", label: "Publicação", ref: publicationRef },
-      ...(showCompetitivoSteps ? [{ key: "licitantes", label: "Licitantes", ref: licitantesRef }] : []),
-      ...(showCompetitivoSteps ? [{ key: "propostas", label: "Propostas", ref: propostasRef }] : []),
-      ...(showLances ? [{ key: "lances", label: "Lances", ref: lancesRef }] : []),
-      ...(showCompetitivoSteps ? [{ key: "julgamento", label: "Julgamento", ref: julgamentoRef }] : []),
+      ...(showCompetitivoSteps
+        ? [{ key: "licitantes", label: "Licitantes", ref: licitantesRef }]
+        : []),
+      ...(showCompetitivoSteps
+        ? [{ key: "propostas", label: "Propostas", ref: propostasRef }]
+        : []),
+      ...(showLances
+        ? [{ key: "lances", label: "Lances", ref: lancesRef }]
+        : []),
+      ...(showCompetitivoSteps
+        ? [{ key: "julgamento", label: "Julgamento", ref: julgamentoRef }]
+        : []),
       { key: "habilitacao", label: "Habilitação", ref: habilitacaoRef },
-      ...(showRecursos ? [{ key: "recursos", label: "Recursos", ref: recursosRef }] : []),
+      ...(showRecursos
+        ? [{ key: "recursos", label: "Recursos", ref: recursosRef }]
+        : []),
       { key: "homologacao", label: "Homologação", ref: homologacaoRef },
-      ...(isForaDoFluxo ? [{ key: "auditoria", label: "Auditoria", ref: auditoriaRef }] : []),
+      ...(isForaDoFluxo
+        ? [{ key: "auditoria", label: "Auditoria", ref: auditoriaRef }]
+        : []),
       { key: "history", label: "Movimentações", ref: historyRef },
     ];
 
     if (inversaoFasesAtiva) {
-      const currentIndex = items.findIndex((item) => item.key === "habilitacao");
-      const publicationIndex = items.findIndex((item) => item.key === "publication");
-      if (currentIndex > -1 && publicationIndex > -1 && currentIndex > publicationIndex) {
+      const currentIndex = items.findIndex(
+        (item) => item.key === "habilitacao",
+      );
+      const publicationIndex = items.findIndex(
+        (item) => item.key === "publication",
+      );
+      if (
+        currentIndex > -1 &&
+        publicationIndex > -1 &&
+        currentIndex > publicationIndex
+      ) {
         const [habilitacaoItem] = items.splice(currentIndex, 1);
         items.splice(publicationIndex + 1, 0, habilitacaoItem);
       }
@@ -1232,7 +1585,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   const currentVisualStep = !(detalhe?.processo.publicado ?? false)
     ? "PREPARACAO_INTERNA"
     : mapStatusToVisualStep(detalhe?.licitacao.statusLicitacao ?? "PREPARACAO");
-  const currentVisualStepIndex = Math.max(0, flowSteps.findIndex((item) => item.key === currentVisualStep));
+  const currentVisualStepIndex = Math.max(
+    0,
+    flowSteps.findIndex((item) => item.key === currentVisualStep),
+  );
   const currentSubphase: LicitacaoSubphaseKey =
     currentVisualStep === "PREPARACAO_INTERNA"
       ? "FASE_INTERNA"
@@ -1245,9 +1601,15 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             : "FASE_EXTERNA";
   const contractGateQuery = trpc.processos.macroPhaseGate.useQuery(
     { processoId, moduloDestino: "CONTRATOS" },
-    { enabled: Boolean(detalhe) && currentSubphase !== "FASE_INTERNA", retry: false },
+    {
+      enabled: Boolean(detalhe) && currentSubphase !== "FASE_INTERNA",
+      retry: false,
+    },
   );
-  const macroPhaseStatuses: Record<LicitacaoMacroPhaseKey, "done" | "current" | "upcoming"> = {
+  const macroPhaseStatuses: Record<
+    LicitacaoMacroPhaseKey,
+    "done" | "current" | "upcoming"
+  > = {
     PLANEJAMENTO: "done",
     COMPRAS: "done",
     LICITACAO: "current",
@@ -1260,18 +1622,30 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         ? "Licitação > Fase externa"
         : "Licitação > Cronograma";
   const responsavelAtual =
-    detalhe?.processo.condutorProcesso?.nome
-    ?? "Responsável em definição";
+    detalhe?.processo.condutorProcesso?.nome ?? "Responsável em definição";
   const nextTransitionTitle =
     currentSubphase === "FASE_INTERNA"
       ? "Transicao: Fase interna -> Fase externa"
       : "Transicao: Licitacao -> Contratos";
-  const nextTransitionPendings = currentSubphase === "FASE_INTERNA"
-    ? pendingRequired.map((item) => ({ category: item.category, label: item.label, detalhe: item.completionHint ?? item.description ?? undefined }))
-    : [
-        ...externalPendingRequired.map((item) => ({ category: item.category, label: item.label, detalhe: item.completionHint ?? item.description ?? undefined })),
-        ...(contractGateQuery.data?.blockers ?? []).map((item, index) => ({ category: `macro-${index}`, label: item.label, detalhe: item.detalhe })),
-      ];
+  const nextTransitionPendings =
+    currentSubphase === "FASE_INTERNA"
+      ? pendingRequired.map((item) => ({
+          category: item.category,
+          label: item.label,
+          detalhe: item.completionHint ?? item.description ?? undefined,
+        }))
+      : [
+          ...externalPendingRequired.map((item) => ({
+            category: item.category,
+            label: item.label,
+            detalhe: item.completionHint ?? item.description ?? undefined,
+          })),
+          ...(contractGateQuery.data?.blockers ?? []).map((item, index) => ({
+            category: `macro-${index}`,
+            label: item.label,
+            detalhe: item.detalhe,
+          })),
+        ];
   const currentNavKey = (() => {
     switch (currentVisualStep) {
       case "PREPARACAO_INTERNA":
@@ -1301,13 +1675,21 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         title="Habilitação"
         description="Registro da situação documental do licitante classificado e observações da comissão."
         open={sectionOpen.habilitacao}
-        onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, habilitacao: nextOpen }))}
+        onToggle={(nextOpen) =>
+          setSectionOpen((current) => ({ ...current, habilitacao: nextOpen }))
+        }
         action={
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void handleAdvanceStage("HABILITACAO", "Licitação / habilitação", "Verificação documental do licitante classificado.")}
+            onClick={() =>
+              void handleAdvanceStage(
+                "HABILITACAO",
+                "Licitação / habilitação",
+                "Verificação documental do licitante classificado.",
+              )
+            }
             disabled={advanceStageMutation.isPending}
           >
             Definir etapa atual
@@ -1315,31 +1697,69 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         }
         collapsedSummary={
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{detalhe?.licitantes.length ?? 0} licitante(s) para conferência</span>
+            <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+              {detalhe?.licitantes.length ?? 0} licitante(s) para conferência
+            </span>
           </div>
         }
       >
-        <form className="grid gap-4 2xl:grid-cols-2" onSubmit={handleSaveHabilitacao}>
+        <form
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleSaveHabilitacao}
+        >
           <FormField label="Licitante">
-            <Select value={habilitacaoForm.licitanteId} onChange={(event) => setHabilitacaoForm((current) => ({ ...current, licitanteId: event.target.value }))}>
+            <Select
+              value={habilitacaoForm.licitanteId}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  licitanteId: event.target.value,
+                }))
+              }
+            >
               <option value="">Selecione</option>
               {detalhe?.licitantes.map((item) => (
-                <option key={item.id} value={item.id}>{item.razaoSocial}</option>
+                <option key={item.id} value={item.id}>
+                  {item.razaoSocial}
+                </option>
               ))}
             </Select>
           </FormField>
           <FormField label="Status da habilitação">
-            <Select value={habilitacaoForm.statusHabilitacao} onChange={(event) => setHabilitacaoForm((current) => ({ ...current, statusHabilitacao: event.target.value }))}>
+            <Select
+              value={habilitacaoForm.statusHabilitacao}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  statusHabilitacao: event.target.value,
+                }))
+              }
+            >
               {habilitacaoStatusOptions.map((item) => (
-                <option key={item} value={item}>{habilitacaoStatusLabels[item]}</option>
+                <option key={item} value={item}>
+                  {habilitacaoStatusLabels[item]}
+                </option>
               ))}
             </Select>
           </FormField>
           <FormField label="Observação" className="2xl:col-span-2">
-            <Textarea rows={3} value={habilitacaoForm.observacaoHabilitacao} onChange={(event) => setHabilitacaoForm((current) => ({ ...current, observacaoHabilitacao: event.target.value }))} />
+            <Textarea
+              rows={3}
+              value={habilitacaoForm.observacaoHabilitacao}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  observacaoHabilitacao: event.target.value,
+                }))
+              }
+            />
           </FormField>
           <div className="xl:col-span-2 flex justify-end">
-            <Button type="submit" disabled={saveHabilitacaoMutation.isPending}>{saveHabilitacaoMutation.isPending ? "Salvando..." : "Salvar habilitação"}</Button>
+            <Button type="submit" disabled={saveHabilitacaoMutation.isPending}>
+              {saveHabilitacaoMutation.isPending
+                ? "Salvando..."
+                : "Salvar habilitação"}
+            </Button>
           </div>
         </form>
 
@@ -1357,13 +1777,22 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 detalhe.licitantes.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>{item.razaoSocial}</TableCell>
-                    <TableCell>{habilitacaoStatusLabels[item.statusHabilitacao as keyof typeof habilitacaoStatusLabels] ?? item.statusHabilitacao}</TableCell>
+                    <TableCell>
+                      {habilitacaoStatusLabels[
+                        item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
+                      ] ?? item.statusHabilitacao}
+                    </TableCell>
                     <TableCell>{item.observacaoHabilitacao ?? "-"}</TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-[var(--color-neutral-500)]">Nenhum licitante cadastrado para habilitação.</TableCell>
+                  <TableCell
+                    colSpan={3}
+                    className="text-[var(--color-neutral-500)]"
+                  >
+                    Nenhum licitante cadastrado para habilitação.
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -1372,7 +1801,6 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       </CollapsibleSectionCard>
     </section>
   );
-
 
   if (detailQuery.isLoading) {
     return (
@@ -1385,23 +1813,40 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   }
 
   if (detailQuery.error || !detalhe) {
-    return <Alert variant="error">Não foi possível carregar a etapa da Licitação para este processo.</Alert>;
+    return (
+      <Alert variant="error">
+        Não foi possível carregar a etapa da Licitação para este processo.
+      </Alert>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <Breadcrumb items={[{ label: "Licitação", href: "/licitacao" }, { label: detalhe.processo.numeroSirel }]} />
+      <Breadcrumb
+        items={[
+          { label: "Licitação", href: "/licitacao" },
+          { label: detalhe.processo.numeroSirel },
+        ]}
+      />
 
       <SectionCard
         title={`Licitação do processo ${detalhe.processo.numeroSirel}`}
         description="Tela operacional da fase licitatória com checklist documental interno, acervo completo do processo e cronograma automático de publicação."
         action={
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setShowAllDocsModal(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowAllDocsModal(true)}
+            >
               <FileStack className="h-4 w-4" />
               Documentos do processo
             </Button>
-            <Button type="button" variant="outline" onClick={() => setLocation("/licitacao")}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLocation("/licitacao")}
+            >
               <ArrowLeft className="h-4 w-4" />
               Voltar à fila
             </Button>
@@ -1410,16 +1855,21 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       >
         {isForaDoFluxo ? (
           <div className="mb-6 rounded-[28px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(120,53,15,0.25)]">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Processo fora do fluxo</div>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
+              Processo fora do fluxo
+            </div>
             <div className="mt-2 text-sm text-amber-900">
-              Auditoria reforçada ativa. Alterações críticas exigem justificativa e ficam registradas campo a campo.
+              Auditoria reforçada ativa. Alterações críticas exigem
+              justificativa e ficam registradas campo a campo.
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
               <FormField label="Justificativa de auditoria (obrigatória)">
                 <Textarea
                   rows={3}
                   value={auditJustification}
-                  onChange={(event) => setAuditJustification(event.target.value)}
+                  onChange={(event) =>
+                    setAuditJustification(event.target.value)
+                  }
                   placeholder="Explique o motivo das alterações extemporâneas."
                 />
               </FormField>
@@ -1435,41 +1885,78 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-primary-600)]">
-                  <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1">Painel de contexto</span>
-                  {isForaDoFluxo ? <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">Modo extemporâneo</span> : null}
+                  <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1">
+                    Painel de contexto
+                  </span>
+                  {isForaDoFluxo ? (
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+                      Modo extemporâneo
+                    </span>
+                  ) : null}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Processo</div>
-                    <div className="mt-1 text-2xl font-black text-[var(--color-primary-900)]">{detalhe.processo.numeroSirel}</div>
-                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">{detalhe.processo.modalidade ?? "Modalidade em definição"}</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Processo
+                    </div>
+                    <div className="mt-1 text-2xl font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.numeroSirel}
+                    </div>
+                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {detalhe.processo.modalidade ?? "Modalidade em definição"}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fase atual</div>
-                    <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{currentSubphaseLabel}</div>
-                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">{licitacaoStatusLabels[detalhe.licitacao.statusLicitacao as keyof typeof licitacaoStatusLabels] ?? detalhe.licitacao.statusLicitacao}</div>
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Fase atual
+                    </div>
+                    <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                      {currentSubphaseLabel}
+                    </div>
+                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {licitacaoStatusLabels[
+                        detalhe.licitacao
+                          .statusLicitacao as keyof typeof licitacaoStatusLabels
+                      ] ?? detalhe.licitacao.statusLicitacao}
+                    </div>
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Responsável</div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--color-primary-900)]">{responsavelAtual}</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                    Responsável
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--color-primary-900)]">
+                    {responsavelAtual}
+                  </div>
                 </div>
               </div>
 
               <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white/80 px-4 py-4">
-                <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">{nextTransitionTitle}</div>
+                <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                  {nextTransitionTitle}
+                </div>
                 {nextTransitionPendings.length ? (
                   <>
                     <div className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                      Ainda existem {nextTransitionPendings.length} pendencia(s) antes de liberar a proxima transicao.
+                      Ainda existem {nextTransitionPendings.length} pendencia(s)
+                      antes de liberar a proxima transicao.
                     </div>
                     <ul className="mt-3 space-y-2 text-sm text-[var(--color-neutral-600)]">
                       {nextTransitionPendings.slice(0, 4).map((item) => (
-                        <li key={item.category} className="flex items-start gap-2">
+                        <li
+                          key={item.category}
+                          className="flex items-start gap-2"
+                        >
                           <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
                           <span>
-                            <span className="font-semibold text-[var(--color-primary-900)]">{item.label}</span>
-                            {item.detalhe ? <span className="block text-xs text-[var(--color-neutral-500)]">{item.detalhe}</span> : null}
+                            <span className="font-semibold text-[var(--color-primary-900)]">
+                              {item.label}
+                            </span>
+                            {item.detalhe ? (
+                              <span className="block text-xs text-[var(--color-neutral-500)]">
+                                {item.detalhe}
+                              </span>
+                            ) : null}
                           </span>
                         </li>
                       ))}
@@ -1486,8 +1973,17 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setSectionOpen((current) => ({ ...current, external: true, publication: true }));
-                        requestAnimationFrame(() => externalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                        setSectionOpen((current) => ({
+                          ...current,
+                          external: true,
+                          publication: true,
+                        }));
+                        requestAnimationFrame(() =>
+                          externalRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          }),
+                        );
                       }}
                     >
                       Abrir fase externa
@@ -1496,7 +1992,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     <Button
                       type="button"
                       onClick={() => setContractTransitionOpen(true)}
-                      disabled={contractGateQuery.isLoading || advanceMacroPhaseMutation.isPending}
+                      disabled={
+                        contractGateQuery.isLoading ||
+                        advanceMacroPhaseMutation.isPending
+                      }
                     >
                       Encaminhar para Contratos
                     </Button>
@@ -1507,7 +2006,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           </div>
 
           <div className="border-b border-[rgba(204,225,255,0.92)] px-5 py-4">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fluxo macro</div>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+              Fluxo macro
+            </div>
             <div className="mt-3 grid gap-3 md:grid-cols-4">
               {licitacaoMacroPhases.map((phase) => {
                 const status = macroPhaseStatuses[phase.key];
@@ -1524,7 +2025,12 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     type="button"
                     onClick={() => {
                       if (phase.key === "LICITACAO") {
-                        requestAnimationFrame(() => overviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                        requestAnimationFrame(() =>
+                          overviewRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          }),
+                        );
                         return;
                       }
                       setLocation(phase.href);
@@ -1534,10 +2040,16 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-black">{phase.label}</span>
                       <span className="text-[11px] font-bold uppercase tracking-[0.16em]">
-                        {status === "current" ? "Atual" : status === "done" ? "Concluída" : "Próxima"}
+                        {status === "current"
+                          ? "Atual"
+                          : status === "done"
+                            ? "Concluída"
+                            : "Próxima"}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm leading-6 opacity-80">{phase.hint}</p>
+                    <p className="mt-2 text-sm leading-6 opacity-80">
+                      {phase.hint}
+                    </p>
                   </button>
                 );
               })}
@@ -1555,14 +2067,26 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       ? externalRef
                       : publicationRef;
                 const targetSection =
-                  tab.key === "FASE_INTERNA" ? "internal" : tab.key === "FASE_EXTERNA" ? "external" : "publication";
+                  tab.key === "FASE_INTERNA"
+                    ? "internal"
+                    : tab.key === "FASE_EXTERNA"
+                      ? "external"
+                      : "publication";
                 return (
                   <button
                     key={tab.key}
                     type="button"
                     onClick={() => {
-                      setSectionOpen((current) => ({ ...current, [targetSection]: true }));
-                      requestAnimationFrame(() => targetRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                      setSectionOpen((current) => ({
+                        ...current,
+                        [targetSection]: true,
+                      }));
+                      requestAnimationFrame(() =>
+                        targetRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        }),
+                      );
                     }}
                     className={[
                       "rounded-full border px-4 py-2 text-sm font-semibold transition",
@@ -1582,30 +2106,52 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         <div className="mb-6 rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(230,240,255,0.7))] px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(15,26,109,0.28)]">
           <div className="grid gap-3 md:grid-cols-4">
             <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Modalidade</div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">{detalhe.processo.modalidade ?? "Não definida"}</div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fluxo</div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">{licitacaoFluxoLabels[fluxoLicitacao]}</div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Disputa</div>
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Modalidade
+              </div>
               <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {showCompetitivoSteps ? (showLances ? "Com disputa" : "Sem disputa") : "Não se aplica"}
+                {detalhe.processo.modalidade ?? "Não definida"}
               </div>
             </div>
             <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Inversão de fases</div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">{inversaoFasesAtiva ? "Ativada" : "Não"}</div>
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Fluxo
+              </div>
+              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
+                {licitacaoFluxoLabels[fluxoLicitacao]}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Disputa
+              </div>
+              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
+                {showCompetitivoSteps
+                  ? showLances
+                    ? "Com disputa"
+                    : "Sem disputa"
+                  : "Não se aplica"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Inversão de fases
+              </div>
+              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
+                {inversaoFasesAtiva ? "Ativada" : "Não"}
+              </div>
             </div>
           </div>
         </div>
 
         {modalidadeHelp ? (
           <div className="mb-6 rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(15,26,109,0.2)]">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Ajuda contextual</div>
-            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">{modalidadeHelp}</p>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+              Ajuda contextual
+            </div>
+            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+              {modalidadeHelp}
+            </p>
           </div>
         ) : null}
 
@@ -1613,9 +2159,21 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
             <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.74))] p-4 shadow-[0_12px_24px_-22px_rgba(15,26,109,0.2)]">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Navegação</p>
-                <Button type="button" size="sm" variant="ghost" className="hidden xl:inline-flex" onClick={() => setNavCollapsed((current) => !current)}>
-                  {navCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                  Navegação
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="hidden xl:inline-flex"
+                  onClick={() => setNavCollapsed((current) => !current)}
+                >
+                  {navCollapsed ? (
+                    <ChevronRight className="h-4 w-4" />
+                  ) : (
+                    <ChevronLeft className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1 xl:block xl:max-h-[72vh] xl:space-y-2 xl:overflow-y-auto xl:overflow-x-visible xl:pb-0">
@@ -1624,17 +2182,30 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     key={item.label}
                     type="button"
                     onClick={() => {
-                      setSectionOpen((current) => ({ ...current, [item.key]: true }));
-                      requestAnimationFrame(() => item.ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                      setSectionOpen((current) => ({
+                        ...current,
+                        [item.key]: true,
+                      }));
+                      requestAnimationFrame(() =>
+                        item.ref.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        }),
+                      );
                     }}
                     className={[
                       "flex min-w-[180px] shrink-0 items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition xl:w-full xl:min-w-0",
-                      item.key === currentNavKey || sectionOpen[item.key as keyof typeof sectionOpen]
+                      item.key === currentNavKey ||
+                      sectionOpen[item.key as keyof typeof sectionOpen]
                         ? "border-[rgba(65,105,225,0.35)] bg-[var(--color-primary-50)] text-[var(--color-primary-800)]"
                         : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(65,105,225,0.35)] hover:text-[var(--color-primary-800)]",
                     ].join(" ")}
                   >
-                    <span className={navCollapsed ? "sr-only xl:not-sr-only" : ""}>{item.label}</span>
+                    <span
+                      className={navCollapsed ? "sr-only xl:not-sr-only" : ""}
+                    >
+                      {item.label}
+                    </span>
                     <ChevronRight className="h-4 w-4 flex-none" />
                   </button>
                 ))}
@@ -1642,19 +2213,33 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             </div>
 
             <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_12px_24px_-22px_rgba(15,26,109,0.18)]">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Andamento da etapa</p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Andamento da etapa
+              </p>
               <div className="mt-3 grid gap-2 text-sm text-[var(--color-neutral-600)] sm:grid-cols-3 xl:grid-cols-1">
                 <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">Status da Licitação</div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">{detalhe.licitacao.statusLicitacao}</div>
+                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
+                    Status da Licitação
+                  </div>
+                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
+                    {detalhe.licitacao.statusLicitacao}
+                  </div>
                 </div>
                 <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">Checklist interno</div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">{progressCount}/{checklistItems.length} concluídos</div>
+                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
+                    Checklist interno
+                  </div>
+                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
+                    {progressCount}/{checklistItems.length} concluídos
+                  </div>
                 </div>
                 <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">Documentos no processo</div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">{documentos.length}</div>
+                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
+                    Documentos no processo
+                  </div>
+                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
+                    {documentos.length}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1662,43 +2247,109 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
           <div className="space-y-6">
             {feedback ? <Alert variant="success">{feedback}</Alert> : null}
-            {errorMessage ? <Alert variant="error">{errorMessage}</Alert> : null}
+            {errorMessage ? (
+              <Alert variant="error">{errorMessage}</Alert>
+            ) : null}
             <section ref={overviewRef}>
               <CollapsibleSectionCard
                 title="Visão geral da Licitação"
                 description="Resumo do processo, da fase atual e das próximas etapas da Lei nº 14.133/2021."
                 open={sectionOpen.overview}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, overview: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    overview: nextOpen,
+                  }))
+                }
                 defaultOpen
                 collapsedSummary={
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{detalhe.processo.numeroSirel}</span><div className="text-[var(--color-neutral-500)]">{detalhe.processo.modalidade ?? "Licitação"}</div></div>
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{detalhe.licitacao.statusLicitacao}</span><div className="text-[var(--color-neutral-500)]">Etapa atual</div></div>
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{detalhe.processo.numeroEdital ?? "Sem edital"}</span><div className="text-[var(--color-neutral-500)]">Edital</div></div>
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{documentos.length}</span><div className="text-[var(--color-neutral-500)]">Documentos</div></div>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                      <span className="font-semibold text-[var(--color-primary-900)]">
+                        {detalhe.processo.numeroSirel}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        {detalhe.processo.modalidade ?? "Licitação"}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                      <span className="font-semibold text-[var(--color-primary-900)]">
+                        {detalhe.licitacao.statusLicitacao}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        Etapa atual
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                      <span className="font-semibold text-[var(--color-primary-900)]">
+                        {detalhe.processo.numeroEdital ?? "Sem edital"}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        Edital
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                      <span className="font-semibold text-[var(--color-primary-900)]">
+                        {documentos.length}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        Documentos
+                      </div>
+                    </div>
                   </div>
                 }
               >
                 <div className="grid gap-3 lg:grid-cols-4">
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Processo</p>
-                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{detalhe.processo.numeroSirel}</p>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">{detalhe.processo.secretaria}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Processo
+                    </p>
+                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.numeroSirel}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {detalhe.processo.secretaria}
+                    </p>
                   </article>
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Modalidade</p>
-                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{detalhe.processo.modalidade ?? "Não definida"}</p>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">{detalhe.processo.numeroEdital ?? "Edital ainda não gerado"}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Modalidade
+                    </p>
+                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.modalidade ?? "Não definida"}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {detalhe.processo.numeroEdital ??
+                        "Edital ainda não gerado"}
+                    </p>
                   </article>
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Critério / modo</p>
-                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{detalhe.processo.criterioJulgamento ?? "Não informado"}</p>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">{modoDisputaLabels[(detalhe.processo.modoDisputa as keyof typeof modoDisputaLabels) ?? "NAO_SE_APLICA"] ?? "Não se aplica"}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Critério / modo
+                    </p>
+                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.criterioJulgamento ?? "Não informado"}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {modoDisputaLabels[
+                        (detalhe.processo
+                          .modoDisputa as keyof typeof modoDisputaLabels) ??
+                          "NAO_SE_APLICA"
+                      ] ?? "Não se aplica"}
+                    </p>
                   </article>
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Valor estimado</p>
-                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{formatCurrencyBRL(detalhe.processo.valorEstimado)}</p>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Condutor: {detalhe.processo.condutorProcesso?.nome ?? "Definido na publicação"}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Valor estimado
+                    </p>
+                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {formatCurrencyBRL(detalhe.processo.valorEstimado)}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Condutor:{" "}
+                      {detalhe.processo.condutorProcesso?.nome ??
+                        "Definido na publicação"}
+                    </p>
                   </article>
                 </div>
 
@@ -1707,7 +2358,8 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     const current = item.key === currentVisualStep;
                     const completed =
                       item.key === "PREPARACAO_INTERNA"
-                        ? pendingRequired.length === 0 && currentVisualStepIndex > index
+                        ? pendingRequired.length === 0 &&
+                          currentVisualStepIndex > index
                         : currentVisualStepIndex > index;
 
                     return (
@@ -1717,7 +2369,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           if (item.key === "LANCES" && !showLances) {
                             return;
                           }
-                          const sectionByStep: Record<string, keyof typeof sectionOpen> = {
+                          const sectionByStep: Record<
+                            string,
+                            keyof typeof sectionOpen
+                          > = {
                             PREPARACAO_INTERNA: "internal",
                             PUBLICACAO: "publication",
                             RECEBIMENTO_PROPOSTAS: "propostas",
@@ -1728,7 +2383,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                             HOMOLOGACAO: "homologacao",
                           };
                           const targetSection = sectionByStep[item.key];
-                          const targetRefMap: Record<string, RefObject<HTMLElement | null>> = {
+                          const targetRefMap: Record<
+                            string,
+                            RefObject<HTMLElement | null>
+                          > = {
                             internal: internalRef,
                             publication: publicationRef,
                             propostas: propostasRef,
@@ -1740,21 +2398,43 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           };
 
                           if (targetSection) {
-                            setSectionOpen((current) => ({ ...current, [targetSection]: true }));
-                            requestAnimationFrame(() => targetRefMap[targetSection]?.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                            setSectionOpen((current) => ({
+                              ...current,
+                              [targetSection]: true,
+                            }));
+                            requestAnimationFrame(() =>
+                              targetRefMap[
+                                targetSection
+                              ]?.current?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "start",
+                              }),
+                            );
                           }
                         }}
                         className={[
                           "rounded-3xl border px-4 py-4 transition",
-                          item.key === "LANCES" && !showLances ? "opacity-60" : "cursor-pointer hover:-translate-y-0.5",
-                          current ? "border-[rgba(102,165,255,0.9)] bg-[var(--color-primary-50)]" : completed ? "border-emerald-200 bg-emerald-50" : "border-[rgba(204,225,255,0.92)] bg-white",
+                          item.key === "LANCES" && !showLances
+                            ? "opacity-60"
+                            : "cursor-pointer hover:-translate-y-0.5",
+                          current
+                            ? "border-[rgba(102,165,255,0.9)] bg-[var(--color-primary-50)]"
+                            : completed
+                              ? "border-emerald-200 bg-emerald-50"
+                              : "border-[rgba(204,225,255,0.92)] bg-white",
                         ].join(" ")}
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-bold text-[var(--color-primary-900)]">{item.label}</p>
-                          {completed ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : null}
+                          <p className="text-sm font-bold text-[var(--color-primary-900)]">
+                            {item.label}
+                          </p>
+                          {completed ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          ) : null}
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">{item.description}</p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                          {item.description}
+                        </p>
                       </article>
                     );
                   })}
@@ -1765,11 +2445,18 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             <section ref={internalRef}>
               <CollapsibleSectionCard
                 title="Fase interna documental"
-                description={isForaDoFluxo
-                  ? "Checklist orientativo com auditoria reforçada para processos fora do fluxo."
-                  : "Todos os documentos obrigatórios antes da publicidade. O processo só pode ser publicado quando o checklist estiver completo."}
+                description={
+                  isForaDoFluxo
+                    ? "Checklist orientativo com auditoria reforçada para processos fora do fluxo."
+                    : "Todos os documentos obrigatórios antes da publicidade. O processo só pode ser publicado quando o checklist estiver completo."
+                }
                 open={sectionOpen.internal}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, internal: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    internal: nextOpen,
+                  }))
+                }
                 action={
                   <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
                     <ShieldCheck className="h-4 w-4" />
@@ -1778,10 +2465,18 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 }
                 collapsedSummary={
                   <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Checklist: {progressCount}/{checklistItems.length}</span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Pendentes: {pendingRequired.length}</span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">DOU: {configForm.publicarNoDou ? "Sim" : "Não"}</span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Jornal: {configForm.publicarEmJornal ? "Sim" : "Não"}</span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Checklist: {progressCount}/{checklistItems.length}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Pendentes: {pendingRequired.length}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      DOU: {configForm.publicarNoDou ? "Sim" : "Não"}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Jornal: {configForm.publicarEmJornal ? "Sim" : "Não"}
+                    </span>
                   </div>
                 }
               >
@@ -1790,17 +2485,32 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     <FormField label="Critério de julgamento">
                       <Input
                         value={configForm.criterioJulgamento}
-                        onChange={(event) => setConfigForm((current) => ({ ...current, criterioJulgamento: event.target.value }))}
+                        onChange={(event) =>
+                          setConfigForm((current) => ({
+                            ...current,
+                            criterioJulgamento: event.target.value,
+                          }))
+                        }
                         placeholder="Ex.: Menor preço por lote"
                       />
                     </FormField>
                     <FormField label="Modo de disputa">
-                      <Select value={configForm.modoDisputa} onChange={(event) => setConfigForm((current) => ({ ...current, modoDisputa: event.target.value }))}>
-                        {Object.entries(modoDisputaLabels).map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
+                      <Select
+                        value={configForm.modoDisputa}
+                        onChange={(event) =>
+                          setConfigForm((current) => ({
+                            ...current,
+                            modoDisputa: event.target.value,
+                          }))
+                        }
+                      >
+                        {Object.entries(modoDisputaLabels).map(
+                          ([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ),
+                        )}
                       </Select>
                     </FormField>
                   </div>
@@ -1809,21 +2519,37 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
                         checked={configForm.exigeDeclaracaoNaoFracionamento}
-                        onChange={(event) => setConfigForm((current) => ({ ...current, exigeDeclaracaoNaoFracionamento: event.target.checked }))}
+                        onChange={(event) =>
+                          setConfigForm((current) => ({
+                            ...current,
+                            exigeDeclaracaoNaoFracionamento:
+                              event.target.checked,
+                          }))
+                        }
                       />
                       Exigir declaração de não fracionamento
                     </label>
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
                         checked={configForm.publicarNoDou}
-                        onChange={(event) => setConfigForm((current) => ({ ...current, publicarNoDou: event.target.checked }))}
+                        onChange={(event) =>
+                          setConfigForm((current) => ({
+                            ...current,
+                            publicarNoDou: event.target.checked,
+                          }))
+                        }
                       />
                       Publicar também no DOU
                     </label>
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
                         checked={configForm.publicarEmJornal}
-                        onChange={(event) => setConfigForm((current) => ({ ...current, publicarEmJornal: event.target.checked }))}
+                        onChange={(event) =>
+                          setConfigForm((current) => ({
+                            ...current,
+                            publicarEmJornal: event.target.checked,
+                          }))
+                        }
                       />
                       Publicar também em jornal
                     </label>
@@ -1831,26 +2557,42 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
                   {showCompetitivoSteps ? (
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Configuração de fluxo</div>
+                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Configuração de fluxo
+                      </div>
                       <label className="mt-3 inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                         <Checkbox
                           checked={configForm.inversaoFasesHabilitada}
-                          onChange={(event) => setConfigForm((current) => ({ ...current, inversaoFasesHabilitada: event.target.checked }))}
+                          onChange={(event) =>
+                            setConfigForm((current) => ({
+                              ...current,
+                              inversaoFasesHabilitada: event.target.checked,
+                            }))
+                          }
                         />
                         Inverter ordem das fases (habilitação antes da disputa)
                       </label>
                       {configForm.inversaoFasesHabilitada ? (
-                        <FormField label="Justificativa da inversão" className="mt-3">
+                        <FormField
+                          label="Justificativa da inversão"
+                          className="mt-3"
+                        >
                           <Textarea
                             rows={3}
                             value={configForm.inversaoFasesJustificativa}
-                            onChange={(event) => setConfigForm((current) => ({ ...current, inversaoFasesJustificativa: event.target.value }))}
+                            onChange={(event) =>
+                              setConfigForm((current) => ({
+                                ...current,
+                                inversaoFasesJustificativa: event.target.value,
+                              }))
+                            }
                             placeholder="Explique o motivo e o impacto esperado da inversão."
                           />
                         </FormField>
                       ) : null}
                       <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                        Ao ativar a inversão, o sistema reordena a navegação para iniciar a habilitação antes das fases competitivas.
+                        Ao ativar a inversão, o sistema reordena a navegação
+                        para iniciar a habilitação antes das fases competitivas.
                       </div>
                     </div>
                   ) : null}
@@ -1861,65 +2603,115 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         rows={3}
                         value={configForm.observacoes}
                         onChange={(event) => {
-                          setConfigForm((current) => ({ ...current, observacoes: event.target.value }));
-                          setPublishForm((current) => ({ ...current, observacao: event.target.value }));
+                          setConfigForm((current) => ({
+                            ...current,
+                            observacoes: event.target.value,
+                          }));
+                          setPublishForm((current) => ({
+                            ...current,
+                            observacao: event.target.value,
+                          }));
                         }}
                       />
                     </FormField>
                   </div>
 
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button type="submit" disabled={saveConfiguracaoMutation.isPending}>
-                      {saveConfiguracaoMutation.isPending ? "Salvando..." : "Salvar configuração interna"}
+                    <Button
+                      type="submit"
+                      disabled={saveConfiguracaoMutation.isPending}
+                    >
+                      {saveConfiguracaoMutation.isPending
+                        ? "Salvando..."
+                        : "Salvar configuração interna"}
                     </Button>
                   </div>
                 </form>
 
                 {pendingRequired.length ? (
-                  <Alert variant={isForaDoFluxo ? "info" : "warning"} title={isForaDoFluxo ? "Checklist orientativo" : "Checklist interno pendente"}>
+                  <Alert
+                    variant={isForaDoFluxo ? "info" : "warning"}
+                    title={
+                      isForaDoFluxo
+                        ? "Checklist orientativo"
+                        : "Checklist interno pendente"
+                    }
+                  >
                     {isForaDoFluxo
                       ? `Há documentos pendentes nesta fase, mas o processo fora do fluxo pode seguir com justificativa registrada. Pendências: ${pendingRequired.map((item) => item.label).join(", ")}.`
                       : `Ainda faltam documentos obrigatórios antes da publicação: ${pendingRequired.map((item) => item.label).join(", ")}.`}
                   </Alert>
                 ) : (
-                  <Alert variant="success">Checklist interno concluído. O processo está apto para seguir ao cronograma de publicação.</Alert>
+                  <Alert variant="success">
+                    Checklist interno concluído. O processo está apto para
+                    seguir ao cronograma de publicação.
+                  </Alert>
                 )}
 
                 <div className="mt-4 grid gap-4 2xl:grid-cols-2">
                   {checklistItems.map((item) => {
-                    const uploadState = getUploadState(uploadForms, item.category);
-                    const latestDocumento = (docsByCategory.get(item.category) ?? []).slice().sort((left, right) => new Date(right.criadoEm).getTime() - new Date(left.criadoEm).getTime())[0];
-                    const naoAplicavelState = checklistNaoAplicavelForm[item.category] ?? {
-                      statusFlexivel: item.statusFlexivel ?? (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
+                    const uploadState = getUploadState(
+                      uploadForms,
+                      item.category,
+                    );
+                    const latestDocumento = (
+                      docsByCategory.get(item.category) ?? []
+                    )
+                      .slice()
+                      .sort(
+                        (left, right) =>
+                          new Date(right.criadoEm).getTime() -
+                          new Date(left.criadoEm).getTime(),
+                      )[0];
+                    const naoAplicavelState = checklistNaoAplicavelForm[
+                      item.category
+                    ] ?? {
+                      statusFlexivel:
+                        item.statusFlexivel ??
+                        (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
                       justificativa: item.justificativaNaoAplicavel ?? "",
-                      departamentoResponsavel: item.departamentoResponsavel ?? "",
-                      previsaoRecebimento: toDateInputValue(item.previsaoRecebimento),
+                      departamentoResponsavel:
+                        item.departamentoResponsavel ?? "",
+                      previsaoRecebimento: toDateInputValue(
+                        item.previsaoRecebimento,
+                      ),
                       processoFisicoNumero: item.processoFisicoNumero ?? "",
                       localArquivamento: item.localArquivamento ?? "",
                       digitalizarDepois: item.digitalizarDepois ?? false,
                     };
-                    const statusLabel = item.statusFlexivel && item.statusFlexivel !== "PADRAO"
-                      ? licitacaoChecklistFlexStatusLabels[item.statusFlexivel]
-                      : item.concluido
-                        ? "Anexado"
-                        : "Pendente";
-                    const statusClass = item.statusFlexivel === "OUTRO_SETOR"
-                      ? "bg-sky-100 text-sky-800"
-                      : item.statusFlexivel === "CONCLUIDO_FISICO"
-                        ? "bg-violet-100 text-violet-800"
-                        : item.naoAplicavel
-                          ? "bg-slate-100 text-slate-800"
-                      : item.concluido
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800";
+                    const statusLabel =
+                      item.statusFlexivel && item.statusFlexivel !== "PADRAO"
+                        ? licitacaoChecklistFlexStatusLabels[
+                            item.statusFlexivel
+                          ]
+                        : item.concluido
+                          ? "Anexado"
+                          : "Pendente";
+                    const statusClass =
+                      item.statusFlexivel === "OUTRO_SETOR"
+                        ? "bg-sky-100 text-sky-800"
+                        : item.statusFlexivel === "CONCLUIDO_FISICO"
+                          ? "bg-violet-100 text-violet-800"
+                          : item.naoAplicavel
+                            ? "bg-slate-100 text-slate-800"
+                            : item.concluido
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800";
 
                     return (
-                      <article key={item.category} className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]">
+                      <article
+                        key={item.category}
+                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="text-base font-black text-[var(--color-primary-900)]">{item.label}</h4>
-                              <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}>
+                              <h4 className="text-base font-black text-[var(--color-primary-900)]">
+                                {item.label}
+                              </h4>
+                              <span
+                                className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}
+                              >
                                 {statusLabel}
                               </span>
                               {!item.obrigatorio ? (
@@ -1928,7 +2720,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                 </span>
                               ) : null}
                             </div>
-                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">{item.description}</p>
+                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                              {item.description}
+                            </p>
                           </div>
                           <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
                             <FileCheck2 className="h-5 w-5" />
@@ -1936,11 +2730,29 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         </div>
                         {latestDocumento ? (
                           <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] p-3 text-sm">
-                            <div className="font-semibold text-[var(--color-primary-900)]">{latestDocumento.titulo}</div>
-                            <div className="mt-1 text-[var(--color-neutral-600)]">Anexado em {formatShortDateTimeBR(latestDocumento.criadoEm)}</div>
+                            <div className="font-semibold text-[var(--color-primary-900)]">
+                              {latestDocumento.titulo}
+                            </div>
+                            <div className="mt-1 text-[var(--color-neutral-600)]">
+                              Anexado em{" "}
+                              {formatShortDateTimeBR(latestDocumento.criadoEm)}
+                            </div>
                             <div className="mt-3 flex flex-wrap gap-2">
-                              <a href={resolveServerAssetUrl(latestDocumento.arquivoUrl) ?? "#"} target="_blank" rel="noreferrer">
-                                <Button type="button" size="sm" variant="outline" disabled={!latestDocumento.arquivoUrl}>
+                              <a
+                                href={
+                                  resolveServerAssetUrl(
+                                    latestDocumento.arquivoUrl,
+                                  ) ?? "#"
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!latestDocumento.arquivoUrl}
+                                >
                                   Abrir documento
                                 </Button>
                               </a>
@@ -1948,10 +2760,16 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                 type="button"
                                 size="sm"
                                 variant="destructive"
-                                disabled={deletingDocumentoId === latestDocumento.id}
-                                onClick={() => void handleDeleteDocumento(latestDocumento.id)}
+                                disabled={
+                                  deletingDocumentoId === latestDocumento.id
+                                }
+                                onClick={() =>
+                                  void handleDeleteDocumento(latestDocumento.id)
+                                }
                               >
-                                {deletingDocumentoId === latestDocumento.id ? "Removendo..." : "Remover"}
+                                {deletingDocumentoId === latestDocumento.id
+                                  ? "Removendo..."
+                                  : "Remover"}
                               </Button>
                             </div>
                           </div>
@@ -1964,30 +2782,47 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                 <Select
                                   value={naoAplicavelState.statusFlexivel}
                                   onChange={(event) =>
-                                    setChecklistNaoAplicavelState(item.category, (current) => ({
-                                      ...current,
-                                      statusFlexivel: event.target.value as ChecklistFlexStatus,
-                                    }))
+                                    setChecklistNaoAplicavelState(
+                                      item.category,
+                                      (current) => ({
+                                        ...current,
+                                        statusFlexivel: event.target
+                                          .value as ChecklistFlexStatus,
+                                      }),
+                                    )
                                   }
                                 >
-                                  {licitacaoChecklistFlexStatusOptions.map((status) => (
-                                    <option key={status} value={status}>
-                                      {licitacaoChecklistFlexStatusLabels[status]}
-                                    </option>
-                                  ))}
+                                  {licitacaoChecklistFlexStatusOptions.map(
+                                    (status) => (
+                                      <option key={status} value={status}>
+                                        {
+                                          licitacaoChecklistFlexStatusLabels[
+                                            status
+                                          ]
+                                        }
+                                      </option>
+                                    ),
+                                  )}
                                 </Select>
                               </FormField>
 
-                              {naoAplicavelState.statusFlexivel === "OUTRO_SETOR" ? (
+                              {naoAplicavelState.statusFlexivel ===
+                              "OUTRO_SETOR" ? (
                                 <div className="grid gap-3 md:grid-cols-2">
                                   <FormField label="Departamento responsável">
                                     <Input
-                                      value={naoAplicavelState.departamentoResponsavel}
+                                      value={
+                                        naoAplicavelState.departamentoResponsavel
+                                      }
                                       onChange={(event) =>
-                                        setChecklistNaoAplicavelState(item.category, (current) => ({
-                                          ...current,
-                                          departamentoResponsavel: event.target.value,
-                                        }))
+                                        setChecklistNaoAplicavelState(
+                                          item.category,
+                                          (current) => ({
+                                            ...current,
+                                            departamentoResponsavel:
+                                              event.target.value,
+                                          }),
+                                        )
                                       }
                                       placeholder="Ex.: Orçamento, PGM, Controladoria"
                                     />
@@ -1995,40 +2830,59 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                   <FormField label="Previsão de recebimento">
                                     <Input
                                       type="date"
-                                      value={naoAplicavelState.previsaoRecebimento}
+                                      value={
+                                        naoAplicavelState.previsaoRecebimento
+                                      }
                                       onChange={(event) =>
-                                        setChecklistNaoAplicavelState(item.category, (current) => ({
-                                          ...current,
-                                          previsaoRecebimento: event.target.value,
-                                        }))
+                                        setChecklistNaoAplicavelState(
+                                          item.category,
+                                          (current) => ({
+                                            ...current,
+                                            previsaoRecebimento:
+                                              event.target.value,
+                                          }),
+                                        )
                                       }
                                     />
                                   </FormField>
                                 </div>
                               ) : null}
 
-                              {naoAplicavelState.statusFlexivel === "CONCLUIDO_FISICO" ? (
+                              {naoAplicavelState.statusFlexivel ===
+                              "CONCLUIDO_FISICO" ? (
                                 <div className="grid gap-3 md:grid-cols-2">
                                   <FormField label="Número do processo físico">
                                     <Input
-                                      value={naoAplicavelState.processoFisicoNumero}
+                                      value={
+                                        naoAplicavelState.processoFisicoNumero
+                                      }
                                       onChange={(event) =>
-                                        setChecklistNaoAplicavelState(item.category, (current) => ({
-                                          ...current,
-                                          processoFisicoNumero: event.target.value,
-                                        }))
+                                        setChecklistNaoAplicavelState(
+                                          item.category,
+                                          (current) => ({
+                                            ...current,
+                                            processoFisicoNumero:
+                                              event.target.value,
+                                          }),
+                                        )
                                       }
                                       placeholder="Ex.: 0045/2026-FÍSICO"
                                     />
                                   </FormField>
                                   <FormField label="Local de arquivamento">
                                     <Input
-                                      value={naoAplicavelState.localArquivamento}
+                                      value={
+                                        naoAplicavelState.localArquivamento
+                                      }
                                       onChange={(event) =>
-                                        setChecklistNaoAplicavelState(item.category, (current) => ({
-                                          ...current,
-                                          localArquivamento: event.target.value,
-                                        }))
+                                        setChecklistNaoAplicavelState(
+                                          item.category,
+                                          (current) => ({
+                                            ...current,
+                                            localArquivamento:
+                                              event.target.value,
+                                          }),
+                                        )
                                       }
                                       placeholder="Informe o setor, armário ou caixa"
                                     />
@@ -2036,16 +2890,23 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                   <div className="md:col-span-2">
                                     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white/80 px-3 py-3">
                                       <Checkbox
-                                        checked={naoAplicavelState.digitalizarDepois}
+                                        checked={
+                                          naoAplicavelState.digitalizarDepois
+                                        }
                                         onCheckedChange={(checked) =>
-                                          setChecklistNaoAplicavelState(item.category, (current) => ({
-                                            ...current,
-                                            digitalizarDepois: Boolean(checked),
-                                          }))
+                                          setChecklistNaoAplicavelState(
+                                            item.category,
+                                            (current) => ({
+                                              ...current,
+                                              digitalizarDepois:
+                                                Boolean(checked),
+                                            }),
+                                          )
                                         }
                                       />
                                       <span className="text-sm font-semibold text-[var(--color-neutral-800)]">
-                                        Documento físico ainda será digitalizado depois
+                                        Documento físico ainda será digitalizado
+                                        depois
                                       </span>
                                     </div>
                                   </div>
@@ -2055,7 +2916,8 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                               {naoAplicavelState.statusFlexivel !== "PADRAO" ? (
                                 <FormField
                                   label={
-                                    naoAplicavelState.statusFlexivel === "NAO_APLICAVEL"
+                                    naoAplicavelState.statusFlexivel ===
+                                    "NAO_APLICAVEL"
                                       ? "Justificativa (obrigatória)"
                                       : "Contexto operacional e justificativa"
                                   }
@@ -2064,15 +2926,20 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                     rows={3}
                                     value={naoAplicavelState.justificativa}
                                     onChange={(event) =>
-                                      setChecklistNaoAplicavelState(item.category, (current) => ({
-                                        ...current,
-                                        justificativa: event.target.value,
-                                      }))
+                                      setChecklistNaoAplicavelState(
+                                        item.category,
+                                        (current) => ({
+                                          ...current,
+                                          justificativa: event.target.value,
+                                        }),
+                                      )
                                     }
                                     placeholder={
-                                      naoAplicavelState.statusFlexivel === "NAO_APLICAVEL"
+                                      naoAplicavelState.statusFlexivel ===
+                                      "NAO_APLICAVEL"
                                         ? "Explique por que este item não se aplica ao processo."
-                                        : naoAplicavelState.statusFlexivel === "OUTRO_SETOR"
+                                        : naoAplicavelState.statusFlexivel ===
+                                            "OUTRO_SETOR"
                                           ? "Informe o setor que está com o documento e a previsão de retorno."
                                           : "Descreva a referência do processo físico e qualquer pendência de digitalização."
                                     }
@@ -2080,26 +2947,49 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                 </FormField>
                               ) : null}
                             </div>
-                            {item.statusFlexivel && item.statusFlexivel !== "PADRAO" && item.justificativaNaoAplicavel ? (
+                            {item.statusFlexivel &&
+                            item.statusFlexivel !== "PADRAO" &&
+                            item.justificativaNaoAplicavel ? (
                               <div className="mt-3 rounded-2xl border border-dashed border-[rgba(15,26,109,0.12)] bg-white/80 px-3 py-2 text-xs text-[var(--color-neutral-600)]">
-                                Registro atual: {licitacaoChecklistFlexStatusLabels[item.statusFlexivel]}
-                                {item.departamentoResponsavel ? ` • setor: ${item.departamentoResponsavel}` : ""}
-                                {item.previsaoRecebimento ? ` • previsão: ${formatShortDateBR(item.previsaoRecebimento)}` : ""}
-                                {item.localArquivamento ? ` • arquivo físico: ${item.localArquivamento}` : ""}
-                                {item.digitalizarDepois ? " • digitalização pendente" : ""}
-                                <div className="mt-1">Justificativa: {item.justificativaNaoAplicavel}</div>
+                                Registro atual:{" "}
+                                {
+                                  licitacaoChecklistFlexStatusLabels[
+                                    item.statusFlexivel
+                                  ]
+                                }
+                                {item.departamentoResponsavel
+                                  ? ` • setor: ${item.departamentoResponsavel}`
+                                  : ""}
+                                {item.previsaoRecebimento
+                                  ? ` • previsão: ${formatShortDateBR(item.previsaoRecebimento)}`
+                                  : ""}
+                                {item.localArquivamento
+                                  ? ` • arquivo físico: ${item.localArquivamento}`
+                                  : ""}
+                                {item.digitalizarDepois
+                                  ? " • digitalização pendente"
+                                  : ""}
+                                <div className="mt-1">
+                                  Justificativa:{" "}
+                                  {item.justificativaNaoAplicavel}
+                                </div>
                               </div>
                             ) : null}
                             <div className="mt-3 flex justify-end">
                               <Button
                                 type="button"
                                 variant="outline"
-                                disabled={setChecklistNaoAplicavelMutation.isPending}
-                                onClick={() => void handleChecklistNaoAplicavel(item)}
+                                disabled={
+                                  setChecklistNaoAplicavelMutation.isPending
+                                }
+                                onClick={() =>
+                                  void handleChecklistNaoAplicavel(item)
+                                }
                               >
                                 {setChecklistNaoAplicavelMutation.isPending
                                   ? "Salvando..."
-                                  : naoAplicavelState.statusFlexivel === "PADRAO"
+                                  : naoAplicavelState.statusFlexivel ===
+                                      "PADRAO"
                                     ? "Reativar item"
                                     : "Salvar status especial"}
                               </Button>
@@ -2111,24 +3001,48 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           <FormField label="Título">
                             <Input
                               value={uploadState.titulo}
-                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, titulo: event.target.value }))}
+                              onChange={(event) =>
+                                setUploadState(item.category, (current) => ({
+                                  ...current,
+                                  titulo: event.target.value,
+                                }))
+                              }
                               placeholder={item.label}
                             />
                           </FormField>
                           <FormField label="Descrição">
                             <Input
                               value={uploadState.descricao}
-                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, descricao: event.target.value }))}
+                              onChange={(event) =>
+                                setUploadState(item.category, (current) => ({
+                                  ...current,
+                                  descricao: event.target.value,
+                                }))
+                              }
                               placeholder={item.description}
                             />
                           </FormField>
                           <FormField label="Arquivo" className="2xl:col-span-2">
-                            <Input type="file" onChange={(event) => handleFileChange(item.category, event, item.label)} />
+                            <Input
+                              type="file"
+                              onChange={(event) =>
+                                handleFileChange(
+                                  item.category,
+                                  event,
+                                  item.label,
+                                )
+                              }
+                            />
                           </FormField>
                         </div>
 
                         <div className="mt-3 flex justify-end">
-                          <Button type="button" onClick={() => void handleUploadChecklistDocumento(item)}>
+                          <Button
+                            type="button"
+                            onClick={() =>
+                              void handleUploadChecklistDocumento(item)
+                            }
+                          >
                             <Upload className="h-4 w-4" />
                             Anexar documento
                           </Button>
@@ -2145,17 +3059,31 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 title="Fase externa e rito operacional"
                 description="Checklist contextual da fase externa, com evidências documentais e leitura do andamento da sessão."
                 open={sectionOpen.external}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, external: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    external: nextOpen,
+                  }))
+                }
                 action={
                   <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
                     <CalendarClock className="h-4 w-4" />
-                    {externalChecklistItems.filter((item) => item.concluido).length}/{externalChecklistItems.length} concluídos
+                    {
+                      externalChecklistItems.filter((item) => item.concluido)
+                        .length
+                    }
+                    /{externalChecklistItems.length} concluídos
                   </div>
                 }
                 collapsedSummary={
                   <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Checklist externo: {externalChecklistItems.filter((item) => item.concluido).length}/{externalChecklistItems.length}
+                      Checklist externo:{" "}
+                      {
+                        externalChecklistItems.filter((item) => item.concluido)
+                          .length
+                      }
+                      /{externalChecklistItems.length}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
                       Pendentes: {externalPendingRequired.length}
@@ -2168,47 +3096,91 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
               >
                 <div className="grid gap-3 xl:grid-cols-4">
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Sessão oficial</div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.licitacao.dataAberturaPropostas ? formatShortDateTimeBR(detalhe.licitacao.dataAberturaPropostas) : "Ainda não definida"}
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Sessão oficial
                     </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Data da abertura e disputa vinculada ao processo.</p>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.licitacao.dataAberturaPropostas
+                        ? formatShortDateTimeBR(
+                            detalhe.licitacao.dataAberturaPropostas,
+                          )
+                        : "Ainda não definida"}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Data da abertura e disputa vinculada ao processo.
+                    </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Propostas</div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{detalhe.propostas.length}</div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Registros operacionais já associados à fase externa.</p>
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Propostas
+                    </div>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.propostas.length}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Registros operacionais já associados à fase externa.
+                    </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Habilitação</div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.licitantes.filter((item) => item.statusHabilitacao !== "PENDENTE").length}/{detalhe.licitantes.length}
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Habilitação
                     </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Licitantes com análise documental já registrada.</p>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {
+                        detalhe.licitantes.filter(
+                          (item) => item.statusHabilitacao !== "PENDENTE",
+                        ).length
+                      }
+                      /{detalhe.licitantes.length}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Licitantes com análise documental já registrada.
+                    </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fechamento</div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.processo.homologado ? "Homologado" : "Em andamento"}
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Fechamento
                     </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Ata, termo e envio à Controladoria para encerramento.</p>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.homologado
+                        ? "Homologado"
+                        : "Em andamento"}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Ata, termo e envio à Controladoria para encerramento.
+                    </p>
                   </article>
                 </div>
 
                 {externalPendingRequired.length ? (
                   <Alert variant="warning" title="Pendências da fase externa">
-                    Ainda faltam evidências obrigatórias para concluir a fase externa: {externalPendingRequired.map((item) => item.label).join(", ")}.
+                    Ainda faltam evidências obrigatórias para concluir a fase
+                    externa:{" "}
+                    {externalPendingRequired
+                      .map((item) => item.label)
+                      .join(", ")}
+                    .
                   </Alert>
                 ) : (
-                  <Alert variant="success">A fase externa possui evidências suficientes para seguir para contrato e fechamento administrativo.</Alert>
+                  <Alert variant="success">
+                    A fase externa possui evidências suficientes para seguir
+                    para contrato e fechamento administrativo.
+                  </Alert>
                 )}
 
                 <div className="grid gap-4 2xl:grid-cols-2">
                   {externalChecklistItems.map((item) => {
-                    const uploadState = getUploadState(uploadForms, item.category);
+                    const uploadState = getUploadState(
+                      uploadForms,
+                      item.category,
+                    );
                     const latestDocumento = item.documentos
                       .slice()
-                      .sort((left, right) => new Date(right.criadoEm).getTime() - new Date(left.criadoEm).getTime())[0];
+                      .sort(
+                        (left, right) =>
+                          new Date(right.criadoEm).getTime() -
+                          new Date(left.criadoEm).getTime(),
+                      )[0];
                     const statusClass = item.concluido
                       ? "bg-emerald-100 text-emerald-800"
                       : item.obrigatorio
@@ -2216,18 +3188,33 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         : "bg-slate-100 text-slate-800";
 
                     return (
-                      <article key={item.category} className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]">
+                      <article
+                        key={item.category}
+                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]"
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="text-base font-black text-[var(--color-primary-900)]">{item.label}</h4>
-                              <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}>
-                                {item.concluido ? "Concluído" : item.obrigatorio ? "Obrigatório" : "Opcional"}
+                              <h4 className="text-base font-black text-[var(--color-primary-900)]">
+                                {item.label}
+                              </h4>
+                              <span
+                                className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}
+                              >
+                                {item.concluido
+                                  ? "Concluído"
+                                  : item.obrigatorio
+                                    ? "Obrigatório"
+                                    : "Opcional"}
                               </span>
                             </div>
-                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">{item.description}</p>
+                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                              {item.description}
+                            </p>
                             {item.baseLegal ? (
-                              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">{item.baseLegal}</p>
+                              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                                {item.baseLegal}
+                              </p>
                             ) : null}
                           </div>
                           <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
@@ -2238,44 +3225,95 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-3 text-sm text-[var(--color-neutral-700)]">
                           {latestDocumento ? (
                             <>
-                              <div className="font-semibold text-[var(--color-primary-900)]">{latestDocumento.titulo}</div>
-                              <div className="mt-1 text-[var(--color-neutral-600)]">Última evidência anexada em {formatShortDateTimeBR(latestDocumento.criadoEm)}</div>
+                              <div className="font-semibold text-[var(--color-primary-900)]">
+                                {latestDocumento.titulo}
+                              </div>
+                              <div className="mt-1 text-[var(--color-neutral-600)]">
+                                Última evidência anexada em{" "}
+                                {formatShortDateTimeBR(
+                                  latestDocumento.criadoEm,
+                                )}
+                              </div>
                             </>
                           ) : (
-                            <div className="font-semibold text-[var(--color-neutral-700)]">{item.statusOrigem ?? "Sem evidência anexada até o momento."}</div>
+                            <div className="font-semibold text-[var(--color-neutral-700)]">
+                              {item.statusOrigem ??
+                                "Sem evidência anexada até o momento."}
+                            </div>
                           )}
-                          {item.completionHint ? <div className="mt-2 text-xs text-[var(--color-neutral-500)]">{item.completionHint}</div> : null}
+                          {item.completionHint ? (
+                            <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
+                              {item.completionHint}
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="mt-4 grid gap-3 2xl:grid-cols-2">
                           <FormField label="Título da evidência">
                             <Input
                               value={uploadState.titulo}
-                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, titulo: event.target.value }))}
+                              onChange={(event) =>
+                                setUploadState(item.category, (current) => ({
+                                  ...current,
+                                  titulo: event.target.value,
+                                }))
+                              }
                               placeholder={item.label}
                             />
                           </FormField>
                           <FormField label="Descrição">
                             <Input
                               value={uploadState.descricao}
-                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, descricao: event.target.value }))}
+                              onChange={(event) =>
+                                setUploadState(item.category, (current) => ({
+                                  ...current,
+                                  descricao: event.target.value,
+                                }))
+                              }
                               placeholder="Ex.: exportação da plataforma, comprovante, ata assinada"
                             />
                           </FormField>
                           <FormField label="Arquivo" className="2xl:col-span-2">
-                            <Input type="file" onChange={(event) => handleFileChange(item.category, event, item.label)} />
+                            <Input
+                              type="file"
+                              onChange={(event) =>
+                                handleFileChange(
+                                  item.category,
+                                  event,
+                                  item.label,
+                                )
+                              }
+                            />
                           </FormField>
                         </div>
 
                         <div className="mt-3 flex flex-wrap justify-end gap-2">
                           {latestDocumento ? (
-                            <a href={resolveServerAssetUrl(latestDocumento.arquivoUrl) ?? "#"} target="_blank" rel="noreferrer">
-                              <Button type="button" size="sm" variant="outline" disabled={!latestDocumento.arquivoUrl}>
+                            <a
+                              href={
+                                resolveServerAssetUrl(
+                                  latestDocumento.arquivoUrl,
+                                ) ?? "#"
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={!latestDocumento.arquivoUrl}
+                              >
                                 Abrir evidência
                               </Button>
                             </a>
                           ) : null}
-                          <Button type="button" onClick={() => void handleUploadChecklistDocumento(item)}>
+                          <Button
+                            type="button"
+                            onClick={() =>
+                              void handleUploadChecklistDocumento(item)
+                            }
+                          >
                             <Upload className="h-4 w-4" />
                             Anexar evidência
                           </Button>
@@ -2292,22 +3330,36 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 title="Documentos do processo"
                 description="Acervo completo recebido pelo setor, na ordem em que os documentos foram adicionados ao processo."
                 open={sectionOpen.docs}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, docs: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({ ...current, docs: nextOpen }))
+                }
                 action={
-                  <Button type="button" variant="outline" onClick={() => setShowAllDocsModal(true)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAllDocsModal(true)}
+                  >
                     <FolderKanban className="h-4 w-4" />
                     Abrir em destaque
                   </Button>
                 }
                 collapsedSummary={
                   <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{documentos.length} documento(s)</span>
-                    {documentos[0] ? <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Último: {documentos[0].titulo}</span> : null}
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      {documentos.length} documento(s)
+                    </span>
+                    {documentos[0] ? (
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        Último: {documentos[0].titulo}
+                      </span>
+                    ) : null}
                   </div>
                 }
               >
                 {!documentos.length ? (
-                  <Alert variant="info">Este processo ainda não possui documentos vinculados.</Alert>
+                  <Alert variant="info">
+                    Este processo ainda não possui documentos vinculados.
+                  </Alert>
                 ) : (
                   <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
                     <Table className="min-w-[1080px]">
@@ -2318,7 +3370,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           <TableHeaderCell>Tipo</TableHeaderCell>
                           <TableHeaderCell>Categoria</TableHeaderCell>
                           <TableHeaderCell>Adicionado em</TableHeaderCell>
-                          <TableHeaderCell className="text-right">Arquivo</TableHeaderCell>
+                          <TableHeaderCell className="text-right">
+                            Arquivo
+                          </TableHeaderCell>
                         </tr>
                       </TableHead>
                       <TableBody>
@@ -2326,15 +3380,32 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           <TableRow key={item.id}>
                             <TableCell>{index + 1}</TableCell>
                             <TableCell>
-                              <div className="font-semibold text-[var(--color-primary-900)]">{item.titulo}</div>
-                              <div className="text-xs text-[var(--color-neutral-500)]">Versão {item.versao}</div>
+                              <div className="font-semibold text-[var(--color-primary-900)]">
+                                {item.titulo}
+                              </div>
+                              <div className="text-xs text-[var(--color-neutral-500)]">
+                                Versão {item.versao}
+                              </div>
                             </TableCell>
                             <TableCell>{item.tipo}</TableCell>
                             <TableCell>{item.categoria ?? "-"}</TableCell>
-                            <TableCell>{formatShortDateTimeBR(item.criadoEm)}</TableCell>
+                            <TableCell>
+                              {formatShortDateTimeBR(item.criadoEm)}
+                            </TableCell>
                             <TableCell className="text-right">
-                              <a href={resolveServerAssetUrl(item.arquivoUrl) ?? "#"} target="_blank" rel="noreferrer">
-                                <Button type="button" size="sm" variant="outline" disabled={!item.arquivoUrl}>
+                              <a
+                                href={
+                                  resolveServerAssetUrl(item.arquivoUrl) ?? "#"
+                                }
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!item.arquivoUrl}
+                                >
                                   Abrir
                                 </Button>
                               </a>
@@ -2350,12 +3421,23 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
             <section ref={publicationRef}>
               <CollapsibleSectionCard
-                title={isForaDoFluxo ? "Cronograma manual (processo fora do fluxo)" : "Publicação e cronograma automático"}
-                description={isForaDoFluxo
-                  ? "Edite manualmente todas as datas críticas e registre a justificativa no modo fora do fluxo."
-                  : "Depois de concluir a fase interna, o sistema calcula automaticamente o cronograma de publicação e prazos com o acréscimo municipal adotado em Teixeira de Freitas."}
+                title={
+                  isForaDoFluxo
+                    ? "Cronograma manual (processo fora do fluxo)"
+                    : "Publicação e cronograma automático"
+                }
+                description={
+                  isForaDoFluxo
+                    ? "Edite manualmente todas as datas críticas e registre a justificativa no modo fora do fluxo."
+                    : "Depois de concluir a fase interna, o sistema calcula automaticamente o cronograma de publicação e prazos com o acréscimo municipal adotado em Teixeira de Freitas."
+                }
                 open={sectionOpen.publication}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, publication: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    publication: nextOpen,
+                  }))
+                }
                 action={
                   <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
                     <CalendarClock className="h-4 w-4" />
@@ -2366,46 +3448,134 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   isForaDoFluxo ? (
                     <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">{publishForm.dataPublicacaoEdital ? formatShortDateBR(new Date(`${publishForm.dataPublicacaoEdital}T12:00:00`)) : "Sem data"}</span>
-                        <div className="text-amber-700">Publicação (manual)</div>
+                        <span className="font-semibold text-amber-900">
+                          {publishForm.dataPublicacaoEdital
+                            ? formatShortDateBR(
+                                new Date(
+                                  `${publishForm.dataPublicacaoEdital}T12:00:00`,
+                                ),
+                              )
+                            : "Sem data"}
+                        </span>
+                        <div className="text-amber-700">
+                          Publicação (manual)
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">{manualScheduleForm.dataRecebimentoPropostasInicio ? formatShortDateTimeBR(new Date(manualScheduleForm.dataRecebimentoPropostasInicio)) : "Sem data"}</span>
-                        <div className="text-amber-700">Recebimento inicial</div>
+                        <span className="font-semibold text-amber-900">
+                          {manualScheduleForm.dataRecebimentoPropostasInicio
+                            ? formatShortDateTimeBR(
+                                new Date(
+                                  manualScheduleForm.dataRecebimentoPropostasInicio,
+                                ),
+                              )
+                            : "Sem data"}
+                        </span>
+                        <div className="text-amber-700">
+                          Recebimento inicial
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">{manualScheduleForm.dataRecebimentoPropostasFim ? formatShortDateTimeBR(new Date(manualScheduleForm.dataRecebimentoPropostasFim)) : "Sem data"}</span>
+                        <span className="font-semibold text-amber-900">
+                          {manualScheduleForm.dataRecebimentoPropostasFim
+                            ? formatShortDateTimeBR(
+                                new Date(
+                                  manualScheduleForm.dataRecebimentoPropostasFim,
+                                ),
+                              )
+                            : "Sem data"}
+                        </span>
                         <div className="text-amber-700">Recebimento final</div>
                       </div>
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">{manualScheduleForm.dataAberturaPropostas ? formatShortDateTimeBR(new Date(manualScheduleForm.dataAberturaPropostas)) : "Sem data"}</span>
+                        <span className="font-semibold text-amber-900">
+                          {manualScheduleForm.dataAberturaPropostas
+                            ? formatShortDateTimeBR(
+                                new Date(
+                                  manualScheduleForm.dataAberturaPropostas,
+                                ),
+                              )
+                            : "Sem data"}
+                        </span>
                         <div className="text-amber-700">Disputa</div>
                       </div>
                     </div>
                   ) : schedulePreview ? (
                     <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{formatShortDateBR(schedulePreview.dataPublicacaoEdital)}</span><div className="text-[var(--color-neutral-500)]">Publicação</div></div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataRecebimentoPropostasInicio)}</span><div className="text-[var(--color-neutral-500)]">Recebimento inicial</div></div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataRecebimentoPropostasFim)}</span><div className="text-[var(--color-neutral-500)]">Recebimento final</div></div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm"><span className="font-semibold text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataAberturaPropostas)}</span><div className="text-[var(--color-neutral-500)]">Disputa</div></div>
+                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {formatShortDateBR(
+                            schedulePreview.dataPublicacaoEdital,
+                          )}
+                        </span>
+                        <div className="text-[var(--color-neutral-500)]">
+                          Publicação
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataRecebimentoPropostasInicio,
+                          )}
+                        </span>
+                        <div className="text-[var(--color-neutral-500)]">
+                          Recebimento inicial
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataRecebimentoPropostasFim,
+                          )}
+                        </span>
+                        <div className="text-[var(--color-neutral-500)]">
+                          Recebimento final
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataAberturaPropostas,
+                          )}
+                        </span>
+                        <div className="text-[var(--color-neutral-500)]">
+                          Disputa
+                        </div>
+                      </div>
                     </div>
                   ) : (
-                    <Alert variant="info">Informe a data de publicação e a hora da disputa para gerar o cronograma automático.</Alert>
+                    <Alert variant="info">
+                      Informe a data de publicação e a hora da disputa para
+                      gerar o cronograma automático.
+                    </Alert>
                   )
                 }
               >
                 <form className="space-y-5" onSubmit={handlePublish}>
                   <DatePickerLegal
                     value={publishForm.dataPublicacaoEdital}
-                    onChange={(nextValue) => setPublishForm((current) => ({ ...current, dataPublicacaoEdital: nextValue }))}
+                    onChange={(nextValue) =>
+                      setPublishForm((current) => ({
+                        ...current,
+                        dataPublicacaoEdital: nextValue,
+                      }))
+                    }
                     modalidadeCodigo={detalhe?.processo.modalidadeCodigo}
                     tipoObjeto={detalhe?.processo.tipoObjeto}
-                    criterioJulgamento={configForm.criterioJulgamento || detalhe?.processo.criterioJulgamento}
+                    criterioJulgamento={
+                      configForm.criterioJulgamento ||
+                      detalhe?.processo.criterioJulgamento
+                    }
                     publicarNoDou={configForm.publicarNoDou}
                     publicarEmJornal={configForm.publicarEmJornal}
                     foraDoFluxo={isForaDoFluxo}
-                    acrescimoMunicipal={1}
-                    comparisonDate={isForaDoFluxo ? manualScheduleForm.dataAberturaPropostas : schedulePreview?.dataAberturaPropostas}
+                    acrescimoMunicipal={acrescimoMunicipal}
+                    feriadosLocais={feriadosLocais}
+                    comparisonDate={
+                      isForaDoFluxo
+                        ? manualScheduleForm.dataAberturaPropostas
+                        : schedulePreview?.dataAberturaPropostas
+                    }
                     comparisonLabel="Sessão / disputa"
                     justificationValue={legalDateOverrideJustification}
                     onJustificationChange={setLegalDateOverrideJustification}
@@ -2418,13 +3588,26 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         <Input
                           type="time"
                           value={publishForm.horaDisputa}
-                          onChange={(event) => setPublishForm((current) => ({ ...current, horaDisputa: event.target.value }))}
+                          onChange={(event) =>
+                            setPublishForm((current) => ({
+                              ...current,
+                              horaDisputa: event.target.value,
+                            }))
+                          }
                         />
                         <Clock3 className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[var(--color-neutral-400)]" />
                       </div>
                     </FormField>
                     <FormField label="Condutor do processo">
-                      <Select value={publishForm.condutorProcessoId} onChange={(event) => setPublishForm((current) => ({ ...current, condutorProcessoId: event.target.value }))}>
+                      <Select
+                        value={publishForm.condutorProcessoId}
+                        onChange={(event) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            condutorProcessoId: event.target.value,
+                          }))
+                        }
+                      >
                         <option value="">Selecione</option>
                         {catalogsQuery.data?.pessoas.map((item) => (
                           <option key={item.id} value={item.id}>
@@ -2434,7 +3617,15 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       </Select>
                     </FormField>
                     <FormField label="Status do processo">
-                      <Select value={publishForm.statusId} onChange={(event) => setPublishForm((current) => ({ ...current, statusId: event.target.value }))}>
+                      <Select
+                        value={publishForm.statusId}
+                        onChange={(event) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            statusId: event.target.value,
+                          }))
+                        }
+                      >
                         <option value="">Manter atual</option>
                         {catalogsQuery.data?.statusProcesso.map((item) => (
                           <option key={item.id} value={item.id}>
@@ -2444,69 +3635,131 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       </Select>
                     </FormField>
                     <FormField label="Número do edital">
-                      <Input value={detalhe.processo.numeroEdital ?? "Gerado automaticamente no ato da publicação"} disabled />
+                      <Input
+                        value={
+                          detalhe.processo.numeroEdital ??
+                          "Gerado automaticamente no ato da publicação"
+                        }
+                        disabled
+                      />
                     </FormField>
                   </div>
 
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                     <FormField label="Descrição da movimentação">
-                      <Input value={publishForm.descricao} onChange={(event) => setPublishForm((current) => ({ ...current, descricao: event.target.value }))} />
+                      <Input
+                        value={publishForm.descricao}
+                        onChange={(event) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            descricao: event.target.value,
+                          }))
+                        }
+                      />
                     </FormField>
                     <FormField label="Observação operacional">
-                      <Textarea rows={3} value={publishForm.observacao} onChange={(event) => setPublishForm((current) => ({ ...current, observacao: event.target.value }))} />
+                      <Textarea
+                        rows={3}
+                        value={publishForm.observacao}
+                        onChange={(event) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            observacao: event.target.value,
+                          }))
+                        }
+                      />
                     </FormField>
                   </div>
 
                   {inversaoFasesAtiva ? (
                     <Alert variant="info">
-                      Inversão de fases ativa: a habilitação é priorizada antes das etapas competitivas. Ajuste o cronograma conforme necessário.
+                      Inversão de fases ativa: a habilitação é priorizada antes
+                      das etapas competitivas. Ajuste o cronograma conforme
+                      necessário.
                     </Alert>
                   ) : null}
 
                   {isForaDoFluxo ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Cronograma manual</div>
+                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
+                        Cronograma manual
+                      </div>
                       <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                         <FormField label="Recebimento inicial">
                           <Input
                             type="datetime-local"
-                            value={manualScheduleForm.dataRecebimentoPropostasInicio}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataRecebimentoPropostasInicio: event.target.value }))}
+                            value={
+                              manualScheduleForm.dataRecebimentoPropostasInicio
+                            }
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataRecebimentoPropostasInicio:
+                                  event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                         <FormField label="Recebimento final">
                           <Input
                             type="datetime-local"
-                            value={manualScheduleForm.dataRecebimentoPropostasFim}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataRecebimentoPropostasFim: event.target.value }))}
+                            value={
+                              manualScheduleForm.dataRecebimentoPropostasFim
+                            }
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataRecebimentoPropostasFim: event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                         <FormField label="Abertura / disputa">
                           <Input
                             type="datetime-local"
                             value={manualScheduleForm.dataAberturaPropostas}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataAberturaPropostas: event.target.value }))}
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataAberturaPropostas: event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                         <FormField label="Início dos lances">
                           <Input
                             type="datetime-local"
                             value={manualScheduleForm.dataInicioLances}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataInicioLances: event.target.value }))}
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataInicioLances: event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                         <FormField label="Fim dos lances">
                           <Input
                             type="datetime-local"
                             value={manualScheduleForm.dataFimLances}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataFimLances: event.target.value }))}
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataFimLances: event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                         <FormField label="Julgamento">
                           <Input
                             type="datetime-local"
                             value={manualScheduleForm.dataJulgamento}
-                            onChange={(event) => setManualScheduleForm((current) => ({ ...current, dataJulgamento: event.target.value }))}
+                            onChange={(event) =>
+                              setManualScheduleForm((current) => ({
+                                ...current,
+                                dataJulgamento: event.target.value,
+                              }))
+                            }
                           />
                         </FormField>
                       </div>
@@ -2514,54 +3767,113 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   ) : null}
                   {isForaDoFluxo ? (
                     <div className="space-y-3">
-                      <Alert variant="warning">Cronograma manual ativo. As datas acima serão usadas para auditoria e publicação.</Alert>
-                      {manualScheduleViolatesLegalMinimum && legalScheduleWindow ? (
+                      <Alert variant="warning">
+                        Cronograma manual ativo. As datas acima serão usadas
+                        para auditoria e publicação.
+                      </Alert>
+                      {manualScheduleViolatesLegalMinimum &&
+                      legalScheduleWindow ? (
                         <Alert variant="warning">
-                          A sessão manual está anterior ao mínimo legal calculado para {formatShortDateBR(legalScheduleWindow.dataMinimaLegal)}. O SIREL permitirá o registro extemporâneo, mas exigirá justificativa e manterá o rastreio reforçado.
+                          A sessão manual está anterior ao mínimo legal
+                          calculado para{" "}
+                          {formatShortDateBR(
+                            legalScheduleWindow.dataMinimaLegal,
+                          )}
+                          . O SIREL permitirá o registro extemporâneo, mas
+                          exigirá justificativa e manterá o rastreio reforçado.
                         </Alert>
                       ) : null}
                     </div>
                   ) : schedulePreview ? (
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Publicação</p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{formatShortDateBR(schedulePreview.dataPublicacaoEdital)}</p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Data base informada</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Publicação
+                        </p>
+                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                          {formatShortDateBR(
+                            schedulePreview.dataPublicacaoEdital,
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          Data base informada
+                        </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Recebimento inicial</p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataRecebimentoPropostasInicio)}</p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">{schedulePreview.startOffset} dias úteis após a publicação</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Recebimento inicial
+                        </p>
+                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataRecebimentoPropostasInicio,
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          {schedulePreview.startOffset} dias úteis após a
+                          publicação
+                        </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Recebimento final</p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataRecebimentoPropostasFim)}</p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Mesmo dia da disputa, 15 minutos antes</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Recebimento final
+                        </p>
+                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataRecebimentoPropostasFim,
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          Mesmo dia da disputa, 15 minutos antes
+                        </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Sessão / disputa</p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{formatShortDateTimeBR(schedulePreview.dataAberturaPropostas)}</p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Horário definido para a disputa</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Sessão / disputa
+                        </p>
+                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                          {formatShortDateTimeBR(
+                            schedulePreview.dataAberturaPropostas,
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          Horário definido para a disputa
+                        </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Acréscimos</p>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Acréscimos
+                        </p>
                         <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                           +{schedulePreview.municipioExtra}
-                          {schedulePreview.canaisExtra ? ` / +${schedulePreview.canaisExtra}` : ""}
+                          {schedulePreview.canaisExtra
+                            ? ` / +${schedulePreview.canaisExtra}`
+                            : ""}
                         </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Município / canais extras (DOU ou jornal)</p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          Município / canais extras (DOU ou jornal)
+                        </p>
                       </article>
                     </div>
                   ) : (
-                    <Alert variant="info">Defina a data prevista de publicação e a hora da disputa para calcular automaticamente o cronograma.</Alert>
+                    <Alert variant="info">
+                      Defina a data prevista de publicação e a hora da disputa
+                      para calcular automaticamente o cronograma.
+                    </Alert>
                   )}
 
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => void persistConfiguracao()} disabled={saveConfiguracaoMutation.isPending}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void persistConfiguracao()}
+                      disabled={saveConfiguracaoMutation.isPending}
+                    >
                       Salvar cronograma
                     </Button>
                     <Button type="submit" disabled={publishMutation.isPending}>
-                      {publishMutation.isPending ? "Publicando..." : "Publicar processo"}
+                      {publishMutation.isPending
+                        ? "Publicando..."
+                        : "Publicar processo"}
                     </Button>
                   </div>
                 </form>
@@ -2569,187 +3881,359 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             </section>
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
-
             {showCompetitivoSteps ? (
-            <section ref={licitantesRef}>
-              <CollapsibleSectionCard
-                title="Licitantes"
-                description="Controle dos participantes habilitados a apresentar propostas nesta licitação."
-                open={sectionOpen.licitantes}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, licitantes: nextOpen }))}
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{detalhe.licitantes.length} licitante(s)</span>
-                    {detalhe.licitantes[0] ? <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Último: {detalhe.licitantes[0].razaoSocial}</span> : null}
+              <section ref={licitantesRef}>
+                <CollapsibleSectionCard
+                  title="Licitantes"
+                  description="Controle dos participantes habilitados a apresentar propostas nesta licitação."
+                  open={sectionOpen.licitantes}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      licitantes: nextOpen,
+                    }))
+                  }
+                  collapsedSummary={
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        {detalhe.licitantes.length} licitante(s)
+                      </span>
+                      {detalhe.licitantes[0] ? (
+                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                          Último: {detalhe.licitantes[0].razaoSocial}
+                        </span>
+                      ) : null}
+                    </div>
+                  }
+                >
+                  <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto]">
+                    <FormField label="Fornecedor">
+                      <Select
+                        value={licitanteFornecedorId}
+                        onChange={(event) =>
+                          setLicitanteFornecedorId(event.target.value)
+                        }
+                      >
+                        <option value="">Selecione</option>
+                        {catalogsQuery.data?.fornecedores.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.razaoSocial}{" "}
+                            {item.cnpj ? `- ${item.cnpj}` : ""}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        onClick={() => void handleAddLicitante()}
+                        disabled={saveLicitanteMutation.isPending}
+                      >
+                        {saveLicitanteMutation.isPending
+                          ? "Incluindo..."
+                          : "Adicionar licitante"}
+                      </Button>
+                    </div>
                   </div>
-                }
-              >
-                <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto]">
-                  <FormField label="Fornecedor">
-                    <Select value={licitanteFornecedorId} onChange={(event) => setLicitanteFornecedorId(event.target.value)}>
-                      <option value="">Selecione</option>
-                      {catalogsQuery.data?.fornecedores.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.razaoSocial} {item.cnpj ? `- ${item.cnpj}` : ""}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <div className="flex items-end">
-                    <Button type="button" onClick={() => void handleAddLicitante()} disabled={saveLicitanteMutation.isPending}>
-                      {saveLicitanteMutation.isPending ? "Incluindo..." : "Adicionar licitante"}
-                    </Button>
-                  </div>
-                </div>
 
-                <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                  <Table className="min-w-[860px]">
-                    <TableHead>
-                      <tr>
-                        <TableHeaderCell>Licitante</TableHeaderCell>
-                        <TableHeaderCell>CNPJ</TableHeaderCell>
-                        <TableHeaderCell>Habilitação</TableHeaderCell>
-                        <TableHeaderCell>Cadastro</TableHeaderCell>
-                        <TableHeaderCell className="text-right">Ações</TableHeaderCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {detalhe.licitantes.length ? (
-                        detalhe.licitantes.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>
-                              <div className="font-semibold text-[var(--color-primary-900)]">{item.razaoSocial}</div>
-                              <div className="text-xs text-[var(--color-neutral-500)]">{item.ativo ? "Participando" : "Inativo"}</div>
-                            </TableCell>
-                            <TableCell>{item.cnpj ?? "-"}</TableCell>
-                            <TableCell>{habilitacaoStatusLabels[item.statusHabilitacao as keyof typeof habilitacaoStatusLabels] ?? item.statusHabilitacao}</TableCell>
-                            <TableCell>{formatShortDateTimeBR(item.dataCadastro)}</TableCell>
-                            <TableCell className="text-right">
-                              <Button type="button" size="sm" variant="outline" onClick={() => void deleteLicitanteMutation.mutateAsync({ licitanteId: item.id })} disabled={deleteLicitanteMutation.isPending || !item.ativo}>
-                                Retirar
-                              </Button>
+                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                    <Table className="min-w-[860px]">
+                      <TableHead>
+                        <tr>
+                          <TableHeaderCell>Licitante</TableHeaderCell>
+                          <TableHeaderCell>CNPJ</TableHeaderCell>
+                          <TableHeaderCell>Habilitação</TableHeaderCell>
+                          <TableHeaderCell>Cadastro</TableHeaderCell>
+                          <TableHeaderCell className="text-right">
+                            Ações
+                          </TableHeaderCell>
+                        </tr>
+                      </TableHead>
+                      <TableBody>
+                        {detalhe.licitantes.length ? (
+                          detalhe.licitantes.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                <div className="font-semibold text-[var(--color-primary-900)]">
+                                  {item.razaoSocial}
+                                </div>
+                                <div className="text-xs text-[var(--color-neutral-500)]">
+                                  {item.ativo ? "Participando" : "Inativo"}
+                                </div>
+                              </TableCell>
+                              <TableCell>{item.cnpj ?? "-"}</TableCell>
+                              <TableCell>
+                                {habilitacaoStatusLabels[
+                                  item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
+                                ] ?? item.statusHabilitacao}
+                              </TableCell>
+                              <TableCell>
+                                {formatShortDateTimeBR(item.dataCadastro)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    void deleteLicitanteMutation.mutateAsync({
+                                      licitanteId: item.id,
+                                    })
+                                  }
+                                  disabled={
+                                    deleteLicitanteMutation.isPending ||
+                                    !item.ativo
+                                  }
+                                >
+                                  Retirar
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="text-[var(--color-neutral-500)]"
+                            >
+                              Nenhum licitante registrado ainda.
                             </TableCell>
                           </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-[var(--color-neutral-500)]">Nenhum licitante registrado ainda.</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CollapsibleSectionCard>
-            </section>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CollapsibleSectionCard>
+              </section>
             ) : null}
 
             {showCompetitivoSteps ? (
-            <section ref={propostasRef}>
-              <CollapsibleSectionCard
-                title="Propostas"
-                description="Recebimento, classificação inicial e situação das propostas por item e por licitante."
-                open={sectionOpen.propostas}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, propostas: nextOpen }))}
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleAdvanceStage("RECEBIMENTO_PROPOSTAS", "Licitação / recebimento de propostas", "Recebimento de propostas em andamento.")}
-                    disabled={advanceStageMutation.isPending}
+              <section ref={propostasRef}>
+                <CollapsibleSectionCard
+                  title="Propostas"
+                  description="Recebimento, classificação inicial e situação das propostas por item e por licitante."
+                  open={sectionOpen.propostas}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      propostas: nextOpen,
+                    }))
+                  }
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        void handleAdvanceStage(
+                          "RECEBIMENTO_PROPOSTAS",
+                          "Licitação / recebimento de propostas",
+                          "Recebimento de propostas em andamento.",
+                        )
+                      }
+                      disabled={advanceStageMutation.isPending}
+                    >
+                      Definir etapa atual
+                    </Button>
+                  }
+                  collapsedSummary={
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        {detalhe.propostas.length} proposta(s)
+                      </span>
+                      {detalhe.propostas[0] ? (
+                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                          Última: item {detalhe.propostas[0].itemNumero}
+                        </span>
+                      ) : null}
+                    </div>
+                  }
+                >
+                  <form
+                    className="grid gap-4 2xl:grid-cols-2"
+                    onSubmit={handleSaveProposta}
                   >
-                    Definir etapa atual
-                  </Button>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{detalhe.propostas.length} proposta(s)</span>
-                    {detalhe.propostas[0] ? <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Última: item {detalhe.propostas[0].itemNumero}</span> : null}
-                  </div>
-                }
-              >
-                <form className="grid gap-4 2xl:grid-cols-2" onSubmit={handleSaveProposta}>
-                  <FormField label="Licitante">
-                    <Select value={propostaForm.licitanteId} onChange={(event) => setPropostaForm((current) => ({ ...current, licitanteId: event.target.value }))}>
-                      <option value="">Selecione</option>
-                      {detalhe.licitantes.filter((item) => item.ativo).map((item) => (
-                        <option key={item.id} value={item.id}>{item.razaoSocial}</option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <FormField label="Item do processo">
-                    <Select value={propostaForm.itemId} onChange={(event) => setPropostaForm((current) => ({ ...current, itemId: event.target.value }))}>
-                      <option value="">Selecione</option>
-                      {detalhe.itens.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          Item {item.numeroItem} - {item.descricao}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <FormField label="Valor unitário proposto">
-                    <Input value={propostaForm.valorUnitarioProposto} onChange={(event) => setPropostaForm((current) => ({ ...current, valorUnitarioProposto: maskCurrencyInputBR(event.target.value) }))} placeholder="R$ 0,00" />
-                  </FormField>
-                  <FormField label="Data da proposta">
-                    <Input type="date" value={propostaForm.dataProposta} onChange={(event) => setPropostaForm((current) => ({ ...current, dataProposta: event.target.value }))} />
-                  </FormField>
-                  <FormField label="Classificação">
-                    <Input type="number" min={1} value={propostaForm.classificacao} onChange={(event) => setPropostaForm((current) => ({ ...current, classificacao: event.target.value }))} placeholder="1" />
-                  </FormField>
-                  <FormField label="Situação">
-                    <Select value={propostaForm.situacao} onChange={(event) => setPropostaForm((current) => ({ ...current, situacao: event.target.value }))}>
-                      {propostaSituacaoOptions.map((item) => (
-                        <option key={item} value={item}>{propostaSituacaoLabels[item]}</option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <FormField label="Justificativa" className="2xl:col-span-2">
-                    <Textarea rows={3} value={propostaForm.justificativa} onChange={(event) => setPropostaForm((current) => ({ ...current, justificativa: event.target.value }))} />
-                  </FormField>
-                  <div className="xl:col-span-2 flex justify-end">
-                    <Button type="submit" disabled={savePropostaMutation.isPending}>{savePropostaMutation.isPending ? "Salvando..." : "Registrar proposta"}</Button>
-                  </div>
-                </form>
+                    <FormField label="Licitante">
+                      <Select
+                        value={propostaForm.licitanteId}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            licitanteId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Selecione</option>
+                        {detalhe.licitantes
+                          .filter((item) => item.ativo)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.razaoSocial}
+                            </option>
+                          ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Item do processo">
+                      <Select
+                        value={propostaForm.itemId}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            itemId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Selecione</option>
+                        {detalhe.itens.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            Item {item.numeroItem} - {item.descricao}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Valor unitário proposto">
+                      <Input
+                        value={propostaForm.valorUnitarioProposto}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            valorUnitarioProposto: maskCurrencyInputBR(
+                              event.target.value,
+                            ),
+                          }))
+                        }
+                        placeholder="R$ 0,00"
+                      />
+                    </FormField>
+                    <FormField label="Data da proposta">
+                      <Input
+                        type="date"
+                        value={propostaForm.dataProposta}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            dataProposta: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Classificação">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={propostaForm.classificacao}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            classificacao: event.target.value,
+                          }))
+                        }
+                        placeholder="1"
+                      />
+                    </FormField>
+                    <FormField label="Situação">
+                      <Select
+                        value={propostaForm.situacao}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            situacao: event.target.value,
+                          }))
+                        }
+                      >
+                        {propostaSituacaoOptions.map((item) => (
+                          <option key={item} value={item}>
+                            {propostaSituacaoLabels[item]}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Justificativa" className="2xl:col-span-2">
+                      <Textarea
+                        rows={3}
+                        value={propostaForm.justificativa}
+                        onChange={(event) =>
+                          setPropostaForm((current) => ({
+                            ...current,
+                            justificativa: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <div className="xl:col-span-2 flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={savePropostaMutation.isPending}
+                      >
+                        {savePropostaMutation.isPending
+                          ? "Salvando..."
+                          : "Registrar proposta"}
+                      </Button>
+                    </div>
+                  </form>
 
-                <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                  <Table className="min-w-[1080px]">
-                    <TableHead>
-                      <tr>
-                        <TableHeaderCell>Item</TableHeaderCell>
-                        <TableHeaderCell>Licitante</TableHeaderCell>
-                        <TableHeaderCell>Valor unitário</TableHeaderCell>
-                        <TableHeaderCell>Valor atual</TableHeaderCell>
-                        <TableHeaderCell>Classificação</TableHeaderCell>
-                        <TableHeaderCell>Situação</TableHeaderCell>
-                        <TableHeaderCell>Data</TableHeaderCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {detalhe.propostas.length ? (
-                        detalhe.propostas.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>
-                              <div className="font-semibold text-[var(--color-primary-900)]">Item {item.itemNumero}</div>
-                              <div className="text-xs text-[var(--color-neutral-500)]">{item.itemDescricao}</div>
+                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                    <Table className="min-w-[1080px]">
+                      <TableHead>
+                        <tr>
+                          <TableHeaderCell>Item</TableHeaderCell>
+                          <TableHeaderCell>Licitante</TableHeaderCell>
+                          <TableHeaderCell>Valor unitário</TableHeaderCell>
+                          <TableHeaderCell>Valor atual</TableHeaderCell>
+                          <TableHeaderCell>Classificação</TableHeaderCell>
+                          <TableHeaderCell>Situação</TableHeaderCell>
+                          <TableHeaderCell>Data</TableHeaderCell>
+                        </tr>
+                      </TableHead>
+                      <TableBody>
+                        {detalhe.propostas.length ? (
+                          detalhe.propostas.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                <div className="font-semibold text-[var(--color-primary-900)]">
+                                  Item {item.itemNumero}
+                                </div>
+                                <div className="text-xs text-[var(--color-neutral-500)]">
+                                  {item.itemDescricao}
+                                </div>
+                              </TableCell>
+                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell>
+                                {formatCurrencyBRL(
+                                  Number(item.valorUnitarioProposto ?? 0),
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {formatCurrencyBRL(
+                                  Number(item.valorAtualUnitario ?? 0),
+                                )}
+                              </TableCell>
+                              <TableCell>{item.classificacao ?? "-"}</TableCell>
+                              <TableCell>
+                                {propostaSituacaoLabels[
+                                  item.situacao as keyof typeof propostaSituacaoLabels
+                                ] ?? item.situacao}
+                              </TableCell>
+                              <TableCell>
+                                {formatShortDateTimeBR(item.dataProposta)}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={7}
+                              className="text-[var(--color-neutral-500)]"
+                            >
+                              Nenhuma proposta registrada ainda.
                             </TableCell>
-                            <TableCell>{item.licitanteNome}</TableCell>
-                            <TableCell>{formatCurrencyBRL(Number(item.valorUnitarioProposto ?? 0))}</TableCell>
-                            <TableCell>{formatCurrencyBRL(Number(item.valorAtualUnitario ?? 0))}</TableCell>
-                            <TableCell>{item.classificacao ?? "-"}</TableCell>
-                            <TableCell>{propostaSituacaoLabels[item.situacao as keyof typeof propostaSituacaoLabels] ?? item.situacao}</TableCell>
-                            <TableCell>{formatShortDateTimeBR(item.dataProposta)}</TableCell>
                           </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-[var(--color-neutral-500)]">Nenhuma proposta registrada ainda.</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CollapsibleSectionCard>
-            </section>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CollapsibleSectionCard>
+              </section>
             ) : null}
 
             {showLances ? (
@@ -2758,13 +4242,24 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   title="Lances"
                   description="Registro operacional dos lances apresentados durante a sessão pública."
                   open={sectionOpen.lances}
-                  onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, lances: nextOpen }))}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      lances: nextOpen,
+                    }))
+                  }
                   action={
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => void handleAdvanceStage("LANCES", "Licitação / fase de lances", "Sessão de lances em andamento.")}
+                      onClick={() =>
+                        void handleAdvanceStage(
+                          "LANCES",
+                          "Licitação / fase de lances",
+                          "Sessão de lances em andamento.",
+                        )
+                      }
                       disabled={advanceStageMutation.isPending}
                     >
                       Definir etapa atual
@@ -2772,14 +4267,32 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   }
                   collapsedSummary={
                     <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{detalhe.lances.length} lance(s)</span>
-                      {detalhe.lances[0] ? <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Último em {formatShortDateTimeBR(detalhe.lances[0].dataLance)}</span> : null}
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        {detalhe.lances.length} lance(s)
+                      </span>
+                      {detalhe.lances[0] ? (
+                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                          Último em{" "}
+                          {formatShortDateTimeBR(detalhe.lances[0].dataLance)}
+                        </span>
+                      ) : null}
                     </div>
                   }
                 >
-                  <form className="grid gap-4 2xl:grid-cols-2" onSubmit={handleSaveLance}>
+                  <form
+                    className="grid gap-4 2xl:grid-cols-2"
+                    onSubmit={handleSaveLance}
+                  >
                     <FormField label="Proposta vinculada">
-                      <Select value={lanceForm.propostaId} onChange={(event) => setLanceForm((current) => ({ ...current, propostaId: event.target.value }))}>
+                      <Select
+                        value={lanceForm.propostaId}
+                        onChange={(event) =>
+                          setLanceForm((current) => ({
+                            ...current,
+                            propostaId: event.target.value,
+                          }))
+                        }
+                      >
                         <option value="">Selecione</option>
                         {detalhe.propostas.map((item) => (
                           <option key={item.id} value={item.id}>
@@ -2789,16 +4302,50 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       </Select>
                     </FormField>
                     <FormField label="Valor do lance">
-                      <Input value={lanceForm.valorLance} onChange={(event) => setLanceForm((current) => ({ ...current, valorLance: maskCurrencyInputBR(event.target.value) }))} placeholder="R$ 0,00" />
+                      <Input
+                        value={lanceForm.valorLance}
+                        onChange={(event) =>
+                          setLanceForm((current) => ({
+                            ...current,
+                            valorLance: maskCurrencyInputBR(event.target.value),
+                          }))
+                        }
+                        placeholder="R$ 0,00"
+                      />
                     </FormField>
                     <FormField label="Data do lance">
-                      <Input type="date" value={lanceForm.dataLance} onChange={(event) => setLanceForm((current) => ({ ...current, dataLance: event.target.value }))} />
+                      <Input
+                        type="date"
+                        value={lanceForm.dataLance}
+                        onChange={(event) =>
+                          setLanceForm((current) => ({
+                            ...current,
+                            dataLance: event.target.value,
+                          }))
+                        }
+                      />
                     </FormField>
                     <FormField label="Observação">
-                      <Textarea rows={3} value={lanceForm.observacao} onChange={(event) => setLanceForm((current) => ({ ...current, observacao: event.target.value }))} />
+                      <Textarea
+                        rows={3}
+                        value={lanceForm.observacao}
+                        onChange={(event) =>
+                          setLanceForm((current) => ({
+                            ...current,
+                            observacao: event.target.value,
+                          }))
+                        }
+                      />
                     </FormField>
                     <div className="xl:col-span-2 flex justify-end">
-                      <Button type="submit" disabled={saveLanceMutation.isPending}>{saveLanceMutation.isPending ? "Registrando..." : "Registrar lance"}</Button>
+                      <Button
+                        type="submit"
+                        disabled={saveLanceMutation.isPending}
+                      >
+                        {saveLanceMutation.isPending
+                          ? "Registrando..."
+                          : "Registrar lance"}
+                      </Button>
                     </div>
                   </form>
 
@@ -2818,15 +4365,28 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           detalhe.lances.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell>{item.propostaId}</TableCell>
-                              <TableCell>{formatCurrencyBRL(Number(item.valorLance ?? 0))}</TableCell>
-                              <TableCell>{formatShortDateTimeBR(item.dataLance)}</TableCell>
-                              <TableCell>{item.usuarioNome ?? "Sistema"}</TableCell>
+                              <TableCell>
+                                {formatCurrencyBRL(
+                                  Number(item.valorLance ?? 0),
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {formatShortDateTimeBR(item.dataLance)}
+                              </TableCell>
+                              <TableCell>
+                                {item.usuarioNome ?? "Sistema"}
+                              </TableCell>
                               <TableCell>{item.observacao ?? "-"}</TableCell>
                             </TableRow>
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-[var(--color-neutral-500)]">Nenhum lance registrado ainda.</TableCell>
+                            <TableCell
+                              colSpan={5}
+                              className="text-[var(--color-neutral-500)]"
+                            >
+                              Nenhum lance registrado ainda.
+                            </TableCell>
                           </TableRow>
                         )}
                       </TableBody>
@@ -2837,157 +4397,283 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             ) : null}
 
             {showCompetitivoSteps ? (
-            <section ref={julgamentoRef}>
-              <CollapsibleSectionCard
-                title="Julgamento"
-                description="Definição visual da etapa de julgamento e conferência da classificação das propostas."
-                open={sectionOpen.julgamento}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, julgamento: nextOpen }))}
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleAdvanceStage("JULGAMENTO", "Licitação / julgamento", "Classificação e julgamento das propostas.")}
-                    disabled={advanceStageMutation.isPending}
-                  >
-                    Definir etapa atual
-                  </Button>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">Status: {licitacaoStatusLabels[detalhe.licitacao.statusLicitacao as keyof typeof licitacaoStatusLabels] ?? detalhe.licitacao.statusLicitacao}</span>
-                  </div>
-                }
-              >
-                <Alert variant="info">Use as classificações e situações lançadas em propostas para registrar o julgamento. Esta seção define visualmente a etapa atual e permite conferência consolidada.</Alert>
-                <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                  <Table className="min-w-[1040px]">
-                    <TableHead>
-                      <tr>
-                        <TableHeaderCell>Item</TableHeaderCell>
-                        <TableHeaderCell>Licitante</TableHeaderCell>
-                        <TableHeaderCell>Classificação</TableHeaderCell>
-                        <TableHeaderCell>Situação</TableHeaderCell>
-                        <TableHeaderCell>Valor atual</TableHeaderCell>
-                        <TableHeaderCell>Justificativa</TableHeaderCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {detalhe.propostas.length ? (
-                        detalhe.propostas.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.itemNumero}</TableCell>
-                            <TableCell>{item.licitanteNome}</TableCell>
-                            <TableCell>{item.classificacao ?? "-"}</TableCell>
-                            <TableCell>{propostaSituacaoLabels[item.situacao as keyof typeof propostaSituacaoLabels] ?? item.situacao}</TableCell>
-                            <TableCell>{formatCurrencyBRL(Number(item.valorAtualTotal ?? 0))}</TableCell>
-                            <TableCell>{item.justificativa ?? "-"}</TableCell>
+              <section ref={julgamentoRef}>
+                <CollapsibleSectionCard
+                  title="Julgamento"
+                  description="Definição visual da etapa de julgamento e conferência da classificação das propostas."
+                  open={sectionOpen.julgamento}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      julgamento: nextOpen,
+                    }))
+                  }
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        void handleAdvanceStage(
+                          "JULGAMENTO",
+                          "Licitação / julgamento",
+                          "Classificação e julgamento das propostas.",
+                        )
+                      }
+                      disabled={advanceStageMutation.isPending}
+                    >
+                      Definir etapa atual
+                    </Button>
+                  }
+                  collapsedSummary={
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        Status:{" "}
+                        {licitacaoStatusLabels[
+                          detalhe.licitacao
+                            .statusLicitacao as keyof typeof licitacaoStatusLabels
+                        ] ?? detalhe.licitacao.statusLicitacao}
+                      </span>
+                    </div>
+                  }
+                >
+                  <Alert variant="info">
+                    Use as classificações e situações lançadas em propostas para
+                    registrar o julgamento. Esta seção define visualmente a
+                    etapa atual e permite conferência consolidada.
+                  </Alert>
+                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                    <Table className="min-w-[1040px]">
+                      <TableHead>
+                        <tr>
+                          <TableHeaderCell>Item</TableHeaderCell>
+                          <TableHeaderCell>Licitante</TableHeaderCell>
+                          <TableHeaderCell>Classificação</TableHeaderCell>
+                          <TableHeaderCell>Situação</TableHeaderCell>
+                          <TableHeaderCell>Valor atual</TableHeaderCell>
+                          <TableHeaderCell>Justificativa</TableHeaderCell>
+                        </tr>
+                      </TableHead>
+                      <TableBody>
+                        {detalhe.propostas.length ? (
+                          detalhe.propostas.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>{item.itemNumero}</TableCell>
+                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell>{item.classificacao ?? "-"}</TableCell>
+                              <TableCell>
+                                {propostaSituacaoLabels[
+                                  item.situacao as keyof typeof propostaSituacaoLabels
+                                ] ?? item.situacao}
+                              </TableCell>
+                              <TableCell>
+                                {formatCurrencyBRL(
+                                  Number(item.valorAtualTotal ?? 0),
+                                )}
+                              </TableCell>
+                              <TableCell>{item.justificativa ?? "-"}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={6}
+                              className="text-[var(--color-neutral-500)]"
+                            >
+                              Sem propostas para julgamento.
+                            </TableCell>
                           </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-[var(--color-neutral-500)]">Sem propostas para julgamento.</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CollapsibleSectionCard>
-            </section>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CollapsibleSectionCard>
+              </section>
             ) : null}
 
             {!inversaoFasesAtiva ? habilitacaoSection : null}
 
             {showRecursos ? (
-            <section ref={recursosRef}>
-              <CollapsibleSectionCard
-                title="Recursos"
-                description="Registro de interposição, julgamento e resultado recursal dentro da fase licitatória."
-                open={sectionOpen.recursos}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, recursos: nextOpen }))}
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleAdvanceStage("RECURSOS", "Licitação / recursos administrativos", "Abertura da fase recursal.")}
-                    disabled={advanceStageMutation.isPending}
+              <section ref={recursosRef}>
+                <CollapsibleSectionCard
+                  title="Recursos"
+                  description="Registro de interposição, julgamento e resultado recursal dentro da fase licitatória."
+                  open={sectionOpen.recursos}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      recursos: nextOpen,
+                    }))
+                  }
+                  action={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        void handleAdvanceStage(
+                          "RECURSOS",
+                          "Licitação / recursos administrativos",
+                          "Abertura da fase recursal.",
+                        )
+                      }
+                      disabled={advanceStageMutation.isPending}
+                    >
+                      Definir etapa atual
+                    </Button>
+                  }
+                  collapsedSummary={
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                        {detalhe.recursos.length} recurso(s)
+                      </span>
+                    </div>
+                  }
+                >
+                  <form
+                    className="grid gap-4 2xl:grid-cols-2"
+                    onSubmit={handleSaveRecurso}
                   >
-                    Definir etapa atual
-                  </Button>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">{detalhe.recursos.length} recurso(s)</span>
-                  </div>
-                }
-              >
-                <form className="grid gap-4 2xl:grid-cols-2" onSubmit={handleSaveRecurso}>
-                  <FormField label="Licitante">
-                    <Select value={recursoForm.licitanteId} onChange={(event) => setRecursoForm((current) => ({ ...current, licitanteId: event.target.value }))}>
-                      <option value="">Selecione</option>
-                      {detalhe.licitantes.map((item) => (
-                        <option key={item.id} value={item.id}>{item.razaoSocial}</option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <FormField label="Resultado">
-                    <Select value={recursoForm.resultado} onChange={(event) => setRecursoForm((current) => ({ ...current, resultado: event.target.value }))}>
-                      {recursoResultadoOptions.map((item) => (
-                        <option key={item} value={item}>{recursoResultadoLabels[item]}</option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  <FormField label="Data de interposição">
-                    <Input type="date" value={recursoForm.dataInterposicao} onChange={(event) => setRecursoForm((current) => ({ ...current, dataInterposicao: event.target.value }))} />
-                  </FormField>
-                  <FormField label="Data do julgamento">
-                    <Input type="date" value={recursoForm.dataJulgamento} onChange={(event) => setRecursoForm((current) => ({ ...current, dataJulgamento: event.target.value }))} />
-                  </FormField>
-                  <FormField label="Descrição" className="2xl:col-span-2">
-                    <Textarea rows={4} value={recursoForm.descricao} onChange={(event) => setRecursoForm((current) => ({ ...current, descricao: event.target.value }))} />
-                  </FormField>
-                  <FormField label="Decisão" className="2xl:col-span-2">
-                    <Textarea rows={4} value={recursoForm.decisao} onChange={(event) => setRecursoForm((current) => ({ ...current, decisao: event.target.value }))} />
-                  </FormField>
-                  <div className="xl:col-span-2 flex justify-end">
-                    <Button type="submit" disabled={saveRecursoMutation.isPending}>{saveRecursoMutation.isPending ? "Salvando..." : "Registrar recurso"}</Button>
-                  </div>
-                </form>
+                    <FormField label="Licitante">
+                      <Select
+                        value={recursoForm.licitanteId}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            licitanteId: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Selecione</option>
+                        {detalhe.licitantes.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.razaoSocial}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Resultado">
+                      <Select
+                        value={recursoForm.resultado}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            resultado: event.target.value,
+                          }))
+                        }
+                      >
+                        {recursoResultadoOptions.map((item) => (
+                          <option key={item} value={item}>
+                            {recursoResultadoLabels[item]}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Data de interposição">
+                      <Input
+                        type="date"
+                        value={recursoForm.dataInterposicao}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            dataInterposicao: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Data do julgamento">
+                      <Input
+                        type="date"
+                        value={recursoForm.dataJulgamento}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            dataJulgamento: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Descrição" className="2xl:col-span-2">
+                      <Textarea
+                        rows={4}
+                        value={recursoForm.descricao}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            descricao: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Decisão" className="2xl:col-span-2">
+                      <Textarea
+                        rows={4}
+                        value={recursoForm.decisao}
+                        onChange={(event) =>
+                          setRecursoForm((current) => ({
+                            ...current,
+                            decisao: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                    <div className="xl:col-span-2 flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={saveRecursoMutation.isPending}
+                      >
+                        {saveRecursoMutation.isPending
+                          ? "Salvando..."
+                          : "Registrar recurso"}
+                      </Button>
+                    </div>
+                  </form>
 
-                <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                  <Table className="min-w-[1100px]">
-                    <TableHead>
-                      <tr>
-                        <TableHeaderCell>Licitante</TableHeaderCell>
-                        <TableHeaderCell>Interposição</TableHeaderCell>
-                        <TableHeaderCell>Julgamento</TableHeaderCell>
-                        <TableHeaderCell>Resultado</TableHeaderCell>
-                        <TableHeaderCell>Descrição</TableHeaderCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {detalhe.recursos.length ? (
-                        detalhe.recursos.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell>{item.licitanteNome}</TableCell>
-                            <TableCell>{formatShortDateBR(item.dataInterposicao)}</TableCell>
-                            <TableCell>{formatShortDateBR(item.dataJulgamento)}</TableCell>
-                            <TableCell>{recursoResultadoLabels[item.resultado as keyof typeof recursoResultadoLabels] ?? item.resultado}</TableCell>
-                            <TableCell>{item.descricao}</TableCell>
+                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                    <Table className="min-w-[1100px]">
+                      <TableHead>
+                        <tr>
+                          <TableHeaderCell>Licitante</TableHeaderCell>
+                          <TableHeaderCell>Interposição</TableHeaderCell>
+                          <TableHeaderCell>Julgamento</TableHeaderCell>
+                          <TableHeaderCell>Resultado</TableHeaderCell>
+                          <TableHeaderCell>Descrição</TableHeaderCell>
+                        </tr>
+                      </TableHead>
+                      <TableBody>
+                        {detalhe.recursos.length ? (
+                          detalhe.recursos.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell>
+                                {formatShortDateBR(item.dataInterposicao)}
+                              </TableCell>
+                              <TableCell>
+                                {formatShortDateBR(item.dataJulgamento)}
+                              </TableCell>
+                              <TableCell>
+                                {recursoResultadoLabels[
+                                  item.resultado as keyof typeof recursoResultadoLabels
+                                ] ?? item.resultado}
+                              </TableCell>
+                              <TableCell>{item.descricao}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="text-[var(--color-neutral-500)]"
+                            >
+                              Nenhum recurso registrado até o momento.
+                            </TableCell>
                           </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-[var(--color-neutral-500)]">Nenhum recurso registrado até o momento.</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CollapsibleSectionCard>
-            </section>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CollapsibleSectionCard>
+              </section>
             ) : null}
 
             <section ref={homologacaoRef}>
@@ -2995,32 +4681,77 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 title="Homologação"
                 description="Encerramento formal da fase licitatória com atualização do status final do processo."
                 open={sectionOpen.homologacao}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, homologacao: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    homologacao: nextOpen,
+                  }))
+                }
                 collapsedSummary={
                   <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      {detalhe.processo.homologado ? "Processo homologado" : "Homologação pendente"}
+                      {detalhe.processo.homologado
+                        ? "Processo homologado"
+                        : "Homologação pendente"}
                     </span>
                   </div>
                 }
               >
-                <form className="grid gap-4 2xl:grid-cols-2" onSubmit={handleHomologar}>
+                <form
+                  className="grid gap-4 2xl:grid-cols-2"
+                  onSubmit={handleHomologar}
+                >
                   <FormField label="Data da homologação">
-                    <Input type="date" value={homologacaoForm.dataHomologacao} onChange={(event) => setHomologacaoForm((current) => ({ ...current, dataHomologacao: event.target.value }))} />
+                    <Input
+                      type="date"
+                      value={homologacaoForm.dataHomologacao}
+                      onChange={(event) =>
+                        setHomologacaoForm((current) => ({
+                          ...current,
+                          dataHomologacao: event.target.value,
+                        }))
+                      }
+                    />
                   </FormField>
                   <FormField label="Status do processo após homologação">
-                    <Select value={homologacaoForm.statusId} onChange={(event) => setHomologacaoForm((current) => ({ ...current, statusId: event.target.value }))}>
+                    <Select
+                      value={homologacaoForm.statusId}
+                      onChange={(event) =>
+                        setHomologacaoForm((current) => ({
+                          ...current,
+                          statusId: event.target.value,
+                        }))
+                      }
+                    >
                       <option value="">Manter atual</option>
                       {catalogsQuery.data?.statusProcesso.map((item) => (
-                        <option key={item.id} value={item.id}>{item.nome}</option>
+                        <option key={item.id} value={item.id}>
+                          {item.nome}
+                        </option>
                       ))}
                     </Select>
                   </FormField>
                   <FormField label="Observação" className="2xl:col-span-2">
-                    <Textarea rows={4} value={homologacaoForm.observacao} onChange={(event) => setHomologacaoForm((current) => ({ ...current, observacao: event.target.value }))} />
+                    <Textarea
+                      rows={4}
+                      value={homologacaoForm.observacao}
+                      onChange={(event) =>
+                        setHomologacaoForm((current) => ({
+                          ...current,
+                          observacao: event.target.value,
+                        }))
+                      }
+                    />
                   </FormField>
                   <div className="xl:col-span-2 flex justify-end">
-                    <Button type="submit" disabled={homologarMutation.isPending}>{homologarMutation.isPending ? "Homologando..." : "Homologar licitação"}</Button>
+                    <Button
+                      type="submit"
+                      disabled={homologarMutation.isPending}
+                    >
+                      {homologarMutation.isPending
+                        ? "Homologando..."
+                        : "Homologar licitação"}
+                    </Button>
                   </div>
                 </form>
               </CollapsibleSectionCard>
@@ -3032,21 +4763,37 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   title="Auditoria reforçada"
                   description="Log detalhado de alterações campo a campo para processos fora do fluxo."
                   open={sectionOpen.auditoria}
-                  onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, auditoria: nextOpen }))}
+                  onToggle={(nextOpen) =>
+                    setSectionOpen((current) => ({
+                      ...current,
+                      auditoria: nextOpen,
+                    }))
+                  }
                   collapsedSummary={
                     auditoriaItems.length ? (
                       <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(auditoriaItems[0]?.descricao)}</span>
-                        <div className="text-[var(--color-neutral-500)]">{formatShortDateTimeBR(auditoriaItems[0]?.criadoEm)}</div>
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {cleanDisplayText(auditoriaItems[0]?.descricao)}
+                        </span>
+                        <div className="text-[var(--color-neutral-500)]">
+                          {formatShortDateTimeBR(auditoriaItems[0]?.criadoEm)}
+                        </div>
                       </div>
                     ) : (
-                      <Alert variant="info">Nenhuma auditoria registrada para este processo.</Alert>
+                      <Alert variant="info">
+                        Nenhuma auditoria registrada para este processo.
+                      </Alert>
                     )
                   }
                 >
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                     <FormField label="Ação">
-                      <Select value={auditActionFilter} onChange={(event) => setAuditActionFilter(event.target.value)}>
+                      <Select
+                        value={auditActionFilter}
+                        onChange={(event) =>
+                          setAuditActionFilter(event.target.value)
+                        }
+                      >
                         <option value="">Todas</option>
                         <option value="CREATE">CREATE</option>
                         <option value="UPDATE">UPDATE</option>
@@ -3054,10 +4801,17 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       </Select>
                     </FormField>
                     <FormField label="Usuário">
-                      <Select value={auditUserFilter} onChange={(event) => setAuditUserFilter(event.target.value)}>
+                      <Select
+                        value={auditUserFilter}
+                        onChange={(event) =>
+                          setAuditUserFilter(event.target.value)
+                        }
+                      >
                         <option value="">Todos</option>
                         {auditoriaUserOptions.map((user) => (
-                          <option key={user.id} value={user.id}>{user.nome}</option>
+                          <option key={user.id} value={user.id}>
+                            {user.nome}
+                          </option>
                         ))}
                       </Select>
                     </FormField>
@@ -3086,22 +4840,45 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                         </TableHead>
                         <TableBody>
                           {auditoriaItems.map((item) => {
-                            const campo = (item.dadosNovos as { campo?: string } | null)?.campo
-                              ?? (item.dadosAnteriores as { campo?: string } | null)?.campo
-                              ?? "-";
-                            const valorAnterior = (item.dadosAnteriores as { valor?: unknown } | null)?.valor ?? item.dadosAnteriores;
-                            const valorNovo = (item.dadosNovos as { valor?: unknown } | null)?.valor ?? item.dadosNovos;
+                            const campo =
+                              (item.dadosNovos as { campo?: string } | null)
+                                ?.campo ??
+                              (
+                                item.dadosAnteriores as {
+                                  campo?: string;
+                                } | null
+                              )?.campo ??
+                              "-";
+                            const valorAnterior =
+                              (
+                                item.dadosAnteriores as {
+                                  valor?: unknown;
+                                } | null
+                              )?.valor ?? item.dadosAnteriores;
+                            const valorNovo =
+                              (item.dadosNovos as { valor?: unknown } | null)
+                                ?.valor ?? item.dadosNovos;
 
                             return (
                               <TableRow key={item.id}>
-                                <TableCell>{formatShortDateTimeBR(item.criadoEm)}</TableCell>
-                                <TableCell>{item.usuarioNome ?? "Sistema"}</TableCell>
+                                <TableCell>
+                                  {formatShortDateTimeBR(item.criadoEm)}
+                                </TableCell>
+                                <TableCell>
+                                  {item.usuarioNome ?? "Sistema"}
+                                </TableCell>
                                 <TableCell>{item.acao}</TableCell>
                                 <TableCell>{item.tabela}</TableCell>
                                 <TableCell>{campo}</TableCell>
-                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">{formatAuditValue(valorAnterior)}</TableCell>
-                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">{formatAuditValue(valorNovo)}</TableCell>
-                                <TableCell className="max-w-[260px] whitespace-pre-wrap text-[var(--color-neutral-600)]">{cleanDisplayText(item.descricao)}</TableCell>
+                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                  {formatAuditValue(valorAnterior)}
+                                </TableCell>
+                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                  {formatAuditValue(valorNovo)}
+                                </TableCell>
+                                <TableCell className="max-w-[260px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                  {cleanDisplayText(item.descricao)}
+                                </TableCell>
                               </TableRow>
                             );
                           })}
@@ -3109,7 +4886,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                       </Table>
                     </div>
                   ) : (
-                    <Alert variant="info" className="mt-4">Nenhuma auditoria registrada para este processo.</Alert>
+                    <Alert variant="info" className="mt-4">
+                      Nenhuma auditoria registrada para este processo.
+                    </Alert>
                   )}
                 </CollapsibleSectionCard>
               </section>
@@ -3120,34 +4899,61 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 title="Movimentações recentes"
                 description="Rastro operacional da fase licitatória para acompanhamento do setor e da gestão."
                 open={sectionOpen.history}
-                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, history: nextOpen }))}
+                onToggle={(nextOpen) =>
+                  setSectionOpen((current) => ({
+                    ...current,
+                    history: nextOpen,
+                  }))
+                }
                 collapsedSummary={
                   detalhe.historico.length ? (
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                      <span className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(detalhe.historico[0]?.descricao)}</span>
-                      <div className="text-[var(--color-neutral-500)]">{formatShortDateTimeBR(detalhe.historico[0]?.criadoEm)}</div>
+                      <span className="font-semibold text-[var(--color-primary-900)]">
+                        {cleanDisplayText(detalhe.historico[0]?.descricao)}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        {formatShortDateTimeBR(detalhe.historico[0]?.criadoEm)}
+                      </div>
                     </div>
                   ) : (
-                    <Alert variant="info">Ainda não há movimentações registradas para esta etapa.</Alert>
+                    <Alert variant="info">
+                      Ainda não há movimentações registradas para esta etapa.
+                    </Alert>
                   )
                 }
               >
                 <div className="space-y-3">
                   {detalhe.historico.length ? (
                     detalhe.historico.map((item) => (
-                      <article key={item.id} className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
+                      <article
+                        key={item.id}
+                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(item.descricao)}</div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">Registro operacional da Licitação</div>
+                            <div className="font-semibold text-[var(--color-primary-900)]">
+                              {cleanDisplayText(item.descricao)}
+                            </div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
+                              Registro operacional da Licitação
+                            </div>
                           </div>
-                          <span className="text-xs text-[var(--color-neutral-500)]">{formatShortDateTimeBR(item.criadoEm)}</span>
+                          <span className="text-xs text-[var(--color-neutral-500)]">
+                            {formatShortDateTimeBR(item.criadoEm)}
+                          </span>
                         </div>
-                        {item.observacao ? <p className="mt-3 text-sm leading-6 text-[var(--color-neutral-600)]">{cleanDisplayText(item.observacao)}</p> : null}
+                        {item.observacao ? (
+                          <p className="mt-3 text-sm leading-6 text-[var(--color-neutral-600)]">
+                            {cleanDisplayText(item.observacao)}
+                          </p>
+                        ) : null}
                       </article>
                     ))
                   ) : (
-                    <Alert variant="info">Ainda não há movimentações registradas para esta etapa da Licitação.</Alert>
+                    <Alert variant="info">
+                      Ainda não há movimentações registradas para esta etapa da
+                      Licitação.
+                    </Alert>
                   )}
                 </div>
               </CollapsibleSectionCard>
@@ -3182,7 +4988,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         size="xl"
       >
         {!documentos.length ? (
-          <Alert variant="info">Este processo ainda não possui documentos vinculados.</Alert>
+          <Alert variant="info">
+            Este processo ainda não possui documentos vinculados.
+          </Alert>
         ) : (
           <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
             <Table className="min-w-[1080px]">
@@ -3194,7 +5002,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                   <TableHeaderCell>Categoria</TableHeaderCell>
                   <TableHeaderCell>Data de referência</TableHeaderCell>
                   <TableHeaderCell>Adicionado em</TableHeaderCell>
-                  <TableHeaderCell className="text-right">Arquivo</TableHeaderCell>
+                  <TableHeaderCell className="text-right">
+                    Arquivo
+                  </TableHeaderCell>
                 </tr>
               </TableHead>
               <TableBody>
@@ -3204,11 +5014,24 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     <TableCell>{item.titulo}</TableCell>
                     <TableCell>{item.tipo}</TableCell>
                     <TableCell>{item.categoria ?? "-"}</TableCell>
-                    <TableCell>{formatShortDateBR(item.dataReferencia)}</TableCell>
-                    <TableCell>{formatShortDateTimeBR(item.criadoEm)}</TableCell>
+                    <TableCell>
+                      {formatShortDateBR(item.dataReferencia)}
+                    </TableCell>
+                    <TableCell>
+                      {formatShortDateTimeBR(item.criadoEm)}
+                    </TableCell>
                     <TableCell className="text-right">
-                      <a href={resolveServerAssetUrl(item.arquivoUrl) ?? "#"} target="_blank" rel="noreferrer">
-                        <Button type="button" size="sm" variant="outline" disabled={!item.arquivoUrl}>
+                      <a
+                        href={resolveServerAssetUrl(item.arquivoUrl) ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!item.arquivoUrl}
+                        >
                           Abrir
                         </Button>
                       </a>
@@ -3223,6 +5046,3 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     </div>
   );
 }
-
-
-

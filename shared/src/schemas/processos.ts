@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   modoDisputaOptions,
+  processoTipoObjetoOptions,
   workflowModuleOptions,
   workflowSituacaoOptions,
 } from "../const.js";
@@ -33,8 +34,10 @@ export const processoCreateInputSchema = z
     escopoDisputa: z.enum(["ITEM", "LOTE", "GLOBAL"]).optional(),
     criterioJulgamento: z.string().max(120).optional(),
     modoDisputa: z.enum(modoDisputaOptions).optional(),
-    tipoObjeto: z.enum(["PRODUTO", "SERVICO", "OBRA", "SERVICO_ENG"]).optional(),
-    tipoContratacao: z.enum(["AQUISICAO", "REGISTRO_PRECO", "AQUISICAO_PARCELADA"]).optional(),
+    tipoObjeto: z.enum(processoTipoObjetoOptions).optional(),
+    tipoContratacao: z
+      .enum(["AQUISICAO", "REGISTRO_PRECO", "AQUISICAO_PARCELADA"])
+      .optional(),
     condutorProcessoId: z.number().int().positive().optional(),
     dataAbertura: z.string().optional(),
     dataPublicacao: z.string().optional(),
@@ -51,7 +54,11 @@ export const processoCreateInputSchema = z
         message: "Selecione o modulo inicial para processos fora do fluxo.",
       });
     }
-    if (!value.foraDoFluxo && value.moduloInicial && value.moduloInicial !== "PLANEJAMENTO") {
+    if (
+      !value.foraDoFluxo &&
+      value.moduloInicial &&
+      value.moduloInicial !== "PLANEJAMENTO"
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["moduloInicial"],
@@ -76,8 +83,10 @@ export const processoUpdateDataInputSchema = z.object({
   situacao: z.enum(workflowSituacaoOptions).optional(),
   secretariaId: z.number().int().positive().optional(),
   modalidadeId: z.number().int().positive().optional(),
-  tipoObjeto: z.enum(["PRODUTO", "SERVICO", "OBRA", "SERVICO_ENG"]).optional(),
-  tipoContratacao: z.enum(["AQUISICAO", "REGISTRO_PRECO", "AQUISICAO_PARCELADA"]).optional(),
+  tipoObjeto: z.enum(processoTipoObjetoOptions).optional(),
+  tipoContratacao: z
+    .enum(["AQUISICAO", "REGISTRO_PRECO", "AQUISICAO_PARCELADA"])
+    .optional(),
   autoridadeCompetenteId: z.number().int().positive().optional(),
   condutorProcessoId: z.number().int().positive().optional(),
   objeto: z.string().min(10).optional(),
@@ -87,22 +96,33 @@ export const processoUpdateDataInputSchema = z.object({
   escopoDisputa: z.enum(["ITEM", "LOTE", "GLOBAL"]).optional(),
 });
 
-export const processoMacroPhaseTargetOptions = ["COMPRAS", "LICITACAO", "CONTRATOS"] as const;
+export const processoMacroPhaseTargetOptions = [
+  "COMPRAS",
+  "LICITACAO",
+  "CONTRATOS",
+] as const;
 
 export const processoMacroPhaseGateInputSchema = z.object({
   processoId: z.number().int().positive(),
   moduloDestino: z.enum(processoMacroPhaseTargetOptions),
 });
 
-export const processoAdvanceMacroPhaseInputSchema = processoMacroPhaseGateInputSchema.extend({
-  permitirBypass: z.boolean().default(false),
-  justificativaAuditoria: z.string().trim().max(4000).optional(),
-  observacao: z.string().trim().max(2000).optional(),
-});
+export const processoAdvanceMacroPhaseInputSchema =
+  processoMacroPhaseGateInputSchema.extend({
+    permitirBypass: z.boolean().default(false),
+    justificativaAuditoria: z.string().trim().max(4000).optional(),
+    observacao: z.string().trim().max(2000).optional(),
+  });
 
 export type ProcessoListInput = z.infer<typeof processoListInputSchema>;
 export type ProcessoCreateInput = z.infer<typeof processoCreateInputSchema>;
 export type ProcessoSetAtivoInput = z.infer<typeof processoSetAtivoInputSchema>;
-export type ProcessoUpdateDataInput = z.infer<typeof processoUpdateDataInputSchema>;
-export type ProcessoMacroPhaseGateInput = z.infer<typeof processoMacroPhaseGateInputSchema>;
-export type ProcessoAdvanceMacroPhaseInput = z.infer<typeof processoAdvanceMacroPhaseInputSchema>;
+export type ProcessoUpdateDataInput = z.infer<
+  typeof processoUpdateDataInputSchema
+>;
+export type ProcessoMacroPhaseGateInput = z.infer<
+  typeof processoMacroPhaseGateInputSchema
+>;
+export type ProcessoAdvanceMacroPhaseInput = z.infer<
+  typeof processoAdvanceMacroPhaseInputSchema
+>;

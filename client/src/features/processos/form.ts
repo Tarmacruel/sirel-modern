@@ -1,4 +1,5 @@
 import { processoCreateInputSchema } from "@sirel/shared/schemas/processos";
+import { processoTipoObjetoOptions } from "@sirel/shared/const";
 import { normalizeCurrencyInputBR } from "@/lib/formatters";
 
 export interface ProcessoFormState {
@@ -25,6 +26,8 @@ export interface ProcessoFormState {
   moduloInicial: string;
 }
 
+type ProcessoTipoObjeto = (typeof processoTipoObjetoOptions)[number];
+
 function toOptionalId(value: string) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -47,9 +50,17 @@ export function buildProcessoPayload(form: ProcessoFormState) {
     valorEstimado: toOptionalNumber(form.valorEstimado),
     escopoDisputa: form.escopoDisputa as "ITEM" | "LOTE" | "GLOBAL",
     criterioJulgamento: form.criterioJulgamento.trim() || undefined,
-    modoDisputa: form.modoDisputa as "NAO_SE_APLICA" | "ABERTO" | "FECHADO" | "ABERTO_FECHADO" | "FECHADO_ABERTO",
-    tipoObjeto: form.tipoObjeto as "PRODUTO" | "SERVICO" | "OBRA" | "SERVICO_ENG",
-    tipoContratacao: form.tipoContratacao as "AQUISICAO" | "REGISTRO_PRECO" | "AQUISICAO_PARCELADA",
+    modoDisputa: form.modoDisputa as
+      | "NAO_SE_APLICA"
+      | "ABERTO"
+      | "FECHADO"
+      | "ABERTO_FECHADO"
+      | "FECHADO_ABERTO",
+    tipoObjeto: form.tipoObjeto as ProcessoTipoObjeto,
+    tipoContratacao: form.tipoContratacao as
+      | "AQUISICAO"
+      | "REGISTRO_PRECO"
+      | "AQUISICAO_PARCELADA",
     dataAbertura: form.dataAbertura || undefined,
     dataPublicacao: form.dataPublicacao || undefined,
     dataDisputaSessao: form.dataDisputaSessao || undefined,
@@ -60,7 +71,9 @@ export function buildProcessoPayload(form: ProcessoFormState) {
       | "CONCLUIDO"
       | "SUSPENSO"
       | undefined,
-    condutorProcessoId: form.condutorProcessoId ? Number(form.condutorProcessoId) : undefined,
+    condutorProcessoId: form.condutorProcessoId
+      ? Number(form.condutorProcessoId)
+      : undefined,
     foraDoFluxo: form.foraDoFluxo,
     moduloInicial: form.foraDoFluxo ? (form.moduloInicial as any) : undefined,
   };

@@ -1,7 +1,12 @@
 ﻿import { useEffect, useState, type FormEvent } from "react";
 import { CalendarDays, PlusCircle, TimerReset } from "lucide-react";
 
-import { workflowModuleOptions, workflowSituacaoOptions } from "@sirel/shared/const";
+import {
+  processoTipoObjetoLabels,
+  processoTipoObjetoOptions,
+  workflowModuleOptions,
+  workflowSituacaoOptions,
+} from "@sirel/shared/const";
 
 import { Modal } from "@/components/shared/modal";
 import { Alert } from "@/components/ui/alert";
@@ -16,10 +21,7 @@ import {
   type ProcessoFormState,
   validateProcessoForm,
 } from "@/features/processos/form";
-import {
-  formatShortDateTimeBR,
-  maskCurrencyInputBR,
-} from "@/lib/formatters";
+import { formatShortDateTimeBR, maskCurrencyInputBR } from "@/lib/formatters";
 import { trpc } from "@/lib/trpc";
 import { mapZodFieldErrors } from "@/lib/zod-errors";
 
@@ -47,7 +49,10 @@ const initialProcessoForm: ProcessoFormState = {
   moduloInicial: "DOCUMENTOS",
 };
 
-const workflowSituacaoLabels: Record<(typeof workflowSituacaoOptions)[number], string> = {
+const workflowSituacaoLabels: Record<
+  (typeof workflowSituacaoOptions)[number],
+  string
+> = {
   RASCUNHO: "Rascunho",
   EM_ANDAMENTO: "Em andamento",
   AGUARDANDO: "Aguardando",
@@ -131,8 +136,7 @@ export function ProcessoCreateModal({
   initialValues,
   externalDates,
   title = "Novo processo",
-  description =
-    "Crie processos regulares do fluxo ou registros excepcionais fora do fluxo sem poluir a tela principal.",
+  description = "Crie processos regulares do fluxo ou registros excepcionais fora do fluxo sem poluir a tela principal.",
   submitLabel = "Salvar processo",
 }: ProcessoCreateModalProps) {
   const utils = trpc.useUtils();
@@ -185,13 +189,17 @@ export function ProcessoCreateModal({
     setForm((current) => ({
       ...current,
       secretariaId:
-        current.secretariaId || String(catalogQuery.data.secretarias[0]?.id ?? ""),
+        current.secretariaId ||
+        String(catalogQuery.data.secretarias[0]?.id ?? ""),
       modalidadeId:
-        current.modalidadeId || String(catalogQuery.data.modalidades[0]?.id ?? ""),
+        current.modalidadeId ||
+        String(catalogQuery.data.modalidades[0]?.id ?? ""),
       statusId:
-        current.statusId || String(catalogQuery.data.statusProcesso[0]?.id ?? ""),
+        current.statusId ||
+        String(catalogQuery.data.statusProcesso[0]?.id ?? ""),
       autoridadeCompetenteId:
-        current.autoridadeCompetenteId || String(catalogQuery.data.pessoas[0]?.id ?? ""),
+        current.autoridadeCompetenteId ||
+        String(catalogQuery.data.pessoas[0]?.id ?? ""),
       moduloInicial:
         current.moduloInicial ||
         String(
@@ -226,7 +234,10 @@ export function ProcessoCreateModal({
   const datasReferencia = [
     { label: "Publicação", value: externalDates?.publicacaoEm },
     { label: "Disputa / sessão", value: externalDates?.disputaEm },
-    { label: "Recebimento inicial", value: externalDates?.recebimentoInicialEm },
+    {
+      label: "Recebimento inicial",
+      value: externalDates?.recebimentoInicialEm,
+    },
     { label: "Recebimento final", value: externalDates?.recebimentoFinalEm },
   ].filter((item) => item.value);
 
@@ -267,7 +278,10 @@ export function ProcessoCreateModal({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <FormField label="Ano de referência" error={fieldErrors.anoReferencia}>
+          <FormField
+            label="Ano de referência"
+            error={fieldErrors.anoReferencia}
+          >
             <Input
               required
               type="number"
@@ -492,10 +506,11 @@ export function ProcessoCreateModal({
                 }))
               }
             >
-              <option value="PRODUTO">Produto</option>
-              <option value="SERVICO">Serviço</option>
-              <option value="OBRA">Obra</option>
-              <option value="SERVICO_ENG">Serviço de engenharia</option>
+              {processoTipoObjetoOptions.map((item) => (
+                <option key={item} value={item}>
+                  {processoTipoObjetoLabels[item]}
+                </option>
+              ))}
             </Select>
           </FormField>
           <FormField
@@ -567,7 +582,10 @@ export function ProcessoCreateModal({
               />
             </div>
           </FormField>
-          <FormField label="Data de publicação" error={fieldErrors.dataPublicacao}>
+          <FormField
+            label="Data de publicação"
+            error={fieldErrors.dataPublicacao}
+          >
             <div className="flex items-center gap-2 rounded-[18px] border border-[rgba(209,213,219,0.92)] bg-white px-3 py-2.5">
               <CalendarDays className="h-4 w-4 text-[var(--color-neutral-400)]" />
               <input

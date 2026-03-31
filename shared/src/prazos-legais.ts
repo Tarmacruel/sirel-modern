@@ -50,7 +50,12 @@ export interface PrazoLegalCalculado {
   acrescimoCanais: number;
 }
 
-const JULGAMENTO_TECNICA_PRECO = ["TECNICA_PRECO", "TÉCNICA_PREÇO", "TECNICA E PRECO", "TÉCNICA E PREÇO"];
+const JULGAMENTO_TECNICA_PRECO = [
+  "TECNICA_PRECO",
+  "TÉCNICA_PREÇO",
+  "TECNICA E PRECO",
+  "TÉCNICA E PREÇO",
+];
 const JULGAMENTO_MELHOR_TECNICA = ["MELHOR_TECNICA", "MELHOR TÉCNICA"];
 
 export const PRAZOS_ART_55: RegraPrazoLegal[] = [
@@ -95,7 +100,8 @@ export const PRAZOS_ART_55: RegraPrazoLegal[] = [
     tipoObjeto: "SERVICOS_ESPECIAIS",
     diasUteisMinimos: 25,
     baseLegal: "Art. 55, §1º, II, Lei 14.133/2021",
-    observacao: "Aplicado de forma conservadora para serviços em concorrência quando não houver classificação adicional no cadastro.",
+    observacao:
+      "Aplicado de forma conservadora para serviços em concorrência quando não houver classificação adicional no cadastro.",
   },
   {
     modalidade: "CONCORRENCIA_MENOR_PRECO",
@@ -143,13 +149,15 @@ export const PRAZOS_ART_55: RegraPrazoLegal[] = [
     modalidade: "INEXIGIBILIDADE",
     diasUteisMinimos: 0,
     baseLegal: "Art. 74, Lei 14.133/2021",
-    observacao: "Não há prazo mínimo de publicidade competitiva para apresentação de propostas.",
+    observacao:
+      "Não há prazo mínimo de publicidade competitiva para apresentação de propostas.",
   },
   {
     modalidade: "LEILAO_ELETRONICO",
     diasUteisMinimos: 15,
     baseLegal: "Art. 55, Lei 14.133/2021",
-    observacao: "Mantido o parâmetro operacional vigente do SIREL até haver detalhamento municipal específico.",
+    observacao:
+      "Mantido o parâmetro operacional vigente do SIREL até haver detalhamento municipal específico.",
   },
 ] as const;
 
@@ -166,9 +174,11 @@ export function startOfDay(date: Date) {
 }
 
 export function isSameDay(left: Date, right: Date) {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
 }
 
 export function isWeekend(date: Date) {
@@ -177,7 +187,10 @@ export function isWeekend(date: Date) {
 }
 
 export function isBusinessDay(date: Date, feriadosLocais: Date[] = []) {
-  return !isWeekend(date) && !feriadosLocais.some((feriado) => isSameDay(feriado, date));
+  return (
+    !isWeekend(date) &&
+    !feriadosLocais.some((feriado) => isSameDay(feriado, date))
+  );
 }
 
 export function getNextBusinessDay(date: Date, feriadosLocais: Date[] = []) {
@@ -188,7 +201,11 @@ export function getNextBusinessDay(date: Date, feriadosLocais: Date[] = []) {
   return cursor;
 }
 
-export function addBusinessDays(date: Date, days: number, feriadosLocais: Date[] = []) {
+export function addBusinessDays(
+  date: Date,
+  days: number,
+  feriadosLocais: Date[] = [],
+) {
   if (days <= 0) return startOfDay(date);
 
   const cursor = startOfDay(date);
@@ -204,11 +221,16 @@ export function addBusinessDays(date: Date, days: number, feriadosLocais: Date[]
   return cursor;
 }
 
-export function differenceInBusinessDays(laterDate: Date, earlierDate: Date, feriadosLocais: Date[] = []): number {
+export function differenceInBusinessDays(
+  laterDate: Date,
+  earlierDate: Date,
+  feriadosLocais: Date[] = [],
+): number {
   const start = startOfDay(earlierDate);
   const end = startOfDay(laterDate);
   if (end.getTime() === start.getTime()) return 0;
-  if (end.getTime() < start.getTime()) return -differenceInBusinessDays(start, end, feriadosLocais);
+  if (end.getTime() < start.getTime())
+    return -differenceInBusinessDays(start, end, feriadosLocais);
 
   let count = 0;
   const cursor = new Date(start);
@@ -221,21 +243,30 @@ export function differenceInBusinessDays(laterDate: Date, earlierDate: Date, fer
   return count;
 }
 
-function normalizeModalidadePrazo({ modalidadeCodigo, criterioJulgamento }: ResolveRegraPrazoParams): ModalidadePrazoLegal {
+function normalizeModalidadePrazo({
+  modalidadeCodigo,
+  criterioJulgamento,
+}: ResolveRegraPrazoParams): ModalidadePrazoLegal {
   const modalidade = normalizeUpper(modalidadeCodigo);
   const criterio = normalizeUpper(criterioJulgamento);
 
-  if (modalidade.includes("PREGAO") && modalidade.includes("PRESENCIAL")) return "PREGAO_PRESENCIAL";
+  if (modalidade.includes("PREGAO") && modalidade.includes("PRESENCIAL"))
+    return "PREGAO_PRESENCIAL";
   if (modalidade.includes("PREGAO")) return "PREGAO_ELETRONICO";
-  if (modalidade.includes("CONTRATACAO") && modalidade.includes("SEMI")) return "CONTRATACAO_SEMI_INTEGRADA";
-  if (modalidade.includes("CONTRATACAO") && modalidade.includes("INTEGRADA")) return "CONTRATACAO_INTEGRADA";
+  if (modalidade.includes("CONTRATACAO") && modalidade.includes("SEMI"))
+    return "CONTRATACAO_SEMI_INTEGRADA";
+  if (modalidade.includes("CONTRATACAO") && modalidade.includes("INTEGRADA"))
+    return "CONTRATACAO_INTEGRADA";
   if (modalidade.includes("CONCORRENCIA")) {
-    if (JULGAMENTO_TECNICA_PRECO.includes(criterio)) return "CONCORRENCIA_TECNICA_PRECO";
-    if (JULGAMENTO_MELHOR_TECNICA.includes(criterio)) return "CONCORRENCIA_MELHOR_TECNICA";
+    if (JULGAMENTO_TECNICA_PRECO.includes(criterio))
+      return "CONCORRENCIA_TECNICA_PRECO";
+    if (JULGAMENTO_MELHOR_TECNICA.includes(criterio))
+      return "CONCORRENCIA_MELHOR_TECNICA";
     return "CONCORRENCIA_MENOR_PRECO";
   }
   if (modalidade.includes("CREDENCIAMENTO")) return "CREDENCIAMENTO";
-  if (modalidade.includes("DISPENSA") && modalidade.includes("ELETR")) return "DISPENSA_ELETRONICA";
+  if (modalidade.includes("DISPENSA") && modalidade.includes("ELETR"))
+    return "DISPENSA_ELETRONICA";
   if (modalidade.includes("DISPENSA")) return "DISPENSA_SIMPLIFICADA";
   if (modalidade.includes("INEXIG")) return "INEXIGIBILIDADE";
   if (modalidade.includes("LEILAO")) return "LEILAO_ELETRONICO";
@@ -243,10 +274,16 @@ function normalizeModalidadePrazo({ modalidadeCodigo, criterioJulgamento }: Reso
   return "PREGAO_ELETRONICO";
 }
 
-function mapTipoObjetoPrazo(params: ResolveRegraPrazoParams, modalidade: ModalidadePrazoLegal): TipoObjetoPrazoLegal | undefined {
+function mapTipoObjetoPrazo(
+  params: ResolveRegraPrazoParams,
+  modalidade: ModalidadePrazoLegal,
+): TipoObjetoPrazoLegal | undefined {
   const tipoObjeto = normalizeUpper(params.tipoObjeto);
 
-  if (modalidade === "CONCORRENCIA_TECNICA_PRECO" || modalidade === "CONCORRENCIA_MELHOR_TECNICA") {
+  if (
+    modalidade === "CONCORRENCIA_TECNICA_PRECO" ||
+    modalidade === "CONCORRENCIA_MELHOR_TECNICA"
+  ) {
     return undefined;
   }
 
@@ -258,8 +295,19 @@ function mapTipoObjetoPrazo(params: ResolveRegraPrazoParams, modalidade: Modalid
     return "BENS";
   }
 
+  if (tipoObjeto === "SERVICO_COMUM") {
+    return "SERVICOS_COMUNS";
+  }
+
+  if (tipoObjeto === "SERVICO_ESPECIAL") {
+    return "SERVICOS_ESPECIAIS";
+  }
+
   if (tipoObjeto === "SERVICO") {
-    if (modalidade === "PREGAO_ELETRONICO" || modalidade === "PREGAO_PRESENCIAL") {
+    if (
+      modalidade === "PREGAO_ELETRONICO" ||
+      modalidade === "PREGAO_PRESENCIAL"
+    ) {
       return "SERVICOS_COMUNS";
     }
     if (modalidade === "CONCORRENCIA_MENOR_PRECO") {
@@ -268,35 +316,53 @@ function mapTipoObjetoPrazo(params: ResolveRegraPrazoParams, modalidade: Modalid
     return "SERVICOS_COMUNS";
   }
 
-  if (modalidade === "PREGAO_ELETRONICO" || modalidade === "PREGAO_PRESENCIAL") {
+  if (
+    modalidade === "PREGAO_ELETRONICO" ||
+    modalidade === "PREGAO_PRESENCIAL"
+  ) {
     return "BENS";
   }
 
   return undefined;
 }
 
-export function identificarRegraPrazoLegal(params: ResolveRegraPrazoParams): RegraPrazoLegal {
+export function identificarRegraPrazoLegal(
+  params: ResolveRegraPrazoParams,
+): RegraPrazoLegal {
   const modalidade = normalizeModalidadePrazo(params);
   const tipoObjeto = mapTipoObjetoPrazo(params, modalidade);
 
-  const regraComTipo = PRAZOS_ART_55.find((item) => item.modalidade === modalidade && item.tipoObjeto === tipoObjeto);
+  const regraComTipo = PRAZOS_ART_55.find(
+    (item) => item.modalidade === modalidade && item.tipoObjeto === tipoObjeto,
+  );
   if (regraComTipo) return regraComTipo;
 
-  const regraSemTipo = PRAZOS_ART_55.find((item) => item.modalidade === modalidade && item.tipoObjeto === undefined);
+  const regraSemTipo = PRAZOS_ART_55.find(
+    (item) => item.modalidade === modalidade && item.tipoObjeto === undefined,
+  );
   if (regraSemTipo) return regraSemTipo;
 
-  const regraFallback = PRAZOS_ART_55.find((item) => item.modalidade === modalidade);
+  const regraFallback = PRAZOS_ART_55.find(
+    (item) => item.modalidade === modalidade,
+  );
   if (regraFallback) return regraFallback;
 
   return PRAZOS_ART_55[0];
 }
 
-export function calcularPrazoLegalMinimo(params: CalculatePrazoLegalParams): PrazoLegalCalculado {
+export function calcularPrazoLegalMinimo(
+  params: CalculatePrazoLegalParams,
+): PrazoLegalCalculado {
   const regraAplicada = identificarRegraPrazoLegal(params);
   const diasUteisLegais = regraAplicada.diasUteisMinimos;
-  const acrescimoMunicipal = Math.max(Number(params.acrescimoMunicipal ?? 0), 0);
-  const acrescimoCanais = params.publicarNoDou || params.publicarEmJornal ? 1 : 0;
-  const diasUteisTotais = diasUteisLegais + acrescimoMunicipal + acrescimoCanais;
+  const acrescimoMunicipal = Math.max(
+    Number(params.acrescimoMunicipal ?? 0),
+    0,
+  );
+  const acrescimoCanais =
+    params.publicarNoDou || params.publicarEmJornal ? 1 : 0;
+  const diasUteisTotais =
+    diasUteisLegais + acrescimoMunicipal + acrescimoCanais;
   const publicacao = startOfDay(params.dataPublicacaoPNCP);
 
   if (diasUteisTotais <= 0) {
@@ -311,8 +377,15 @@ export function calcularPrazoLegalMinimo(params: CalculatePrazoLegalParams): Pra
     };
   }
 
-  const dataInicioContagem = getNextBusinessDay(publicacao, params.feriadosLocais);
-  const dataMinima = addBusinessDays(dataInicioContagem, diasUteisTotais - 1, params.feriadosLocais);
+  const dataInicioContagem = getNextBusinessDay(
+    publicacao,
+    params.feriadosLocais,
+  );
+  const dataMinima = addBusinessDays(
+    dataInicioContagem,
+    diasUteisTotais - 1,
+    params.feriadosLocais,
+  );
 
   return {
     dataMinima,
