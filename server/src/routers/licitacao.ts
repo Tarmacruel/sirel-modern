@@ -5,9 +5,9 @@ import {
   getLicitacaoChecklistCategories,
   licitacaoChecklistFlexStatusLabels,
   licitacaoInternalDocumentChecklist,
-  licitacaoPrazoBasePorModalidade,
   prazoProcessualTipoLabels,
 } from "@sirel/shared/const";
+import { calcularPrazoLegalMinimo, type RegraPrazoLegal } from "@sirel/shared/prazos-legais";
 import {
   licitacaoAdvanceStageInputSchema,
   licitacaoDetailInputSchema,
@@ -56,6 +56,19 @@ import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 type DbClient = ReturnType<typeof requireDb>;
 type LicitacaoStatus = (typeof licitacaoStatusEnum.enumValues)[number];
 type ChecklistFlexStatus = "PADRAO" | "NAO_APLICAVEL" | "OUTRO_SETOR" | "CONCLUIDO_FISICO";
+interface PublicationSchedule {
+  baseDays: number;
+  municipioExtra: number;
+  canaisExtra: number;
+  startOffset: number;
+  totalBusinessDays: number;
+  regraAplicada: RegraPrazoLegal | null;
+  dataMinimaLegal: Date | null;
+  dataPublicacaoEdital: Date;
+  dataRecebimentoPropostasInicio: Date;
+  dataRecebimentoPropostasFim: Date;
+  dataAberturaPropostas: Date;
+}
 
 function parseOptionalTimestamp(value?: string | null) {
   if (!value?.trim()) return null;
@@ -91,21 +104,6 @@ function nowDateString() {
 
 function startOfDay(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addBusinessDays(source: Date, businessDays: number) {
-  const cursor = startOfDay(source);
-  let remaining = businessDays;
-
-  while (remaining > 0) {
-    cursor.setDate(cursor.getDate() + 1);
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) {
-      remaining -= 1;
-    }
-  }
-
-  return cursor;
 }
 
 function combineDateAndTime(date: Date, hours = 8, minutes = 0) {
@@ -145,58 +143,71 @@ function supportsLances(modalidadeCodigo?: string | null) {
   return Boolean(modalidadeCodigo && /(PREGAO|LEILAO)/.test(modalidadeCodigo));
 }
 
-function isObjetoConcorrenciaObras(tipoObjeto?: string | null) {
-  return tipoObjeto === "OBRA" || tipoObjeto === "SERVICO_ENG";
-}
-
-function getPublicationExtraDays(publicarNoDou?: boolean | null, publicarEmJornal?: boolean | null) {
-  return publicarNoDou || publicarEmJornal ? 1 : 0;
-}
-
 async function buildPublicationSchedule(db: DbClient, params: {
   modalidadeCodigo?: string | null;
   tipoObjeto?: string | null;
+  criterioJulgamento?: string | null;
   dataPublicacaoEdital?: Date | null;
   publicarNoDou?: boolean | null;
   publicarEmJornal?: boolean | null;
   dataAberturaPropostas?: Date | null;
-}) {
+}): Promise<PublicationSchedule | null> {
   if (!params.dataPublicacaoEdital || !params.modalidadeCodigo) {
     return null;
   }
 
-  const defaultBaseDays = licitacaoPrazoBasePorModalidade[params.modalidadeCodigo as keyof typeof licitacaoPrazoBasePorModalidade] ?? 8;
-  let baseDays = defaultBaseDays;
+  const regraLegal = calcularPrazoLegalMinimo({
+    dataPublicacaoPNCP: params.dataPublicacaoEdital,
+    modalidadeCodigo: params.modalidadeCodigo,
+    tipoObjeto: params.tipoObjeto,
+    criterioJulgamento: params.criterioJulgamento,
+    acrescimoMunicipal: 0,
+    publicarNoDou: params.publicarNoDou,
+    publicarEmJornal: params.publicarEmJornal,
+  });
 
+  let prazoConfigurado = regraLegal.regraAplicada.diasUteisMinimos;
   if (/PREGAO/.test(params.modalidadeCodigo)) {
-    baseDays = await getSystemParamNumber(db, "PRAZOS.PREGAO.RECEBIMENTO_PROPOSTAS_DIAS_UTEIS", defaultBaseDays);
+    prazoConfigurado = await getSystemParamNumber(db, "PRAZOS.PREGAO.RECEBIMENTO_PROPOSTAS_DIAS_UTEIS", regraLegal.regraAplicada.diasUteisMinimos);
   } else if (/CONCORRENCIA/.test(params.modalidadeCodigo)) {
-    baseDays = isObjetoConcorrenciaObras(params.tipoObjeto)
-      ? await getSystemParamNumber(db, "PRAZOS.CONCORRENCIA.OBRAS_DIAS_UTEIS", defaultBaseDays)
-      : await getSystemParamNumber(db, "PRAZOS.CONCORRENCIA.SERVICOS_DIAS_UTEIS", defaultBaseDays);
+    prazoConfigurado = await getSystemParamNumber(
+      db,
+      params.tipoObjeto === "OBRA" || params.tipoObjeto === "SERVICO_ENG"
+        ? "PRAZOS.CONCORRENCIA.OBRAS_DIAS_UTEIS"
+        : "PRAZOS.CONCORRENCIA.SERVICOS_DIAS_UTEIS",
+      regraLegal.regraAplicada.diasUteisMinimos,
+    );
   } else if (/DISPENSA/.test(params.modalidadeCodigo)) {
-    baseDays = await getSystemParamNumber(db, "PRAZOS.DISPENSA.PUBLICACAO_RESUMO_DIAS_UTEIS", defaultBaseDays);
+    prazoConfigurado = await getSystemParamNumber(db, "PRAZOS.DISPENSA.PUBLICACAO_RESUMO_DIAS_UTEIS", regraLegal.regraAplicada.diasUteisMinimos);
   }
 
-  const municipioExtra = 1;
-  const canaisExtra = getPublicationExtraDays(params.publicarNoDou, params.publicarEmJornal);
-  const totalBusinessDays = baseDays + municipioExtra + canaisExtra;
-  const startOffset = 1 + municipioExtra + canaisExtra;
-  const publicacaoDia = startOfDay(params.dataPublicacaoEdital);
-  const recebimentoInicial = addBusinessDays(publicacaoDia, startOffset);
-  const disputaDia = addBusinessDays(publicacaoDia, totalBusinessDays);
+  const municipioExtraBase = await getSystemParamNumber(db, "PRAZOS.MUNICIPIO.ACRESCIMO_DIAS_UTEIS", 1);
+  const incrementoConfigurado = Math.max(0, prazoConfigurado - regraLegal.regraAplicada.diasUteisMinimos);
+  const scheduleWindow = calcularPrazoLegalMinimo({
+    dataPublicacaoPNCP: params.dataPublicacaoEdital,
+    modalidadeCodigo: params.modalidadeCodigo,
+    tipoObjeto: params.tipoObjeto,
+    criterioJulgamento: params.criterioJulgamento,
+    acrescimoMunicipal: municipioExtraBase + incrementoConfigurado,
+    publicarNoDou: params.publicarNoDou,
+    publicarEmJornal: params.publicarEmJornal,
+  });
+
+  const disputeDay = scheduleWindow.dataMinima;
   const disputeTime = extractTimeParts(params.dataAberturaPropostas);
-  const abertura = combineDateAndTime(disputaDia, disputeTime.hours, disputeTime.minutes);
+  const abertura = combineDateAndTime(disputeDay, disputeTime.hours, disputeTime.minutes);
   const encerramento = new Date(abertura.getTime() - 15 * 60 * 1000);
 
   return {
-    baseDays,
-    municipioExtra,
-    canaisExtra,
-    startOffset,
-    totalBusinessDays,
-    dataPublicacaoEdital: combineDateAndTime(publicacaoDia, 8, 0),
-    dataRecebimentoPropostasInicio: combineDateAndTime(recebimentoInicial, 8, 0),
+    baseDays: scheduleWindow.diasUteisLegais,
+    municipioExtra: scheduleWindow.acrescimoMunicipal,
+    canaisExtra: scheduleWindow.acrescimoCanais,
+    startOffset: 1 + scheduleWindow.acrescimoMunicipal + scheduleWindow.acrescimoCanais,
+    totalBusinessDays: scheduleWindow.diasUteisTotais,
+    regraAplicada: scheduleWindow.regraAplicada,
+    dataMinimaLegal: scheduleWindow.dataMinima,
+    dataPublicacaoEdital: combineDateAndTime(params.dataPublicacaoEdital, 8, 0),
+    dataRecebimentoPropostasInicio: combineDateAndTime(scheduleWindow.dataInicioContagem, 8, 0),
     dataRecebimentoPropostasFim: encerramento,
     dataAberturaPropostas: abertura,
   };
@@ -207,7 +218,7 @@ function buildManualSchedule(params: {
   dataRecebimentoPropostasInicio?: string | Date | null;
   dataRecebimentoPropostasFim?: string | Date | null;
   dataAberturaPropostas?: string | Date | null;
-}) {
+}): PublicationSchedule | null {
   const dataPublicacaoEdital = parseOptionalTimestampLoose(params.dataPublicacaoEdital);
   const dataRecebimentoPropostasInicio = parseOptionalTimestampLoose(params.dataRecebimentoPropostasInicio);
   const dataRecebimentoPropostasFim = parseOptionalTimestampLoose(params.dataRecebimentoPropostasFim);
@@ -223,6 +234,8 @@ function buildManualSchedule(params: {
     canaisExtra: 0,
     startOffset: 0,
     totalBusinessDays: 0,
+    regraAplicada: null,
+    dataMinimaLegal: null,
     dataPublicacaoEdital,
     dataRecebimentoPropostasInicio: dataRecebimentoPropostasInicio ?? dataPublicacaoEdital,
     dataRecebimentoPropostasFim,
@@ -383,7 +396,7 @@ async function buildInternalChecklist(
 async function syncPublicationDeadlines(
   db: DbClient,
   processoId: number,
-  schedule: Awaited<ReturnType<typeof buildPublicationSchedule>>,
+  schedule: PublicationSchedule | null,
   userId?: number | null,
 ) {
   if (!schedule) return;
@@ -954,9 +967,10 @@ export const licitacaoRouter = router({
       : null;
     const schedule = processo.foraDoFluxo
       ? manualSchedule
-      : await buildPublicationSchedule(db, {
+        : await buildPublicationSchedule(db, {
           modalidadeCodigo: processo.modalidadeCodigo,
           tipoObjeto: processo.tipoObjeto,
+          criterioJulgamento: input.criterioJulgamento ?? processo.criterioJulgamento,
           dataPublicacaoEdital: configuredPublicationDate,
           publicarNoDou: input.publicarNoDou,
           publicarEmJornal: input.publicarEmJornal,
@@ -1211,6 +1225,7 @@ export const licitacaoRouter = router({
       : await buildPublicationSchedule(db, {
           modalidadeCodigo: processo.modalidadeCodigo,
           tipoObjeto: processo.tipoObjeto,
+          criterioJulgamento: processo.criterioJulgamento,
           dataPublicacaoEdital: parseOptionalTimestamp(input.dataPublicacaoEdital) ?? licitacao.dataPublicacaoEdital ?? new Date(),
           publicarNoDou: licitacao.publicarNoDou,
           publicarEmJornal: licitacao.publicarEmJornal,

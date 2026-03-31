@@ -12,3 +12,4 @@ export * from "./schemas/licitacao.js";
 export * from "./schemas/importacoes.js";
 export * from "./schemas/parametros.js";
 export * from "./document-templates/planejamento.js";
+export * from "./prazos-legais.js";

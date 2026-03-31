@@ -30,7 +30,9 @@ import {
   recursoResultadoLabels,
   recursoResultadoOptions,
 } from "@sirel/shared/const";
+import { calcularPrazoLegalMinimo } from "@sirel/shared/prazos-legais";
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
+import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
@@ -209,25 +211,6 @@ function toTimeInputValue(value: string | Date | null | undefined) {
   return `${String(source.getHours()).padStart(2, "0")}:${String(source.getMinutes()).padStart(2, "0")}`;
 }
 
-function startOfDay(date = new Date()) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addBusinessDays(source: Date, businessDays: number) {
-  const cursor = startOfDay(source);
-  let remaining = businessDays;
-
-  while (remaining > 0) {
-    cursor.setDate(cursor.getDate() + 1);
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) {
-      remaining -= 1;
-    }
-  }
-
-  return cursor;
-}
-
 function combineDateAndTime(date: Date, hours = 8, minutes = 0) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0, 0);
 }
@@ -275,46 +258,42 @@ function isStepAtOrBeyond(currentStatus: string | undefined, targets: string[]) 
 
 function buildSchedulePreview(params: {
   modalidadeCodigo?: string | null;
+  tipoObjeto?: string | null;
+  criterioJulgamento?: string | null;
   dataPublicacaoEdital?: string;
   publicarNoDou?: boolean;
   publicarEmJornal?: boolean;
   horaDisputa?: string;
+  acrescimoMunicipal?: number;
 }) {
   if (!params.modalidadeCodigo || !params.dataPublicacaoEdital) return null;
 
-  const prazoBasePorModalidade: Record<string, number> = {
-    CONCORRENCIA_ELETRONICA: 10,
-    CONCORRENCIA_PRESENCIAL: 10,
-    CREDENCIAMENTO: 15,
-    DISPENSA_SIMPLIFICADA: 3,
-    DISPENSA_ELETRONICA: 3,
-    INEXIGIBILIDADE: 3,
-    LEILAO_ELETRONICO: 15,
-    PREGAO_ELETRONICO: 8,
-    PREGAO_PRESENCIAL: 8,
-  };
-
-  const baseDays = prazoBasePorModalidade[params.modalidadeCodigo] ?? 8;
-  const municipioExtra = 1;
-  const canaisExtra = params.publicarNoDou || params.publicarEmJornal ? 1 : 0;
-  const totalBusinessDays = baseDays + municipioExtra + canaisExtra;
-  const startOffset = 1 + municipioExtra + canaisExtra;
   const publicacaoDia = new Date(`${params.dataPublicacaoEdital}T12:00:00`);
-  const recebimentoInicial = addBusinessDays(publicacaoDia, startOffset);
-  const disputaDia = addBusinessDays(publicacaoDia, totalBusinessDays);
+  const legalWindow = calcularPrazoLegalMinimo({
+    dataPublicacaoPNCP: publicacaoDia,
+    modalidadeCodigo: params.modalidadeCodigo,
+    tipoObjeto: params.tipoObjeto,
+    criterioJulgamento: params.criterioJulgamento,
+    acrescimoMunicipal: params.acrescimoMunicipal ?? 1,
+    publicarNoDou: params.publicarNoDou,
+    publicarEmJornal: params.publicarEmJornal,
+  });
   const disputeTime = parseTimeInput(params.horaDisputa);
-  const abertura = combineDateAndTime(disputaDia, disputeTime.hours, disputeTime.minutes);
+  const abertura = combineDateAndTime(legalWindow.dataMinima, disputeTime.hours, disputeTime.minutes);
   const encerramento = new Date(abertura.getTime() - 15 * 60 * 1000);
 
   return {
-    baseDays,
-    municipioExtra,
-    canaisExtra,
-    startOffset,
-    totalBusinessDays,
+    baseDays: legalWindow.diasUteisLegais,
+    municipioExtra: legalWindow.acrescimoMunicipal,
+    canaisExtra: legalWindow.acrescimoCanais,
+    startOffset: 1 + legalWindow.acrescimoMunicipal + legalWindow.acrescimoCanais,
+    totalBusinessDays: legalWindow.diasUteisTotais,
+    regraAplicada: legalWindow.regraAplicada,
+    dataMinimaLegal: legalWindow.dataMinima,
+    dataInicioContagem: legalWindow.dataInicioContagem,
     dataPublicacaoEdital: publicacaoDia,
     horaDisputa: `${String(disputeTime.hours).padStart(2, "0")}:${String(disputeTime.minutes).padStart(2, "0")}`,
-    dataRecebimentoPropostasInicio: combineDateAndTime(recebimentoInicial, 8, 0),
+    dataRecebimentoPropostasInicio: combineDateAndTime(legalWindow.dataInicioContagem, 8, 0),
     dataRecebimentoPropostasFim: encerramento,
     dataAberturaPropostas: abertura,
   };
@@ -398,6 +377,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     dataJulgamento: "",
   });
   const [checklistNaoAplicavelForm, setChecklistNaoAplicavelForm] = useState<Record<string, ChecklistFlexFormState>>({});
+  const [legalDateOverrideJustification, setLegalDateOverrideJustification] = useState("");
   const [auditJustification, setAuditJustification] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditUserFilter, setAuditUserFilter] = useState("");
@@ -848,23 +828,41 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     });
     return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [auditoriaItems]);
-  const schedulePreview = useMemo(() => {
-    if (isForaDoFluxo) return null;
+  const legalScheduleWindow = useMemo(() => {
+    if (!publishForm.dataPublicacaoEdital) return null;
     return buildSchedulePreview({
       modalidadeCodigo: detalhe?.processo.modalidadeCodigo ?? null,
+      tipoObjeto: detalhe?.processo.tipoObjeto ?? null,
+      criterioJulgamento: (configForm.criterioJulgamento || detalhe?.processo.criterioJulgamento) ?? null,
       dataPublicacaoEdital: publishForm.dataPublicacaoEdital,
       publicarNoDou: configForm.publicarNoDou,
       publicarEmJornal: configForm.publicarEmJornal,
       horaDisputa: publishForm.horaDisputa,
+      acrescimoMunicipal: 1,
     });
   }, [
+    configForm.criterioJulgamento,
     configForm.publicarEmJornal,
     configForm.publicarNoDou,
     detalhe?.processo.modalidadeCodigo,
+    detalhe?.processo.tipoObjeto,
+    detalhe?.processo.criterioJulgamento,
     publishForm.dataPublicacaoEdital,
     publishForm.horaDisputa,
-    isForaDoFluxo,
   ]);
+  const schedulePreview = isForaDoFluxo ? null : legalScheduleWindow;
+  const manualScheduleViolatesLegalMinimum = Boolean(
+    isForaDoFluxo
+      && legalScheduleWindow
+      && manualScheduleForm.dataAberturaPropostas
+      && new Date(manualScheduleForm.dataAberturaPropostas).getTime() < legalScheduleWindow.dataMinimaLegal.getTime(),
+  );
+
+  useEffect(() => {
+    if (!manualScheduleViolatesLegalMinimum && legalDateOverrideJustification) {
+      setLegalDateOverrideJustification("");
+    }
+  }, [legalDateOverrideJustification, manualScheduleViolatesLegalMinimum]);
 
   async function refreshAll() {
     await Promise.all([
@@ -1001,6 +999,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   }
 
   async function persistConfiguracao() {
+    const legalOverrideAudit = manualScheduleViolatesLegalMinimum
+      ? [auditJustification.trim(), legalDateOverrideJustification.trim()].filter(Boolean).join(" | ")
+      : auditJustification.trim();
+
     await saveConfiguracaoMutation.mutateAsync({
       processoId,
       criterioJulgamento: configForm.criterioJulgamento || undefined,
@@ -1010,7 +1012,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       publicarEmJornal: configForm.publicarEmJornal,
       inversaoFasesHabilitada: configForm.inversaoFasesHabilitada,
       inversaoFasesJustificativa: configForm.inversaoFasesJustificativa || undefined,
-      justificativaAuditoria: isForaDoFluxo ? auditJustification.trim() : undefined,
+      justificativaAuditoria: isForaDoFluxo ? legalOverrideAudit || undefined : undefined,
       dataPublicacaoEdital: publishForm.dataPublicacaoEdital ? `${publishForm.dataPublicacaoEdital}T00:00:00` : undefined,
       dataRecebimentoPropostasInicio: manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
       dataRecebimentoPropostasFim: manualScheduleForm.dataRecebimentoPropostasFim || undefined,
@@ -1033,6 +1035,11 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       return;
     }
     if (!ensureAuditJustification("salvar a configuração interna")) return;
+    if (manualScheduleViolatesLegalMinimum && !legalDateOverrideJustification.trim()) {
+      setFeedback(null);
+      setErrorMessage("Informe a justificativa do prazo extemporâneo para salvar o cronograma manual abaixo do mínimo legal.");
+      return;
+    }
     await persistConfiguracao();
   }
 
@@ -1049,12 +1056,21 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setErrorMessage("Informe as datas manuais de publicação, recebimento final e abertura para publicar o processo fora do fluxo.");
       return;
     }
+    if (manualScheduleViolatesLegalMinimum && !legalDateOverrideJustification.trim()) {
+      setFeedback(null);
+      setErrorMessage("Informe a justificativa do prazo extemporâneo antes de publicar com data inferior ao mínimo legal.");
+      return;
+    }
+
+    const legalOverrideAudit = manualScheduleViolatesLegalMinimum
+      ? [auditJustification.trim(), legalDateOverrideJustification.trim()].filter(Boolean).join(" | ")
+      : auditJustification.trim();
 
     await publishMutation.mutateAsync({
       processoId,
       condutorProcessoId: Number(publishForm.condutorProcessoId),
       statusId: publishForm.statusId ? Number(publishForm.statusId) : undefined,
-      justificativaAuditoria: isForaDoFluxo ? auditJustification.trim() : undefined,
+      justificativaAuditoria: isForaDoFluxo ? legalOverrideAudit || undefined : undefined,
       dataPublicacaoEdital: publishForm.dataPublicacaoEdital ? `${publishForm.dataPublicacaoEdital}T00:00:00` : undefined,
       dataRecebimentoPropostasInicio: manualScheduleForm.dataRecebimentoPropostasInicio || undefined,
       dataRecebimentoPropostasFim: manualScheduleForm.dataRecebimentoPropostasFim || undefined,
@@ -1065,7 +1081,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       dataInicioLances: manualScheduleForm.dataInicioLances || undefined,
       dataFimLances: manualScheduleForm.dataFimLances || undefined,
       descricao: publishForm.descricao || undefined,
-      observacao: publishForm.observacao || undefined,
+      observacao: [publishForm.observacao, manualScheduleViolatesLegalMinimum ? `Prazo extemporâneo: ${legalDateOverrideJustification.trim()}` : null].filter(Boolean).join(" | ") || undefined,
     });
   }
 
@@ -2379,14 +2395,24 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 }
               >
                 <form className="space-y-5" onSubmit={handlePublish}>
-                  <div className="grid gap-3 xl:grid-cols-3 2xl:grid-cols-5">
-                    <FormField label="Data prevista de publicação">
-                      <Input
-                        type="date"
-                        value={publishForm.dataPublicacaoEdital}
-                        onChange={(event) => setPublishForm((current) => ({ ...current, dataPublicacaoEdital: event.target.value }))}
-                      />
-                    </FormField>
+                  <DatePickerLegal
+                    value={publishForm.dataPublicacaoEdital}
+                    onChange={(nextValue) => setPublishForm((current) => ({ ...current, dataPublicacaoEdital: nextValue }))}
+                    modalidadeCodigo={detalhe?.processo.modalidadeCodigo}
+                    tipoObjeto={detalhe?.processo.tipoObjeto}
+                    criterioJulgamento={configForm.criterioJulgamento || detalhe?.processo.criterioJulgamento}
+                    publicarNoDou={configForm.publicarNoDou}
+                    publicarEmJornal={configForm.publicarEmJornal}
+                    foraDoFluxo={isForaDoFluxo}
+                    acrescimoMunicipal={1}
+                    comparisonDate={isForaDoFluxo ? manualScheduleForm.dataAberturaPropostas : schedulePreview?.dataAberturaPropostas}
+                    comparisonLabel="Sessão / disputa"
+                    justificationValue={legalDateOverrideJustification}
+                    onJustificationChange={setLegalDateOverrideJustification}
+                    label="Data de publicação no PNCP"
+                  />
+
+                  <div className="grid gap-3 xl:grid-cols-3 2xl:grid-cols-4">
                     <FormField label="Hora da disputa">
                       <div className="relative">
                         <Input
@@ -2487,7 +2513,14 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     </div>
                   ) : null}
                   {isForaDoFluxo ? (
-                    <Alert variant="warning">Cronograma manual ativo. As datas acima serão usadas para auditoria e publicação.</Alert>
+                    <div className="space-y-3">
+                      <Alert variant="warning">Cronograma manual ativo. As datas acima serão usadas para auditoria e publicação.</Alert>
+                      {manualScheduleViolatesLegalMinimum && legalScheduleWindow ? (
+                        <Alert variant="warning">
+                          A sessão manual está anterior ao mínimo legal calculado para {formatShortDateBR(legalScheduleWindow.dataMinimaLegal)}. O SIREL permitirá o registro extemporâneo, mas exigirá justificativa e manterá o rastreio reforçado.
+                        </Alert>
+                      ) : null}
+                    </div>
                   ) : schedulePreview ? (
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
