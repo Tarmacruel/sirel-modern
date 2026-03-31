@@ -31,6 +31,14 @@ import {
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
+import {
+  getLicitacaoDocumentBlueprint,
+  licitacaoMacroPhases,
+  licitacaoSubphases,
+  type LicitacaoDocumentRequirement,
+  type LicitacaoMacroPhaseKey,
+  type LicitacaoSubphaseKey,
+} from "@/lib/licitacao-phase-config";
 import { Alert } from "@/components/ui/alert";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -60,6 +68,20 @@ interface UploadFormState {
   titulo: string;
   descricao: string;
   arquivo: File | null;
+}
+
+interface ChecklistCardItem extends LicitacaoDocumentRequirement {
+  concluido: boolean;
+  naoAplicavel?: boolean;
+  justificativaNaoAplicavel?: string | null;
+  documentos: {
+    id: number;
+    categoria: string | null;
+    titulo: string;
+    arquivoUrl: string | null;
+    criadoEm: string | Date;
+  }[];
+  statusOrigem?: string;
 }
 
 const initialUploadForm: UploadFormState = {
@@ -203,6 +225,23 @@ function formatAuditValue(value: unknown) {
   }
 }
 
+function isStepAtOrBeyond(currentStatus: string | undefined, targets: string[]) {
+  if (!currentStatus) return false;
+  const current = mapStatusToVisualStep(currentStatus);
+  const order = [
+    "PREPARACAO_INTERNA",
+    "PUBLICACAO",
+    "RECEBIMENTO_PROPOSTAS",
+    "LANCES",
+    "JULGAMENTO",
+    "HABILITACAO",
+    "RECURSOS",
+    "HOMOLOGACAO",
+  ];
+  const currentIndex = order.indexOf(current);
+  return targets.some((target) => order.indexOf(target) > -1 && currentIndex >= order.indexOf(target));
+}
+
 function buildSchedulePreview(params: {
   modalidadeCodigo?: string | null;
   dataPublicacaoEdital?: string;
@@ -295,6 +334,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   const [sectionOpen, setSectionOpen] = useState({
     overview: true,
     internal: false,
+    external: false,
     docs: false,
     publication: false,
     licitantes: false,
@@ -348,6 +388,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
   const overviewRef = useRef<HTMLElement | null>(null);
   const internalRef = useRef<HTMLElement | null>(null);
+  const externalRef = useRef<HTMLElement | null>(null);
   const docsRef = useRef<HTMLElement | null>(null);
   const publicationRef = useRef<HTMLElement | null>(null);
   const licitantesRef = useRef<HTMLElement | null>(null);
@@ -636,9 +677,101 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     return grouped;
   }, [documentos]);
 
-  const checklistItems = detalhe?.checklistInterno.itens ?? [];
-  const pendingRequired = detalhe?.checklistInterno.obrigatoriosPendentes ?? [];
+  const blueprint = useMemo(
+    () =>
+      getLicitacaoDocumentBlueprint({
+        modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
+        exigeDeclaracaoNaoFracionamento: configForm.exigeDeclaracaoNaoFracionamento,
+      }),
+    [configForm.exigeDeclaracaoNaoFracionamento, detalhe?.processo.modalidadeCodigo],
+  );
+
+  const serverChecklistMap = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        category: string;
+        concluido: boolean;
+        naoAplicavel?: boolean;
+        justificativaNaoAplicavel?: string | null;
+        documentos?: ChecklistCardItem["documentos"];
+      }
+    >();
+    (detalhe?.checklistInterno.itens ?? []).forEach((item) => {
+      map.set(item.category, item);
+    });
+    return map;
+  }, [detalhe?.checklistInterno.itens]);
+
+  const checklistItems = useMemo<ChecklistCardItem[]>(
+    () =>
+      blueprint.internal.map((item) => {
+        const serverItem = serverChecklistMap.get(item.category);
+        const documentosCategoria = docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
+        return {
+          ...item,
+          concluido: serverItem?.concluido ?? documentosCategoria.length > 0,
+          naoAplicavel: serverItem?.naoAplicavel ?? false,
+          justificativaNaoAplicavel: serverItem?.justificativaNaoAplicavel ?? null,
+          documentos: documentosCategoria,
+        };
+      }),
+    [blueprint.internal, docsByCategory, serverChecklistMap],
+  );
+
+  const pendingRequired = checklistItems.filter((item) => item.obrigatorio && !item.concluido);
   const progressCount = checklistItems.filter((item) => item.concluido).length;
+
+  const externalChecklistItems = useMemo<ChecklistCardItem[]>(() => {
+    const statusAtual = detalhe?.licitacao.statusLicitacao;
+    return blueprint.external.map((item) => {
+      const documentosCategoria = docsByCategory.get(item.category) ?? [];
+      const concluidoPorDocumento = documentosCategoria.length > 0;
+      const concluidoPorSistema = (() => {
+        switch (item.category) {
+          case "LICITACAO_CONFIRMACAO_PNCP":
+            return Boolean(detalhe?.processo.publicado);
+          case "LICITACAO_PROPOSTAS_PARTICIPANTES":
+            return (detalhe?.propostas.length ?? 0) > 0;
+          case "LICITACAO_HABILITACAO_EMPRESAS":
+            return (detalhe?.licitantes.some((licitante) => licitante.statusHabilitacao !== "PENDENTE")) ?? false;
+          case "LICITACAO_RECURSOS":
+            return (detalhe?.recursos.length ?? 0) > 0;
+          case "LICITACAO_JULGAMENTO_PROPOSTA_TECNICA":
+            return isStepAtOrBeyond(statusAtual, ["JULGAMENTO", "HABILITACAO", "RECURSOS", "HOMOLOGACAO"]);
+          case "LICITACAO_ATAS_SESSAO_ADJUDICACAO":
+            return isStepAtOrBeyond(statusAtual, ["RECURSOS", "HOMOLOGACAO"]);
+          case "LICITACAO_ATA_RELATORIO_FINAL":
+            return isStepAtOrBeyond(statusAtual, ["HOMOLOGACAO"]);
+          case "LICITACAO_ATA_HOMOLOGACAO":
+          case "LICITACAO_TERMO_HOMOLOGACAO":
+            return Boolean(detalhe?.processo.homologado);
+          case "LICITACAO_AVISO_PREGAO":
+          case "LICITACAO_AVISO_DISPENSA":
+            return Boolean(detalhe?.processo.publicado);
+          default:
+            return false;
+        }
+      })();
+
+      return {
+        ...item,
+        concluido: concluidoPorDocumento || concluidoPorSistema,
+        documentos: documentosCategoria,
+        statusOrigem: concluidoPorDocumento ? "Documento anexado" : concluidoPorSistema ? "Evidência sistêmica" : "Pendente",
+      };
+    });
+  }, [
+    blueprint.external,
+    detalhe?.licitacao.statusLicitacao,
+    detalhe?.licitantes,
+    detalhe?.processo.homologado,
+    detalhe?.processo.publicado,
+    detalhe?.propostas,
+    detalhe?.recursos,
+    docsByCategory,
+  ]);
+  const externalPendingRequired = externalChecklistItems.filter((item) => item.obrigatorio && !item.concluido);
   const auditoriaItems = auditoriaQuery.data?.items ?? [];
   const auditoriaUserOptions = useMemo(() => {
     const map = new Map<number, string>();
@@ -711,7 +844,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     }));
   }
 
-  async function handleChecklistNaoAplicavel(item: (typeof checklistItems)[number]) {
+  async function handleChecklistNaoAplicavel(item: Pick<ChecklistCardItem, "category" | "label">) {
     if (!isForaDoFluxo) return;
     const state = checklistNaoAplicavelForm[item.category] ?? { ativo: false, justificativa: "" };
     const actionLabel = state.ativo ? "marcar o item como não aplicável" : "reativar o item no checklist";
@@ -731,7 +864,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     });
   }
 
-  async function handleUploadChecklistDocumento(item: (typeof checklistItems)[number]) {
+  async function handleUploadChecklistDocumento(item: Pick<ChecklistCardItem, "category" | "label" | "description"> & { tipo?: string }) {
     const current = getUploadState(uploadForms, item.category);
     if (!current.arquivo) {
       setFeedback(null);
@@ -744,7 +877,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       setErrorMessage(null);
       await uploadProcessoDocumento({
         processoId,
-        tipo: item.tipo,
+        tipo: (item.tipo as "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO" | undefined) ?? "OUTRO",
         categoria: item.category,
         titulo: current.titulo.trim() || item.label,
         descricao: current.descricao.trim() || item.description,
@@ -970,6 +1103,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     const items = [
       { key: "overview", label: "Visão geral", ref: overviewRef },
       { key: "internal", label: "Fase interna", ref: internalRef },
+      { key: "external", label: "Fase externa", ref: externalRef },
       { key: "docs", label: "Documentos do processo", ref: docsRef },
       { key: "publication", label: "Publicação", ref: publicationRef },
       ...(showCompetitivoSteps ? [{ key: "licitantes", label: "Licitantes", ref: licitantesRef }] : []),
@@ -998,24 +1132,54 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     ? "PREPARACAO_INTERNA"
     : mapStatusToVisualStep(detalhe?.licitacao.statusLicitacao ?? "PREPARACAO");
   const currentVisualStepIndex = Math.max(0, flowSteps.findIndex((item) => item.key === currentVisualStep));
+  const currentSubphase: LicitacaoSubphaseKey =
+    currentVisualStep === "PREPARACAO_INTERNA"
+      ? "FASE_INTERNA"
+      : currentVisualStep === "PUBLICACAO" && isForaDoFluxo
+        ? "CRONOGRAMA"
+        : currentVisualStep === "PUBLICACAO"
+          ? "FASE_EXTERNA"
+          : currentVisualStepIndex <= 0
+            ? "FASE_INTERNA"
+            : "FASE_EXTERNA";
+  const macroPhaseStatuses: Record<LicitacaoMacroPhaseKey, "done" | "current" | "upcoming"> = {
+    PLANEJAMENTO: "done",
+    COMPRAS: "done",
+    LICITACAO: "current",
+    CONTRATO: detalhe?.processo.homologado ? "done" : "upcoming",
+  };
+  const currentSubphaseLabel =
+    currentSubphase === "FASE_INTERNA"
+      ? "Licitação > Fase interna"
+      : currentSubphase === "FASE_EXTERNA"
+        ? "Licitação > Fase externa"
+        : "Licitação > Cronograma";
+  const responsavelAtual =
+    detalhe?.processo.condutorProcesso?.nome
+    ?? "Responsável em definição";
+  const nextTransitionTitle =
+    currentSubphase === "FASE_INTERNA"
+      ? "Transição: Fase interna -> Fase externa"
+      : "Transição: Licitação -> Contrato";
+  const nextTransitionPendings = currentSubphase === "FASE_INTERNA" ? pendingRequired : externalPendingRequired;
   const currentNavKey = (() => {
     switch (currentVisualStep) {
       case "PREPARACAO_INTERNA":
         return "internal";
       case "PUBLICACAO":
-        return "publication";
+        return "external";
       case "RECEBIMENTO_PROPOSTAS":
-        return "propostas";
+        return "external";
       case "LANCES":
-        return "lances";
+        return "external";
       case "JULGAMENTO":
-        return "julgamento";
+        return "external";
       case "HABILITACAO":
-        return "habilitacao";
+        return "external";
       case "RECURSOS":
-        return "recursos";
+        return "external";
       case "HOMOLOGACAO":
-        return "homologacao";
+        return "external";
       default:
         return "overview";
     }
@@ -1155,6 +1319,130 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
             </div>
           </div>
         ) : null}
+
+        <div className="mb-6 overflow-hidden rounded-[32px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(236,244,255,0.78))] shadow-[0_18px_40px_-30px_rgba(15,26,109,0.32)]">
+          <div className="border-b border-[rgba(204,225,255,0.92)] px-5 py-5">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-primary-600)]">
+                  <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1">Painel de contexto</span>
+                  {isForaDoFluxo ? <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">Modo extemporâneo</span> : null}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Processo</div>
+                    <div className="mt-1 text-2xl font-black text-[var(--color-primary-900)]">{detalhe.processo.numeroSirel}</div>
+                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">{detalhe.processo.modalidade ?? "Modalidade em definição"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fase atual</div>
+                    <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{currentSubphaseLabel}</div>
+                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">{licitacaoStatusLabels[detalhe.licitacao.statusLicitacao as keyof typeof licitacaoStatusLabels] ?? detalhe.licitacao.statusLicitacao}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Responsável</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--color-primary-900)]">{responsavelAtual}</div>
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white/80 px-4 py-4">
+                <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">{nextTransitionTitle}</div>
+                {nextTransitionPendings.length ? (
+                  <>
+                    <div className="mt-2 text-sm text-[var(--color-neutral-700)]">
+                      Ainda existem {nextTransitionPendings.length} pendência(s) antes de liberar a próxima transição.
+                    </div>
+                    <ul className="mt-3 space-y-2 text-sm text-[var(--color-neutral-600)]">
+                      {nextTransitionPendings.slice(0, 4).map((item) => (
+                        <li key={item.category} className="flex items-start gap-2">
+                          <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
+                          <span>{item.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <div className="mt-2 text-sm font-semibold text-emerald-700">
+                    Pré-requisitos atendidos para seguir o fluxo desta fase.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-b border-[rgba(204,225,255,0.92)] px-5 py-4">
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fluxo macro</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              {licitacaoMacroPhases.map((phase) => {
+                const status = macroPhaseStatuses[phase.key];
+                const classes =
+                  status === "current"
+                    ? "border-[rgba(65,105,225,0.36)] bg-[var(--color-primary-50)] text-[var(--color-primary-900)]"
+                    : status === "done"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)]";
+
+                return (
+                  <button
+                    key={phase.key}
+                    type="button"
+                    onClick={() => {
+                      if (phase.key === "LICITACAO") {
+                        requestAnimationFrame(() => overviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                        return;
+                      }
+                      setLocation(phase.href);
+                    }}
+                    className={`rounded-[24px] border px-4 py-4 text-left transition hover:-translate-y-0.5 ${classes}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-black">{phase.label}</span>
+                      <span className="text-[11px] font-bold uppercase tracking-[0.16em]">
+                        {status === "current" ? "Atual" : status === "done" ? "Concluída" : "Próxima"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 opacity-80">{phase.hint}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="px-5 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {licitacaoSubphases.map((tab) => {
+                const isActive = currentSubphase === tab.key;
+                const targetRef =
+                  tab.key === "FASE_INTERNA"
+                    ? internalRef
+                    : tab.key === "FASE_EXTERNA"
+                      ? externalRef
+                      : publicationRef;
+                const targetSection =
+                  tab.key === "FASE_INTERNA" ? "internal" : tab.key === "FASE_EXTERNA" ? "external" : "publication";
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      setSectionOpen((current) => ({ ...current, [targetSection]: true }));
+                      requestAnimationFrame(() => targetRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                    }}
+                    className={[
+                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                      isActive
+                        ? "border-[rgba(65,105,225,0.36)] bg-[var(--color-primary-900)] text-white"
+                        : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(65,105,225,0.36)] hover:text-[var(--color-primary-900)]",
+                    ].join(" ")}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
         <div className="mb-6 rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(230,240,255,0.7))] px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(15,26,109,0.28)]">
           <div className="grid gap-3 md:grid-cols-4">
@@ -1602,6 +1890,153 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                           <Button type="button" onClick={() => void handleUploadChecklistDocumento(item)}>
                             <Upload className="h-4 w-4" />
                             Anexar documento
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </CollapsibleSectionCard>
+            </section>
+
+            <section ref={externalRef}>
+              <CollapsibleSectionCard
+                title="Fase externa e rito operacional"
+                description="Checklist contextual da fase externa, com evidências documentais e leitura do andamento da sessão."
+                open={sectionOpen.external}
+                onToggle={(nextOpen) => setSectionOpen((current) => ({ ...current, external: nextOpen }))}
+                action={
+                  <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
+                    <CalendarClock className="h-4 w-4" />
+                    {externalChecklistItems.filter((item) => item.concluido).length}/{externalChecklistItems.length} concluídos
+                  </div>
+                }
+                collapsedSummary={
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Checklist externo: {externalChecklistItems.filter((item) => item.concluido).length}/{externalChecklistItems.length}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Pendentes: {externalPendingRequired.length}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Publicado: {detalhe.processo.publicado ? "Sim" : "Não"}
+                    </span>
+                  </div>
+                }
+              >
+                <div className="grid gap-3 xl:grid-cols-4">
+                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Sessão oficial</div>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.licitacao.dataAberturaPropostas ? formatShortDateTimeBR(detalhe.licitacao.dataAberturaPropostas) : "Ainda não definida"}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Data da abertura e disputa vinculada ao processo.</p>
+                  </article>
+                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Propostas</div>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">{detalhe.propostas.length}</div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Registros operacionais já associados à fase externa.</p>
+                  </article>
+                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Habilitação</div>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.licitantes.filter((item) => item.statusHabilitacao !== "PENDENTE").length}/{detalhe.licitantes.length}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Licitantes com análise documental já registrada.</p>
+                  </article>
+                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Fechamento</div>
+                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detalhe.processo.homologado ? "Homologado" : "Em andamento"}
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">Ata, termo e envio à Controladoria para encerramento.</p>
+                  </article>
+                </div>
+
+                {externalPendingRequired.length ? (
+                  <Alert variant="warning" title="Pendências da fase externa">
+                    Ainda faltam evidências obrigatórias para concluir a fase externa: {externalPendingRequired.map((item) => item.label).join(", ")}.
+                  </Alert>
+                ) : (
+                  <Alert variant="success">A fase externa possui evidências suficientes para seguir para contrato e fechamento administrativo.</Alert>
+                )}
+
+                <div className="grid gap-4 2xl:grid-cols-2">
+                  {externalChecklistItems.map((item) => {
+                    const uploadState = getUploadState(uploadForms, item.category);
+                    const latestDocumento = item.documentos
+                      .slice()
+                      .sort((left, right) => new Date(right.criadoEm).getTime() - new Date(left.criadoEm).getTime())[0];
+                    const statusClass = item.concluido
+                      ? "bg-emerald-100 text-emerald-800"
+                      : item.obrigatorio
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-slate-100 text-slate-800";
+
+                    return (
+                      <article key={item.category} className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="text-base font-black text-[var(--color-primary-900)]">{item.label}</h4>
+                              <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}>
+                                {item.concluido ? "Concluído" : item.obrigatorio ? "Obrigatório" : "Opcional"}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">{item.description}</p>
+                            {item.baseLegal ? (
+                              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">{item.baseLegal}</p>
+                            ) : null}
+                          </div>
+                          <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
+                            <FileCheck2 className="h-5 w-5" />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-3 text-sm text-[var(--color-neutral-700)]">
+                          {latestDocumento ? (
+                            <>
+                              <div className="font-semibold text-[var(--color-primary-900)]">{latestDocumento.titulo}</div>
+                              <div className="mt-1 text-[var(--color-neutral-600)]">Última evidência anexada em {formatShortDateTimeBR(latestDocumento.criadoEm)}</div>
+                            </>
+                          ) : (
+                            <div className="font-semibold text-[var(--color-neutral-700)]">{item.statusOrigem ?? "Sem evidência anexada até o momento."}</div>
+                          )}
+                          {item.completionHint ? <div className="mt-2 text-xs text-[var(--color-neutral-500)]">{item.completionHint}</div> : null}
+                        </div>
+
+                        <div className="mt-4 grid gap-3 2xl:grid-cols-2">
+                          <FormField label="Título da evidência">
+                            <Input
+                              value={uploadState.titulo}
+                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, titulo: event.target.value }))}
+                              placeholder={item.label}
+                            />
+                          </FormField>
+                          <FormField label="Descrição">
+                            <Input
+                              value={uploadState.descricao}
+                              onChange={(event) => setUploadState(item.category, (current) => ({ ...current, descricao: event.target.value }))}
+                              placeholder="Ex.: exportação da plataforma, comprovante, ata assinada"
+                            />
+                          </FormField>
+                          <FormField label="Arquivo" className="2xl:col-span-2">
+                            <Input type="file" onChange={(event) => handleFileChange(item.category, event, item.label)} />
+                          </FormField>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          {latestDocumento ? (
+                            <a href={resolveServerAssetUrl(latestDocumento.arquivoUrl) ?? "#"} target="_blank" rel="noreferrer">
+                              <Button type="button" size="sm" variant="outline" disabled={!latestDocumento.arquivoUrl}>
+                                Abrir evidência
+                              </Button>
+                            </a>
+                          ) : null}
+                          <Button type="button" onClick={() => void handleUploadChecklistDocumento(item)}>
+                            <Upload className="h-4 w-4" />
+                            Anexar evidência
                           </Button>
                         </div>
                       </article>
