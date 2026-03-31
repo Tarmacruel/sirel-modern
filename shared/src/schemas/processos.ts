@@ -87,7 +87,22 @@ export const processoUpdateDataInputSchema = z.object({
   escopoDisputa: z.enum(["ITEM", "LOTE", "GLOBAL"]).optional(),
 });
 
+export const processoMacroPhaseTargetOptions = ["COMPRAS", "LICITACAO", "CONTRATOS"] as const;
+
+export const processoMacroPhaseGateInputSchema = z.object({
+  processoId: z.number().int().positive(),
+  moduloDestino: z.enum(processoMacroPhaseTargetOptions),
+});
+
+export const processoAdvanceMacroPhaseInputSchema = processoMacroPhaseGateInputSchema.extend({
+  permitirBypass: z.boolean().default(false),
+  justificativaAuditoria: z.string().trim().max(4000).optional(),
+  observacao: z.string().trim().max(2000).optional(),
+});
+
 export type ProcessoListInput = z.infer<typeof processoListInputSchema>;
 export type ProcessoCreateInput = z.infer<typeof processoCreateInputSchema>;
 export type ProcessoSetAtivoInput = z.infer<typeof processoSetAtivoInputSchema>;
 export type ProcessoUpdateDataInput = z.infer<typeof processoUpdateDataInputSchema>;
+export type ProcessoMacroPhaseGateInput = z.infer<typeof processoMacroPhaseGateInputSchema>;
+export type ProcessoAdvanceMacroPhaseInput = z.infer<typeof processoAdvanceMacroPhaseInputSchema>;

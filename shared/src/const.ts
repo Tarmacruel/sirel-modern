@@ -8,6 +8,13 @@
   "DOCUMENTOS",
 ] as const;
 
+export const workflowMacroPhaseLabels: Record<"PLANEJAMENTO" | "COMPRAS" | "LICITACAO" | "CONTRATOS", string> = {
+  PLANEJAMENTO: "Planejamento",
+  COMPRAS: "Compras",
+  LICITACAO: "Licitacao",
+  CONTRATOS: "Contrato",
+};
+
 export const workflowSituacaoOptions = [
   "RASCUNHO",
   "EM_ANDAMENTO",
@@ -382,7 +389,7 @@ export function getLicitacaoModalidadeHelp(modalidadeCodigo?: string | null, mod
 
   if (/DISPENSA/.test(modalidadeCodigo)) {
     return modoDisputa && modoDisputa !== "NAO_SE_APLICA"
-      ? "Dispensa com disputa: rito simplificado com disputa e julgamento. Avalie inversão e prazos antes de publicar."
+      ? "Dispensa com disputa: rito simplificado com disputa e julgamento. Avalie inversao e prazos antes de publicar."
       : "Dispensa sem disputa: fluxo documental direto com justificativa e pesquisa de preços obrigatórias.";
   }
 

@@ -31,6 +31,7 @@ import {
   recursoResultadoOptions,
 } from "@sirel/shared/const";
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
+import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import {
@@ -360,6 +361,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(null);
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
+  const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
   const [uploadForms, setUploadForms] = useState<Record<string, UploadFormState>>({});
   const [sectionOpen, setSectionOpen] = useState({
     overview: true,
@@ -652,6 +654,26 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       await refreshAll();
       setFeedback("Licitação homologada com sucesso.");
       setErrorMessage(null);
+    },
+    onError: (error) => {
+      setFeedback(null);
+      setErrorMessage(error.message);
+    },
+  });
+  const advanceMacroPhaseMutation = trpc.processos.advanceMacroPhase.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        refreshAll(),
+        utils.processos.list.invalidate(),
+        utils.processos.summary.invalidate(),
+        utils.processos.macroPhaseGate.invalidate({ processoId, moduloDestino: "CONTRATOS" }),
+        utils.workflow.list.invalidate(),
+        utils.contratos.list.invalidate(),
+        utils.contratos.summary.invalidate(),
+      ]);
+      setErrorMessage(null);
+      setFeedback("Processo encaminhado para Contratos com sucesso.");
+      setContractTransitionOpen(false);
     },
     onError: (error) => {
       setFeedback(null);
@@ -1205,6 +1227,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           : currentVisualStepIndex <= 0
             ? "FASE_INTERNA"
             : "FASE_EXTERNA";
+  const contractGateQuery = trpc.processos.macroPhaseGate.useQuery(
+    { processoId, moduloDestino: "CONTRATOS" },
+    { enabled: Boolean(detalhe) && currentSubphase !== "FASE_INTERNA", retry: false },
+  );
   const macroPhaseStatuses: Record<LicitacaoMacroPhaseKey, "done" | "current" | "upcoming"> = {
     PLANEJAMENTO: "done",
     COMPRAS: "done",
@@ -1222,9 +1248,14 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     ?? "Responsável em definição";
   const nextTransitionTitle =
     currentSubphase === "FASE_INTERNA"
-      ? "Transição: Fase interna -> Fase externa"
-      : "Transição: Licitação -> Contrato";
-  const nextTransitionPendings = currentSubphase === "FASE_INTERNA" ? pendingRequired : externalPendingRequired;
+      ? "Transicao: Fase interna -> Fase externa"
+      : "Transicao: Licitacao -> Contratos";
+  const nextTransitionPendings = currentSubphase === "FASE_INTERNA"
+    ? pendingRequired.map((item) => ({ category: item.category, label: item.label, detalhe: item.completionHint ?? item.description ?? undefined }))
+    : [
+        ...externalPendingRequired.map((item) => ({ category: item.category, label: item.label, detalhe: item.completionHint ?? item.description ?? undefined })),
+        ...(contractGateQuery.data?.blockers ?? []).map((item, index) => ({ category: `macro-${index}`, label: item.label, detalhe: item.detalhe })),
+      ];
   const currentNavKey = (() => {
     switch (currentVisualStep) {
       case "PREPARACAO_INTERNA":
@@ -1414,22 +1445,47 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                 {nextTransitionPendings.length ? (
                   <>
                     <div className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                      Ainda existem {nextTransitionPendings.length} pendência(s) antes de liberar a próxima transição.
+                      Ainda existem {nextTransitionPendings.length} pendencia(s) antes de liberar a proxima transicao.
                     </div>
                     <ul className="mt-3 space-y-2 text-sm text-[var(--color-neutral-600)]">
                       {nextTransitionPendings.slice(0, 4).map((item) => (
                         <li key={item.category} className="flex items-start gap-2">
                           <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                          <span>{item.label}</span>
+                          <span>
+                            <span className="font-semibold text-[var(--color-primary-900)]">{item.label}</span>
+                            {item.detalhe ? <span className="block text-xs text-[var(--color-neutral-500)]">{item.detalhe}</span> : null}
+                          </span>
                         </li>
                       ))}
                     </ul>
                   </>
                 ) : (
                   <div className="mt-2 text-sm font-semibold text-emerald-700">
-                    Pré-requisitos atendidos para seguir o fluxo desta fase.
+                    Pre-requisitos atendidos para seguir o fluxo desta fase.
                   </div>
                 )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {currentSubphase === "FASE_INTERNA" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSectionOpen((current) => ({ ...current, external: true, publication: true }));
+                        requestAnimationFrame(() => externalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                      }}
+                    >
+                      Abrir fase externa
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => setContractTransitionOpen(true)}
+                      disabled={contractGateQuery.isLoading || advanceMacroPhaseMutation.isPending}
+                    >
+                      Encaminhar para Contratos
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -3066,6 +3122,24 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           </div>
         </div>
       </SectionCard>
+
+      <MacroTransitionModal
+        open={contractTransitionOpen}
+        onClose={() => setContractTransitionOpen(false)}
+        title={`Encaminhar ${detalhe.processo.numeroSirel} para Contratos`}
+        targetLabel="Contratos"
+        blockers={contractGateQuery.data?.blockers ?? []}
+        loading={advanceMacroPhaseMutation.isPending}
+        onConfirm={async (payload) => {
+          await advanceMacroPhaseMutation.mutateAsync({
+            processoId,
+            moduloDestino: "CONTRATOS",
+            permitirBypass: payload.permitirBypass,
+            justificativaAuditoria: payload.justificativaAuditoria,
+            observacao: payload.observacao,
+          });
+        }}
+      />
 
       <Modal
         open={showAllDocsModal}

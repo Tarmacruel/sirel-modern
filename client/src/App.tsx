@@ -9,6 +9,7 @@ import { trpc, trpcClient } from "@/lib/trpc";
 
 const AuditoriaPage = lazy(() => import("@/pages/auditoria-page").then((module) => ({ default: module.AuditoriaPage })));
 const CadastrosPage = lazy(() => import("@/pages/cadastros-page").then((module) => ({ default: module.CadastrosPage })));
+const ComprasPage = lazy(() => import("@/pages/compras-page").then((module) => ({ default: module.ComprasPage })));
 const ContratosPage = lazy(() => import("@/pages/contratos-page").then((module) => ({ default: module.ContratosPage })));
 const ConsultasPage = lazy(() => import("@/pages/consultas-page").then((module) => ({ default: module.ConsultasPage })));
 const DashboardPage = lazy(() => import("@/pages/dashboard-page").then((module) => ({ default: module.DashboardPage })));
@@ -20,9 +21,7 @@ const LicitacaoPage = lazy(() => import("@/pages/licitacao-page").then((module) 
 const LicitacaoProcessoPage = lazy(() =>
   import("@/pages/licitacao-processo-page").then((module) => ({ default: module.LicitacaoProcessoPage })),
 );
-const NotificacoesPage = lazy(() =>
-  import("@/pages/notificacoes-page").then((module) => ({ default: module.NotificacoesPage })),
-);
+const NotificacoesPage = lazy(() => import("@/pages/notificacoes-page").then((module) => ({ default: module.NotificacoesPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found-page").then((module) => ({ default: module.NotFoundPage })));
 const ParametrosPage = lazy(() => import("@/pages/parametros-page").then((module) => ({ default: module.ParametrosPage })));
 const PlanejamentoCotacoesPage = lazy(() =>
@@ -34,9 +33,7 @@ const PlanejamentoDfdPage = lazy(() =>
 const PlanejamentoEtpPage = lazy(() =>
   import("@/pages/planejamento-etp-page").then((module) => ({ default: module.PlanejamentoEtpPage })),
 );
-const PlanejamentoTrPage = lazy(() =>
-  import("@/pages/planejamento-tr-page").then((module) => ({ default: module.PlanejamentoTrPage })),
-);
+const PlanejamentoTrPage = lazy(() => import("@/pages/planejamento-tr-page").then((module) => ({ default: module.PlanejamentoTrPage })));
 const PlanejamentoPage = lazy(() => import("@/pages/planejamento-page").then((module) => ({ default: module.PlanejamentoPage })));
 const PrazosPage = lazy(() => import("@/pages/prazos-page").then((module) => ({ default: module.PrazosPage })));
 const ProcessosPage = lazy(() => import("@/pages/processos-page").then((module) => ({ default: module.ProcessosPage })));
@@ -44,44 +41,10 @@ const RelatoriosPage = lazy(() => import("@/pages/relatorios-page").then((module
 const UsuariosPage = lazy(() => import("@/pages/usuarios-page").then((module) => ({ default: module.UsuariosPage })));
 const WorkflowPage = lazy(() => import("@/pages/workflow-page").then((module) => ({ default: module.WorkflowPage })));
 
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <section className="overflow-hidden rounded-[32px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)]">
-      <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-soft)] px-6 py-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--text-muted)]">Em estruturação</p>
-        <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-black tracking-tight text-[var(--text-primary)]">{title}</h2>
-      </div>
-      <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.2fr)_320px]">
-        <div className="space-y-4">
-          <p className="max-w-3xl text-sm leading-7 text-[var(--text-secondary)]">
-            Este módulo entra na próxima rodada de detalhamento visual do SIREL. Mantivemos a navegação, o shell operacional
-            e a identidade nova prontos para a continuidade sem quebrar o restante do sistema.
-          </p>
-          <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-5 py-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">O que já está garantido</p>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
-              <li>Shell responsivo com sidebar fixa e conteúdo rolando separadamente.</li>
-              <li>Tema claro/escuro consistente com a nova identidade institucional.</li>
-              <li>Base pronta para receber filtros, KPIs, tabelas e painéis específicos do módulo.</li>
-            </ul>
-          </div>
-        </div>
-        <aside className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-5 py-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">Próxima etapa</p>
-          <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
-            Estruturar a superfície operacional de {title.toLowerCase()} com visão executiva, filtros rápidos, lista principal
-            e ações contextuais integradas ao restante da jornada.
-          </p>
-        </aside>
-      </div>
-    </section>
-  );
-}
-
 function RouteFallback() {
   return (
     <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-6 text-sm text-[var(--color-neutral-600)] shadow-[var(--shadow-card)]">
-      Carregando módulo...
+      Carregando modulo...
     </div>
   );
 }
@@ -102,7 +65,7 @@ function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogou
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--surface-base)]">
         <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-6 py-5 text-sm text-[var(--color-neutral-600)] shadow-[var(--shadow-card)]">
-          Validando sessão...
+          Validando sessao...
         </div>
       </div>
     );
@@ -135,7 +98,7 @@ function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogou
           </Route>
           <Route path="/itens" component={ItensPage} />
           <Route path="/planejamento" component={PlanejamentoPage} />
-          <Route path="/compras">{() => <PlaceholderPage title="Módulo de Compras" />}</Route>
+          <Route path="/compras" component={ComprasPage} />
           <Route path="/processos/:processoId">
             {(params) => <ProcessosPage processoId={Number(params.processoId)} />}
           </Route>
@@ -191,4 +154,3 @@ export default function App() {
     </trpc.Provider>
   );
 }
-

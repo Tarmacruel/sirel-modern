@@ -3,7 +3,9 @@ import { and, asc, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  processoAdvanceMacroPhaseInputSchema,
   processoCreateInputSchema,
+  processoMacroPhaseGateInputSchema,
   processoListInputSchema,
   processoSetAtivoInputSchema,
   processoUpdateDataInputSchema,
@@ -18,6 +20,7 @@ import {
   etp,
   etpCotacoesPreliminares,
   itensProcesso,
+  licitacoes,
   modalidades,
   movimentacoesWorkflow,
   pessoas,
@@ -63,6 +66,191 @@ function parseOptionalTimestamp(value?: string) {
     });
   }
   return parsed;
+}
+
+type MacroModuleTarget = "COMPRAS" | "LICITACAO" | "CONTRATOS";
+
+interface MacroTransitionBlocker {
+  key: string;
+  label: string;
+  detalhe: string;
+}
+
+function expectedMacroTransition(currentModulo?: string | null): MacroModuleTarget | null {
+  switch (currentModulo) {
+    case "PLANEJAMENTO":
+      return "COMPRAS";
+    case "COMPRAS":
+      return "LICITACAO";
+    case "LICITACAO":
+      return "CONTRATOS";
+    default:
+      return null;
+  }
+}
+
+function buildMacroTransitionEtapa(moduloDestino: MacroModuleTarget) {
+  switch (moduloDestino) {
+    case "COMPRAS":
+      return "Recebido do Planejamento para consolidação final";
+    case "LICITACAO":
+      return "Recebido de Compras para preparação interna";
+    case "CONTRATOS":
+      return "Recebido da Licitação para formalização contratual";
+  }
+}
+
+async function loadMacroTransitionContext(processoId: number, moduloDestino: MacroModuleTarget) {
+  const db = requireDb();
+  const [baseRow] = await db
+    .select({
+      processo: processos,
+      workflow: workflowProcesso,
+      modalidadeCodigo: modalidades.codigo,
+      modalidadeNome: modalidades.nome,
+    })
+    .from(processos)
+    .leftJoin(workflowProcesso, eq(workflowProcesso.processoId, processos.id))
+    .leftJoin(modalidades, eq(modalidades.id, processos.modalidadeId))
+    .where(eq(processos.id, processoId))
+    .limit(1);
+
+  if (!baseRow) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Processo não encontrado." });
+  }
+
+  const [dfdRow, etpRow, trRow, cotacaoRow, licitacaoRow, contratosRows] = await Promise.all([
+    db.select().from(dfd).where(eq(dfd.processoId, processoId)).limit(1).then((rows) => rows[0] ?? null),
+    db.select().from(etp).where(eq(etp.processoId, processoId)).limit(1).then((rows) => rows[0] ?? null),
+    db.select().from(tr).where(eq(tr.processoId, processoId)).limit(1).then((rows) => rows[0] ?? null),
+    db
+      .select({ total: count() })
+      .from(etpCotacoesPreliminares)
+      .innerJoin(itensProcesso, eq(itensProcesso.id, etpCotacoesPreliminares.itemId))
+      .where(eq(itensProcesso.processoId, processoId))
+      .then((rows) => Number(rows[0]?.total ?? 0)),
+    db.select().from(licitacoes).where(eq(licitacoes.processoId, processoId)).limit(1).then((rows) => rows[0] ?? null),
+    db.select().from(contratos).where(eq(contratos.processoId, processoId)),
+  ]);
+
+  const blockers: MacroTransitionBlocker[] = [];
+  const expectedTarget = expectedMacroTransition(baseRow.workflow?.moduloAtual);
+
+  if (expectedTarget !== moduloDestino) {
+    blockers.push({
+      key: "ORDEM_FLUXO",
+      label: "Sequência de macrofases",
+      detalhe: expectedTarget
+        ? `O processo está em ${baseRow.workflow?.moduloAtual ?? "módulo indefinido"} e a próxima macrofase regular é ${expectedTarget}.`
+        : "O módulo atual do processo não permite avanço macro automático a partir deste ponto.",
+    });
+  }
+
+  if (moduloDestino === "COMPRAS") {
+    if (!dfdRow?.concluido) {
+      blockers.push({
+        key: "DFD",
+        label: "DFD concluída",
+        detalhe: "Finalize a DFD antes de encaminhar o processo para Compras.",
+      });
+    }
+    if (!trRow?.concluido) {
+      blockers.push({
+        key: "TR",
+        label: "TR externo concluído",
+        detalhe: "O Termo de Referência precisa estar concluído para fechar o Planejamento.",
+      });
+    }
+    if (cotacaoRow <= 0) {
+      blockers.push({
+        key: "COTACOES",
+        label: "Cotações preliminares registradas",
+        detalhe: "Registre pelo menos uma cotação consolidada antes da transição.",
+      });
+    }
+    if (baseRow.modalidadeCodigo && !/DISPENSA|INEXIGIBILIDADE/.test(baseRow.modalidadeCodigo) && !etpRow?.concluido) {
+      blockers.push({
+        key: "ETP",
+        label: "ETP concluído",
+        detalhe: "Para modalidades competitivas, o ETP deve estar concluído antes da fase de Compras.",
+      });
+    }
+    if (!baseRow.processo.valorEstimado) {
+      blockers.push({
+        key: "VALOR_ESTIMADO",
+        label: "Valor estimado consolidado",
+        detalhe: "Consolide o valor estimado do processo antes do envio para Compras.",
+      });
+    }
+  }
+
+  if (moduloDestino === "LICITACAO") {
+    if (!trRow?.concluido) {
+      blockers.push({
+        key: "TR",
+        label: "TR externo concluído",
+        detalhe: "O TR precisa estar concluído e estável para abrir a Licitação.",
+      });
+    }
+    if (cotacaoRow <= 0) {
+      blockers.push({
+        key: "PESQUISA_PRECOS",
+        label: "Pesquisa de preços consolidada",
+        detalhe: "Sem cotações válidas o módulo de Licitação não recebe base de estimativa.",
+      });
+    }
+    if (!baseRow.processo.valorEstimado) {
+      blockers.push({
+        key: "VALOR_ESTIMADO",
+        label: "Valor estimado consolidado",
+        detalhe: "Defina o valor estimado final antes do envio para Licitação.",
+      });
+    }
+    if (!baseRow.processo.modalidadeId || !baseRow.modalidadeCodigo) {
+      blockers.push({
+        key: "MODALIDADE",
+        label: "Modalidade definida",
+        detalhe: "A modalidade deve estar configurada para iniciar a fase de Licitação.",
+      });
+    }
+  }
+
+  if (moduloDestino === "CONTRATOS") {
+    if (!baseRow.processo.publicado) {
+      blockers.push({
+        key: "PUBLICACAO",
+        label: "Processo publicado",
+        detalhe: "A Licitação precisa estar publicada antes da formalização contratual.",
+      });
+    }
+    if (!baseRow.processo.homologado) {
+      blockers.push({
+        key: "HOMOLOGACAO",
+        label: "Homologação concluída",
+        detalhe: "Homologue a Licitação antes de enviar o processo para Contratos.",
+      });
+    }
+    if (!licitacaoRow || !["HOMOLOGACAO", "CONTRATACAO"].includes(licitacaoRow.statusLicitacao ?? "")) {
+      blockers.push({
+        key: "STATUS_LICITACAO",
+        label: "Status final da Licitação",
+        detalhe: "A fase licitatória ainda não está em estado apto para contratação.",
+      });
+    }
+  }
+
+  return {
+    db,
+    baseRow,
+    dfdRow,
+    etpRow,
+    trRow,
+    cotacoesTotal: cotacaoRow,
+    licitacaoRow,
+    contratosRows,
+    blockers,
+    expectedTarget,
+  };
 }
 
 async function validateDispensaLimit(params: {
@@ -652,6 +840,105 @@ export const processosRouter = router({
       },
       etapas,
       timeline: latestTimeline,
+    };
+  }),
+
+  macroPhaseGate: publicProcedure.input(processoMacroPhaseGateInputSchema).query(async ({ input }) => {
+    const context = await loadMacroTransitionContext(input.processoId, input.moduloDestino);
+    return {
+      processoId: input.processoId,
+      moduloAtual: context.baseRow.workflow?.moduloAtual ?? null,
+      moduloDestino: input.moduloDestino,
+      expectedTarget: context.expectedTarget,
+      blockers: context.blockers,
+      canAdvance: context.blockers.length === 0,
+    };
+  }),
+
+  advanceMacroPhase: gestorProcedure.input(processoAdvanceMacroPhaseInputSchema).mutation(async ({ ctx, input }) => {
+    const context = await loadMacroTransitionContext(input.processoId, input.moduloDestino);
+    const { db, baseRow, blockers } = context;
+    const justificativaAuditoria = input.justificativaAuditoria?.trim();
+
+    if (blockers.length && !input.permitirBypass) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `A transição possui ${blockers.length} pendência(s): ${blockers.map((item) => item.label).join(", ")}.`,
+      });
+    }
+
+    if (blockers.length && input.permitirBypass && !justificativaAuditoria) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Informe a justificativa de auditoria para liberar a transição com pendências.",
+      });
+    }
+
+    const currentState = baseRow.workflow;
+    const nextData = {
+      moduloAtual: input.moduloDestino,
+      situacao: "EM_ANDAMENTO" as const,
+      etapaAtual: buildMacroTransitionEtapa(input.moduloDestino),
+      dataInicio: currentState?.dataInicio ?? new Date().toISOString().slice(0, 10),
+      dataConclusao: null,
+      atualizadoEm: new Date(),
+    };
+
+    if (currentState) {
+      await db.update(workflowProcesso).set(nextData).where(eq(workflowProcesso.processoId, input.processoId));
+    } else {
+      await db.insert(workflowProcesso).values({
+        processoId: input.processoId,
+        criadoEm: new Date(),
+        ...nextData,
+      });
+    }
+
+    if (input.moduloDestino === "LICITACAO" && !context.licitacaoRow) {
+      await db.insert(licitacoes).values({
+        processoId: input.processoId,
+        criadoEm: new Date(),
+        atualizadoEm: new Date(),
+      });
+    }
+
+    await db.update(processos).set({ atualizadoEm: new Date() }).where(eq(processos.id, input.processoId));
+
+    const observacao = [
+      input.observacao?.trim(),
+      blockers.length ? `Bypass autorizado com ${blockers.length} pendência(s).` : null,
+      justificativaAuditoria ?? null,
+    ].filter(Boolean).join(" | ") || null;
+
+    await db.insert(movimentacoesWorkflow).values({
+      processoId: input.processoId,
+      moduloOrigem: currentState?.moduloAtual ?? "SISTEMA",
+      moduloDestino: input.moduloDestino,
+      descricao: blockers.length
+        ? `Transição macro liberada com pendências para ${input.moduloDestino}`
+        : `Transição macro concluída para ${input.moduloDestino}`,
+      observacao,
+      usuarioId: ctx.user?.id ?? null,
+      criadoEm: new Date(),
+    });
+
+    await logAuditoria(ctx, {
+      tabela: "workflow_processo",
+      registroId: currentState?.id ?? input.processoId,
+      acao: currentState ? "UPDATE" : "CREATE",
+      dadosAnteriores: currentState ?? null,
+      dadosNovos: nextData,
+      descricao: blockers.length
+        ? `Workflow do processo ${baseRow.processo.numeroSirel} avançado com bypass para ${input.moduloDestino}`
+        : `Workflow do processo ${baseRow.processo.numeroSirel} avançado para ${input.moduloDestino}`,
+    });
+
+    return {
+      success: true,
+      blockers,
+      bypassApplied: blockers.length > 0,
+      moduloAtual: input.moduloDestino,
+      etapaAtual: nextData.etapaAtual,
     };
   }),
 });
