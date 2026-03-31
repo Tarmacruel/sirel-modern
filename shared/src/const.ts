@@ -405,6 +405,20 @@ export function getLicitacaoModalidadeHelp(modalidadeCodigo?: string | null, mod
   return null;
 }
 
+export const licitacaoChecklistFlexStatusOptions = [
+  "PADRAO",
+  "NAO_APLICAVEL",
+  "OUTRO_SETOR",
+  "CONCLUIDO_FISICO",
+] as const;
+
+export const licitacaoChecklistFlexStatusLabels: Record<(typeof licitacaoChecklistFlexStatusOptions)[number], string> = {
+  PADRAO: "Exigir evidência",
+  NAO_APLICAVEL: "Não aplicável",
+  OUTRO_SETOR: "Em outro setor",
+  CONCLUIDO_FISICO: "Concluído fisicamente",
+};
+
 const licitacaoChecklistBase = [
   "LICITACAO_RESERVA_ORCAMENTARIA",
   "LICITACAO_ATO_AUTORIZACAO_AUTORIDADE",

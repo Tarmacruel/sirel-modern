@@ -20,6 +20,8 @@ import {
   licitacaoStatusLabels,
   getLicitacaoFlowConfig,
   getLicitacaoModalidadeHelp,
+  licitacaoChecklistFlexStatusLabels,
+  licitacaoChecklistFlexStatusOptions,
   licitacaoFluxoLabels,
   licitacaoStepCatalog,
   modoDisputaLabels,
@@ -70,10 +72,28 @@ interface UploadFormState {
   arquivo: File | null;
 }
 
+type ChecklistFlexStatus = (typeof licitacaoChecklistFlexStatusOptions)[number];
+
+interface ChecklistFlexFormState {
+  statusFlexivel: ChecklistFlexStatus;
+  justificativa: string;
+  departamentoResponsavel: string;
+  previsaoRecebimento: string;
+  processoFisicoNumero: string;
+  localArquivamento: string;
+  digitalizarDepois: boolean;
+}
+
 interface ChecklistCardItem extends LicitacaoDocumentRequirement {
   concluido: boolean;
   naoAplicavel?: boolean;
+  statusFlexivel?: ChecklistFlexStatus;
   justificativaNaoAplicavel?: string | null;
+  departamentoResponsavel?: string | null;
+  previsaoRecebimento?: string | null;
+  processoFisicoNumero?: string | null;
+  localArquivamento?: string | null;
+  digitalizarDepois?: boolean;
   documentos: {
     id: number;
     categoria: string | null;
@@ -88,6 +108,16 @@ const initialUploadForm: UploadFormState = {
   titulo: "",
   descricao: "",
   arquivo: null,
+};
+
+const initialChecklistFlexFormState: ChecklistFlexFormState = {
+  statusFlexivel: "PADRAO",
+  justificativa: "",
+  departamentoResponsavel: "",
+  previsaoRecebimento: "",
+  processoFisicoNumero: "",
+  localArquivamento: "",
+  digitalizarDepois: false,
 };
 
 const initialPropostaForm = {
@@ -365,9 +395,7 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     dataFimLances: "",
     dataJulgamento: "",
   });
-  const [checklistNaoAplicavelForm, setChecklistNaoAplicavelForm] = useState<
-    Record<string, { ativo: boolean; justificativa: string }>
-  >({});
+  const [checklistNaoAplicavelForm, setChecklistNaoAplicavelForm] = useState<Record<string, ChecklistFlexFormState>>({});
   const [auditJustification, setAuditJustification] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditUserFilter, setAuditUserFilter] = useState("");
@@ -462,8 +490,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
       const next = { ...current };
       detail.checklistInterno?.itens?.forEach((item) => {
         next[item.category] = {
-          ativo: Boolean(item.naoAplicavel),
+          statusFlexivel: item.statusFlexivel ?? (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
           justificativa: item.justificativaNaoAplicavel ?? "",
+          departamentoResponsavel: item.departamentoResponsavel ?? "",
+          previsaoRecebimento: toDateInputValue(item.previsaoRecebimento),
+          processoFisicoNumero: item.processoFisicoNumero ?? "",
+          localArquivamento: item.localArquivamento ?? "",
+          digitalizarDepois: item.digitalizarDepois ?? false,
         };
       });
       return next;
@@ -693,7 +726,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
         category: string;
         concluido: boolean;
         naoAplicavel?: boolean;
+        statusFlexivel?: ChecklistFlexStatus;
         justificativaNaoAplicavel?: string | null;
+        departamentoResponsavel?: string | null;
+        previsaoRecebimento?: string | null;
+        processoFisicoNumero?: string | null;
+        localArquivamento?: string | null;
+        digitalizarDepois?: boolean;
         documentos?: ChecklistCardItem["documentos"];
       }
     >();
@@ -712,7 +751,13 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
           ...item,
           concluido: serverItem?.concluido ?? documentosCategoria.length > 0,
           naoAplicavel: serverItem?.naoAplicavel ?? false,
+          statusFlexivel: serverItem?.statusFlexivel ?? (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
           justificativaNaoAplicavel: serverItem?.justificativaNaoAplicavel ?? null,
+          departamentoResponsavel: serverItem?.departamentoResponsavel ?? null,
+          previsaoRecebimento: serverItem?.previsaoRecebimento ?? null,
+          processoFisicoNumero: serverItem?.processoFisicoNumero ?? null,
+          localArquivamento: serverItem?.localArquivamento ?? null,
+          digitalizarDepois: serverItem?.digitalizarDepois ?? false,
           documentos: documentosCategoria,
         };
       }),
@@ -828,10 +873,10 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
     }));
   }
 
-  function setChecklistNaoAplicavelState(category: string, updater: (current: { ativo: boolean; justificativa: string }) => { ativo: boolean; justificativa: string }) {
+  function setChecklistNaoAplicavelState(category: string, updater: (current: ChecklistFlexFormState) => ChecklistFlexFormState) {
     setChecklistNaoAplicavelForm((current) => ({
       ...current,
-      [category]: updater(current[category] ?? { ativo: false, justificativa: "" }),
+      [category]: updater(current[category] ?? initialChecklistFlexFormState),
     }));
   }
 
@@ -846,20 +891,38 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
   async function handleChecklistNaoAplicavel(item: Pick<ChecklistCardItem, "category" | "label">) {
     if (!isForaDoFluxo) return;
-    const state = checklistNaoAplicavelForm[item.category] ?? { ativo: false, justificativa: "" };
-    const actionLabel = state.ativo ? "marcar o item como não aplicável" : "reativar o item no checklist";
+    const state = checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
+    const actionLabel = state.statusFlexivel === "PADRAO"
+      ? "reativar o item no checklist"
+      : `registrar ${licitacaoChecklistFlexStatusLabels[state.statusFlexivel].toLowerCase()}`;
     if (!ensureAuditJustification(actionLabel)) return;
-    if (state.ativo && !state.justificativa.trim()) {
+    if (state.statusFlexivel !== "PADRAO" && !state.justificativa.trim()) {
       setFeedback(null);
-      setErrorMessage("Informe a justificativa para marcar o item como não aplicável.");
+      setErrorMessage("Informe a justificativa para registrar este status especial.");
+      return;
+    }
+    if (state.statusFlexivel === "OUTRO_SETOR" && !state.departamentoResponsavel.trim()) {
+      setFeedback(null);
+      setErrorMessage("Informe o departamento responsável pelo documento.");
+      return;
+    }
+    if (state.statusFlexivel === "CONCLUIDO_FISICO" && !state.localArquivamento.trim()) {
+      setFeedback(null);
+      setErrorMessage("Informe o local de arquivamento do processo físico.");
       return;
     }
 
     await setChecklistNaoAplicavelMutation.mutateAsync({
       processoId,
       categoria: item.category,
-      naoAplicavel: state.ativo,
-      justificativa: state.ativo ? state.justificativa.trim() : undefined,
+      naoAplicavel: state.statusFlexivel === "NAO_APLICAVEL",
+      statusFlexivel: state.statusFlexivel,
+      justificativa: state.statusFlexivel !== "PADRAO" ? state.justificativa.trim() : undefined,
+      departamentoResponsavel: state.statusFlexivel === "OUTRO_SETOR" ? state.departamentoResponsavel.trim() : undefined,
+      previsaoRecebimento: state.statusFlexivel === "OUTRO_SETOR" ? state.previsaoRecebimento || undefined : undefined,
+      processoFisicoNumero: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.processoFisicoNumero.trim() : undefined,
+      localArquivamento: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.localArquivamento.trim() : undefined,
+      digitalizarDepois: state.statusFlexivel === "CONCLUIDO_FISICO" ? state.digitalizarDepois : undefined,
       justificativaAuditoria: auditJustification.trim(),
     });
   }
@@ -1755,16 +1818,25 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                     const uploadState = getUploadState(uploadForms, item.category);
                     const latestDocumento = (docsByCategory.get(item.category) ?? []).slice().sort((left, right) => new Date(right.criadoEm).getTime() - new Date(left.criadoEm).getTime())[0];
                     const naoAplicavelState = checklistNaoAplicavelForm[item.category] ?? {
-                      ativo: Boolean(item.naoAplicavel),
+                      statusFlexivel: item.statusFlexivel ?? (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
                       justificativa: item.justificativaNaoAplicavel ?? "",
+                      departamentoResponsavel: item.departamentoResponsavel ?? "",
+                      previsaoRecebimento: toDateInputValue(item.previsaoRecebimento),
+                      processoFisicoNumero: item.processoFisicoNumero ?? "",
+                      localArquivamento: item.localArquivamento ?? "",
+                      digitalizarDepois: item.digitalizarDepois ?? false,
                     };
-                    const statusLabel = item.naoAplicavel
-                      ? "Não aplicável"
+                    const statusLabel = item.statusFlexivel && item.statusFlexivel !== "PADRAO"
+                      ? licitacaoChecklistFlexStatusLabels[item.statusFlexivel]
                       : item.concluido
                         ? "Anexado"
                         : "Pendente";
-                    const statusClass = item.naoAplicavel
-                      ? "bg-slate-100 text-slate-800"
+                    const statusClass = item.statusFlexivel === "OUTRO_SETOR"
+                      ? "bg-sky-100 text-sky-800"
+                      : item.statusFlexivel === "CONCLUIDO_FISICO"
+                        ? "bg-violet-100 text-violet-800"
+                        : item.naoAplicavel
+                          ? "bg-slate-100 text-slate-800"
                       : item.concluido
                         ? "bg-emerald-100 text-emerald-800"
                         : "bg-amber-100 text-amber-800";
@@ -1815,21 +1887,107 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
 
                         {isForaDoFluxo ? (
                           <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Checkbox
-                                checked={naoAplicavelState.ativo}
-                                onCheckedChange={(checked) =>
-                                  setChecklistNaoAplicavelState(item.category, (current) => ({
-                                    ...current,
-                                    ativo: Boolean(checked),
-                                  }))
-                                }
-                              />
-                              <span className="text-sm font-semibold text-[var(--color-neutral-800)]">Marcar como não aplicável</span>
-                            </div>
-                            {naoAplicavelState.ativo ? (
-                              <div className="mt-3 grid gap-2">
-                                <FormField label="Justificativa (obrigatória)">
+                            <div className="grid gap-3">
+                              <FormField label="Tratamento do item fora do fluxo">
+                                <Select
+                                  value={naoAplicavelState.statusFlexivel}
+                                  onChange={(event) =>
+                                    setChecklistNaoAplicavelState(item.category, (current) => ({
+                                      ...current,
+                                      statusFlexivel: event.target.value as ChecklistFlexStatus,
+                                    }))
+                                  }
+                                >
+                                  {licitacaoChecklistFlexStatusOptions.map((status) => (
+                                    <option key={status} value={status}>
+                                      {licitacaoChecklistFlexStatusLabels[status]}
+                                    </option>
+                                  ))}
+                                </Select>
+                              </FormField>
+
+                              {naoAplicavelState.statusFlexivel === "OUTRO_SETOR" ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <FormField label="Departamento responsável">
+                                    <Input
+                                      value={naoAplicavelState.departamentoResponsavel}
+                                      onChange={(event) =>
+                                        setChecklistNaoAplicavelState(item.category, (current) => ({
+                                          ...current,
+                                          departamentoResponsavel: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="Ex.: Orçamento, PGM, Controladoria"
+                                    />
+                                  </FormField>
+                                  <FormField label="Previsão de recebimento">
+                                    <Input
+                                      type="date"
+                                      value={naoAplicavelState.previsaoRecebimento}
+                                      onChange={(event) =>
+                                        setChecklistNaoAplicavelState(item.category, (current) => ({
+                                          ...current,
+                                          previsaoRecebimento: event.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </FormField>
+                                </div>
+                              ) : null}
+
+                              {naoAplicavelState.statusFlexivel === "CONCLUIDO_FISICO" ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <FormField label="Número do processo físico">
+                                    <Input
+                                      value={naoAplicavelState.processoFisicoNumero}
+                                      onChange={(event) =>
+                                        setChecklistNaoAplicavelState(item.category, (current) => ({
+                                          ...current,
+                                          processoFisicoNumero: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="Ex.: 0045/2026-FÍSICO"
+                                    />
+                                  </FormField>
+                                  <FormField label="Local de arquivamento">
+                                    <Input
+                                      value={naoAplicavelState.localArquivamento}
+                                      onChange={(event) =>
+                                        setChecklistNaoAplicavelState(item.category, (current) => ({
+                                          ...current,
+                                          localArquivamento: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="Informe o setor, armário ou caixa"
+                                    />
+                                  </FormField>
+                                  <div className="md:col-span-2">
+                                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white/80 px-3 py-3">
+                                      <Checkbox
+                                        checked={naoAplicavelState.digitalizarDepois}
+                                        onCheckedChange={(checked) =>
+                                          setChecklistNaoAplicavelState(item.category, (current) => ({
+                                            ...current,
+                                            digitalizarDepois: Boolean(checked),
+                                          }))
+                                        }
+                                      />
+                                      <span className="text-sm font-semibold text-[var(--color-neutral-800)]">
+                                        Documento físico ainda será digitalizado depois
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {naoAplicavelState.statusFlexivel !== "PADRAO" ? (
+                                <FormField
+                                  label={
+                                    naoAplicavelState.statusFlexivel === "NAO_APLICAVEL"
+                                      ? "Justificativa (obrigatória)"
+                                      : "Contexto operacional e justificativa"
+                                  }
+                                >
                                   <Textarea
                                     rows={3}
                                     value={naoAplicavelState.justificativa}
@@ -1839,14 +1997,25 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                                         justificativa: event.target.value,
                                       }))
                                     }
-                                    placeholder="Explique por que este item não se aplica ao processo."
+                                    placeholder={
+                                      naoAplicavelState.statusFlexivel === "NAO_APLICAVEL"
+                                        ? "Explique por que este item não se aplica ao processo."
+                                        : naoAplicavelState.statusFlexivel === "OUTRO_SETOR"
+                                          ? "Informe o setor que está com o documento e a previsão de retorno."
+                                          : "Descreva a referência do processo físico e qualquer pendência de digitalização."
+                                    }
                                   />
                                 </FormField>
-                              </div>
-                            ) : null}
-                            {item.naoAplicavel && item.justificativaNaoAplicavel ? (
-                              <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                                Justificativa registrada: {item.justificativaNaoAplicavel}
+                              ) : null}
+                            </div>
+                            {item.statusFlexivel && item.statusFlexivel !== "PADRAO" && item.justificativaNaoAplicavel ? (
+                              <div className="mt-3 rounded-2xl border border-dashed border-[rgba(15,26,109,0.12)] bg-white/80 px-3 py-2 text-xs text-[var(--color-neutral-600)]">
+                                Registro atual: {licitacaoChecklistFlexStatusLabels[item.statusFlexivel]}
+                                {item.departamentoResponsavel ? ` • setor: ${item.departamentoResponsavel}` : ""}
+                                {item.previsaoRecebimento ? ` • previsão: ${formatShortDateBR(item.previsaoRecebimento)}` : ""}
+                                {item.localArquivamento ? ` • arquivo físico: ${item.localArquivamento}` : ""}
+                                {item.digitalizarDepois ? " • digitalização pendente" : ""}
+                                <div className="mt-1">Justificativa: {item.justificativaNaoAplicavel}</div>
                               </div>
                             ) : null}
                             <div className="mt-3 flex justify-end">
@@ -1858,9 +2027,9 @@ export function LicitacaoProcessoPage({ processoId }: LicitacaoProcessoPageProps
                               >
                                 {setChecklistNaoAplicavelMutation.isPending
                                   ? "Salvando..."
-                                  : naoAplicavelState.ativo
-                                    ? "Aplicar justificativa"
-                                    : "Reativar item"}
+                                  : naoAplicavelState.statusFlexivel === "PADRAO"
+                                    ? "Reativar item"
+                                    : "Salvar status especial"}
                               </Button>
                             </div>
                           </div>

@@ -267,6 +267,13 @@
                         "when":  1774557649152,
                         "tag":  "0037_licitacao_checklist_excecoes",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  38,
+                        "version":  "7",
+                        "when":  1774633200000,
+                        "tag":  "0038_licitacao_checklist_status_flexivel",
+                        "breakpoints":  true
                     }
                 ]
 }

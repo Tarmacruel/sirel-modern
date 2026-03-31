@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 
 import {
   getLicitacaoChecklistCategories,
+  licitacaoChecklistFlexStatusLabels,
   licitacaoInternalDocumentChecklist,
   licitacaoPrazoBasePorModalidade,
   prazoProcessualTipoLabels,
@@ -54,6 +55,7 @@ import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 
 type DbClient = ReturnType<typeof requireDb>;
 type LicitacaoStatus = (typeof licitacaoStatusEnum.enumValues)[number];
+type ChecklistFlexStatus = "PADRAO" | "NAO_APLICAVEL" | "OUTRO_SETOR" | "CONCLUIDO_FISICO";
 
 function parseOptionalTimestamp(value?: string | null) {
   if (!value?.trim()) return null;
@@ -291,8 +293,14 @@ async function getChecklistOverrides(db: DbClient, processoId: number) {
     .select({
       id: licitacaoChecklistExcecoes.id,
       categoria: licitacaoChecklistExcecoes.categoria,
+      statusFlexivel: licitacaoChecklistExcecoes.statusFlexivel,
       naoAplicavel: licitacaoChecklistExcecoes.naoAplicavel,
       justificativa: licitacaoChecklistExcecoes.justificativa,
+      departamentoResponsavel: licitacaoChecklistExcecoes.departamentoResponsavel,
+      previsaoRecebimento: licitacaoChecklistExcecoes.previsaoRecebimento,
+      processoFisicoNumero: licitacaoChecklistExcecoes.processoFisicoNumero,
+      localArquivamento: licitacaoChecklistExcecoes.localArquivamento,
+      digitalizarDepois: licitacaoChecklistExcecoes.digitalizarDepois,
     })
     .from(licitacaoChecklistExcecoes)
     .where(eq(licitacaoChecklistExcecoes.processoId, processoId));
@@ -304,6 +312,21 @@ async function getChecklistOverrides(db: DbClient, processoId: number) {
     overrides.set(category, row);
   });
   return overrides;
+}
+
+function normalizeChecklistFlexStatus(
+  statusFlexivel?: string | null,
+  naoAplicavel?: boolean | null,
+): ChecklistFlexStatus {
+  if (
+    statusFlexivel === "NAO_APLICAVEL"
+    || statusFlexivel === "OUTRO_SETOR"
+    || statusFlexivel === "CONCLUIDO_FISICO"
+    || statusFlexivel === "PADRAO"
+  ) {
+    return statusFlexivel;
+  }
+  return naoAplicavel ? "NAO_APLICAVEL" : "PADRAO";
 }
 
 async function buildInternalChecklist(
@@ -333,12 +356,20 @@ async function buildInternalChecklist(
     .map((item) => {
       const documentosCategoria = byCategory.get(item.category) ?? [];
       const override = overrides.get(item.category);
-      const naoAplicavel = Boolean(override?.naoAplicavel);
+      const statusFlexivel = normalizeChecklistFlexStatus(override?.statusFlexivel, override?.naoAplicavel);
+      const naoAplicavel = statusFlexivel === "NAO_APLICAVEL";
+      const concluidoPorFlex = statusFlexivel !== "PADRAO";
       return {
         ...item,
-        concluido: documentosCategoria.length > 0 || naoAplicavel,
+        concluido: documentosCategoria.length > 0 || concluidoPorFlex,
         naoAplicavel,
+        statusFlexivel,
         justificativaNaoAplicavel: override?.justificativa ?? null,
+        departamentoResponsavel: override?.departamentoResponsavel ?? null,
+        previsaoRecebimento: override?.previsaoRecebimento ?? null,
+        processoFisicoNumero: override?.processoFisicoNumero ?? null,
+        localArquivamento: override?.localArquivamento ?? null,
+        digitalizarDepois: override?.digitalizarDepois ?? false,
         documentos: documentosCategoria,
       };
     });
@@ -1027,10 +1058,23 @@ export const licitacaoRouter = router({
       }
 
       const categoria = input.categoria.trim();
-      const naoAplicavel = Boolean(input.naoAplicavel);
-      const justificativa = naoAplicavel ? toNullableText(input.justificativa) : null;
-      if (naoAplicavel && !justificativa) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a justificativa para marcar o item como não aplicável." });
+      const statusFlexivel = normalizeChecklistFlexStatus(input.statusFlexivel, input.naoAplicavel);
+      const naoAplicavel = statusFlexivel === "NAO_APLICAVEL";
+      const justificativa = statusFlexivel !== "PADRAO" ? toNullableText(input.justificativa) : null;
+      const departamentoResponsavel = statusFlexivel === "OUTRO_SETOR" ? toNullableText(input.departamentoResponsavel) : null;
+      const previsaoRecebimento = statusFlexivel === "OUTRO_SETOR" ? parseOptionalDate(input.previsaoRecebimento) : null;
+      const processoFisicoNumero = statusFlexivel === "CONCLUIDO_FISICO" ? toNullableText(input.processoFisicoNumero) : null;
+      const localArquivamento = statusFlexivel === "CONCLUIDO_FISICO" ? toNullableText(input.localArquivamento) : null;
+      const digitalizarDepois = statusFlexivel === "CONCLUIDO_FISICO" ? Boolean(input.digitalizarDepois) : false;
+
+      if (statusFlexivel !== "PADRAO" && !justificativa) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe a justificativa para registrar este status especial." });
+      }
+      if (statusFlexivel === "OUTRO_SETOR" && !departamentoResponsavel) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o departamento responsável pelo documento." });
+      }
+      if (statusFlexivel === "CONCLUIDO_FISICO" && !localArquivamento) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o local de arquivamento do processo físico." });
       }
 
       const [existing] = await db
@@ -1046,8 +1090,14 @@ export const licitacaoRouter = router({
         await db
           .update(licitacaoChecklistExcecoes)
           .set({
+            statusFlexivel,
             naoAplicavel,
             justificativa,
+            departamentoResponsavel,
+            previsaoRecebimento,
+            processoFisicoNumero,
+            localArquivamento,
+            digitalizarDepois,
             atualizadoEm: now,
           })
           .where(eq(licitacaoChecklistExcecoes.id, existing.id));
@@ -1057,8 +1107,14 @@ export const licitacaoRouter = router({
           .values({
             processoId: input.processoId,
             categoria,
+            statusFlexivel,
             naoAplicavel,
             justificativa,
+            departamentoResponsavel,
+            previsaoRecebimento,
+            processoFisicoNumero,
+            localArquivamento,
+            digitalizarDepois,
             criadoEm: now,
             atualizadoEm: now,
           })
@@ -1067,12 +1123,24 @@ export const licitacaoRouter = router({
       }
 
       const previousSnapshot = {
+        statusFlexivel: normalizeChecklistFlexStatus(existing?.statusFlexivel, existing?.naoAplicavel),
         naoAplicavel: existing?.naoAplicavel ?? false,
         justificativa: existing?.justificativa ?? null,
+        departamentoResponsavel: existing?.departamentoResponsavel ?? null,
+        previsaoRecebimento: existing?.previsaoRecebimento ?? null,
+        processoFisicoNumero: existing?.processoFisicoNumero ?? null,
+        localArquivamento: existing?.localArquivamento ?? null,
+        digitalizarDepois: existing?.digitalizarDepois ?? false,
       };
       const nextSnapshot = {
+        statusFlexivel,
         naoAplicavel,
         justificativa,
+        departamentoResponsavel,
+        previsaoRecebimento,
+        processoFisicoNumero,
+        localArquivamento,
+        digitalizarDepois,
       };
 
       if (registroId) {
@@ -1081,11 +1149,17 @@ export const licitacaoRouter = router({
           tabela: "licitacao_checklist_excecoes",
           registroId,
           changes: buildAuditChanges(previousSnapshot, nextSnapshot, [
+            { key: "statusFlexivel", label: "Status flexível do checklist" },
             { key: "naoAplicavel", label: "Item marcado como não aplicável" },
             { key: "justificativa", label: "Justificativa do item não aplicável" },
+            { key: "departamentoResponsavel", label: "Departamento responsável pelo documento" },
+            { key: "previsaoRecebimento", label: "Previsão de recebimento do documento" },
+            { key: "processoFisicoNumero", label: "Número do processo físico relacionado" },
+            { key: "localArquivamento", label: "Local de arquivamento informado" },
+            { key: "digitalizarDepois", label: "Documento pendente de digitalização posterior" },
           ]),
           justificativa: logJustificativa,
-          prefixo: "Checklist fora do fluxo",
+          prefixo: `Checklist fora do fluxo (${licitacaoChecklistFlexStatusLabels[statusFlexivel]})`,
         });
       }
 

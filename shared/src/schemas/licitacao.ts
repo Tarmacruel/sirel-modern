@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   habilitacaoStatusOptions,
+  licitacaoChecklistFlexStatusOptions,
   licitacaoStatusOptions,
   propostaSituacaoOptions,
   recursoResultadoOptions,
@@ -61,8 +62,14 @@ export const licitacaoPublishInputSchema = z.object({
 export const licitacaoChecklistNaoAplicavelInputSchema = z.object({
   processoId: z.number().int().positive(),
   categoria: z.string().trim().min(3).max(160),
-  naoAplicavel: z.boolean(),
+  naoAplicavel: z.boolean().optional(),
+  statusFlexivel: z.enum(licitacaoChecklistFlexStatusOptions).default("PADRAO"),
   justificativa: z.string().trim().max(2000).optional(),
+  departamentoResponsavel: z.string().trim().max(160).optional(),
+  previsaoRecebimento: optionalDateString,
+  processoFisicoNumero: z.string().trim().max(120).optional(),
+  localArquivamento: z.string().trim().max(255).optional(),
+  digitalizarDepois: z.boolean().optional(),
   justificativaAuditoria: z.string().trim().max(4000).optional(),
 });
 

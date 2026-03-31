@@ -866,8 +866,14 @@ export const licitacaoChecklistExcecoes = pgTable(
       .notNull()
       .references(() => processos.id, { onDelete: "cascade" }),
     categoria: varchar("categoria", { length: 160 }).notNull(),
+    statusFlexivel: varchar("status_flexivel", { length: 40 }).notNull().default("PADRAO"),
     naoAplicavel: boolean("nao_aplicavel").notNull().default(false),
     justificativa: text("justificativa"),
+    departamentoResponsavel: varchar("departamento_responsavel", { length: 160 }),
+    previsaoRecebimento: date("previsao_recebimento"),
+    processoFisicoNumero: varchar("processo_fisico_numero", { length: 120 }),
+    localArquivamento: varchar("local_arquivamento", { length: 255 }),
+    digitalizarDepois: boolean("digitalizar_depois").notNull().default(false),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
