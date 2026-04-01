@@ -2,6 +2,7 @@
 import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 
 import {
+  importacaoLegadoXlsxAnalyzeInputSchema,
   importacaoBllAutoReconcileInputSchema,
   importacaoBllCsvInputSchema,
   importacaoBllDeleteProcessoInputSchema,
@@ -42,6 +43,7 @@ import {
   getPncpProcessDetails,
   searchPncpProcesses,
 } from "../lib/importacoes-pncp.js";
+import { analyzeLegacyRows } from "../lib/importacoes-legado-xlsx.js";
 import {
   getImportSchedulerConfig,
   getImportSummaryCounts,
@@ -50,6 +52,7 @@ import {
   syncRemoteImport,
 } from "../lib/importacoes-bll.js";
 import { operadorProcedure, protectedProcedure, router } from "../trpc.js";
+import { modalidades, secretarias } from "../db/schema.js";
 
 function toNumber(value: unknown) {
   const parsed = Number(value);
@@ -57,6 +60,85 @@ function toNumber(value: unknown) {
 }
 
 export const importacoesRouter = router({
+  analyzeLegacyXlsx: operadorProcedure
+    .input(importacaoLegadoXlsxAnalyzeInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [internalProcesses, importedProcesses, secretariasRows] =
+        await Promise.all([
+          db
+            .select({
+              processoId: processos.id,
+              numeroSirel: processos.numeroSirel,
+              numeroAdministrativo: processos.numeroAdministrativo,
+              numeroEdital: processos.numeroEdital,
+              objeto: processos.objeto,
+              valorEstimado: processos.valorEstimado,
+              modalidadeNome: modalidades.nome,
+              secretariaNome: secretarias.nome,
+              moduloAtual: workflowProcesso.moduloAtual,
+            })
+            .from(processos)
+            .leftJoin(modalidades, eq(modalidades.id, processos.modalidadeId))
+            .leftJoin(secretarias, eq(secretarias.id, processos.secretariaId))
+            .leftJoin(
+              workflowProcesso,
+              eq(workflowProcesso.processoId, processos.id),
+            ),
+          db
+            .select({
+              importedId: importacaoBllProcessos.id,
+              origem: importacaoBllProcessos.origem,
+              numeroAdministrativo: importacaoBllProcessos.numeroAdministrativo,
+              numeroEdital: importacaoBllProcessos.numeroEdital,
+              objeto: importacaoBllProcessos.objeto,
+              modalidade: importacaoBllProcessos.modalidade,
+              valorReferencia: importacaoBllProcessos.valorReferencia,
+              valorTotal: importacaoBllProcessos.valorTotal,
+              statusConciliacao: importacaoBllProcessos.statusConciliacao,
+            })
+            .from(importacaoBllProcessos),
+          db
+            .select({
+              id: secretarias.id,
+              nome: secretarias.nome,
+              codigo: secretarias.sigla,
+            })
+            .from(secretarias),
+        ]);
+
+      const result = analyzeLegacyRows({
+        rows: input.records,
+        internalProcesses: internalProcesses.map((row) => ({
+          ...row,
+          valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
+        })),
+        importedProcesses: importedProcesses.map((row) => ({
+          ...row,
+          valorReferencia: row.valorReferencia
+            ? toNumber(row.valorReferencia)
+            : null,
+          valorTotal: row.valorTotal ? toNumber(row.valorTotal) : null,
+        })),
+        secretarias: secretariasRows,
+      });
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_xlsx_analise",
+        registroId: 0,
+        acao: "CREATE",
+        dadosNovos: {
+          arquivo: input.filename,
+          aba: input.sheetName,
+          totalRegistros: input.records.length,
+          resumo: result.summary,
+        },
+        descricao: `Análise prévia do lote legado XLSX "${input.filename}" (${input.sheetName}).`,
+      });
+
+      return result;
+    }),
+
   summary: protectedProcedure.query(async () => {
     const { processRows, executionRows } = await getImportSummaryCounts();
     const conciliation = await getConciliationSummaryCounts();
@@ -228,7 +310,7 @@ export const importacoesRouter = router({
 
       const warnings: string[] = [];
 
-      let items: typeof importacaoBllItens.$inferSelect[] = [];
+      let items: (typeof importacaoBllItens.$inferSelect)[] = [];
       try {
         items = await db
           .select()
@@ -249,13 +331,13 @@ export const importacoesRouter = router({
       if (record.ultimaExecucaoId) {
         try {
           execution =
-            ((
+            (
               await db
                 .select()
                 .from(importacaoBllExecucoes)
                 .where(eq(importacaoBllExecucoes.id, record.ultimaExecucaoId))
                 .limit(1)
-            )[0] ?? null);
+            )[0] ?? null;
         } catch (error) {
           warnings.push(
             "Não foi possível carregar os dados da execução desta importação.",
@@ -646,7 +728,8 @@ export const importacoesRouter = router({
           registroId: 0,
           acao: "UPDATE",
           dadosNovos: { errors },
-          descricao: "Sincronização remota concluída com falhas parciais em uma ou mais origens.",
+          descricao:
+            "Sincronização remota concluída com falhas parciais em uma ou mais origens.",
         });
       }
 
@@ -704,8 +787,9 @@ export const importacoesRouter = router({
       });
 
       return {
-        items: pncpResults.data.map(process => ({
-          processoId: parseInt(process.numeroControlePNCP.replace(/\D/g, '')) || 0,
+        items: pncpResults.data.map((process) => ({
+          processoId:
+            parseInt(process.numeroControlePNCP.replace(/\D/g, "")) || 0,
           numeroSirel: process.numeroControlePNCP,
           numeroAdministrativo: null,
           numeroEdital: null,
@@ -724,11 +808,15 @@ export const importacoesRouter = router({
   getPncpSuggestions: protectedProcedure
     .input(importacaoBllDetailInputSchema)
     .query(async ({ input }) => {
-      const suggestions = await generatePncpConciliationSuggestions(input.id, 10);
+      const suggestions = await generatePncpConciliationSuggestions(
+        input.id,
+        10,
+      );
 
       return {
-        suggestions: suggestions.map(s => ({
-          processoId: parseInt(s.pncpProcess.numeroControlePNCP.replace(/\D/g, '')) || 0,
+        suggestions: suggestions.map((s) => ({
+          processoId:
+            parseInt(s.pncpProcess.numeroControlePNCP.replace(/\D/g, "")) || 0,
           numeroSirel: s.pncpProcess.numeroControlePNCP,
           numeroAdministrativo: null,
           numeroEdital: null,
@@ -752,7 +840,7 @@ export const importacoesRouter = router({
       // Busca dados do processo PNCP
       const pncpDetails = await getPncpProcessDetails(
         new Date().getFullYear(), // Ano atual como fallback
-        input.processoId
+        input.processoId,
       );
 
       const [before] = await db
@@ -810,7 +898,7 @@ export const importacoesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const result = await executeAutomaticPncpConciliation(
         input.source,
-        75 // Score mínimo para conciliação automática
+        75, // Score mínimo para conciliação automática
       );
 
       await logAuditoria(ctx, {

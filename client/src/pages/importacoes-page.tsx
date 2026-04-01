@@ -15,7 +15,13 @@
   Unlink,
   Upload,
 } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { Link } from "wouter";
 
@@ -28,6 +34,7 @@ import {
 import type {
   ImportacaoBllConciliacaoStatus,
   ImportacaoBllSource,
+  ImportacaoLegadoXlsxRow,
   PncpStoredEntity,
 } from "@sirel/shared/schemas/importacoes";
 
@@ -83,11 +90,96 @@ type SuggestionRow = {
   motivos: string[];
 };
 
-type ImportacoesTab = "DASHBOARD" | "BASE" | "PNCP" | "CSV" | "HISTORICO";
+type ImportacoesTab =
+  | "DASHBOARD"
+  | "BASE"
+  | "PNCP"
+  | "CSV"
+  | "LEGADO"
+  | "HISTORICO";
 type SyncAction = "LICITACAO" | "COMPRA_DIRETA" | "TODOS";
 type ColumnKey = "origem" | "processoInterno" | "publicacao";
 type ConciliationDetailTab = "GERAL" | "SUGESTOES" | "ITENS";
 type PncpDetailTab = "GERAL" | "CONCILIACAO" | "ITENS" | "RAW";
+type LegacyIssueSeverity = "CRITICO" | "ATENCAO";
+type LegacyAnalysisIssue = {
+  code: string;
+  label: string;
+  severity: LegacyIssueSeverity;
+};
+type LegacyAnalysisInternalMatch = {
+  processoId: number;
+  numeroSirel: string;
+  numeroAdministrativo: string | null;
+  numeroEdital: string | null;
+  moduloAtual: string | null;
+  score: number;
+  motivos: string[];
+};
+type LegacyAnalysisImportedMatch = {
+  importedId: number;
+  origem: string;
+  numeroAdministrativo: string | null;
+  numeroEdital: string | null;
+  statusConciliacao: string | null;
+  score: number;
+  motivos: string[];
+};
+type LegacyAnalysisRow = {
+  linha: number;
+  legacyId: string | null;
+  modalidade: string | null;
+  processoAdministrativo: string | null;
+  protocolo: string | null;
+  numeroEdital: string | null;
+  status: string | null;
+  secretaria: string | null;
+  objetoResumo: string | null;
+  valorEstimado: number | null;
+  valorContratado: number | null;
+  severity: "OK" | LegacyIssueSeverity;
+  issues: LegacyAnalysisIssue[];
+  duplicateFileCount: number;
+  duplicateGroupKey: string | null;
+  mappedSecretaria: string | null;
+  internalMatches: LegacyAnalysisInternalMatch[];
+  importedMatches: LegacyAnalysisImportedMatch[];
+};
+type LegacyAnalysisResult = {
+  summary: {
+    totalRows: number;
+    cleanRows: number;
+    rowsWithIssues: number;
+    criticalRows: number;
+    duplicateRowsInFile: number;
+    rowsWithInternalMatches: number;
+    rowsWithImportedMatches: number;
+    rowsMissingCriticalFields: number;
+  };
+  issueBuckets: Array<{
+    code: string;
+    label: string;
+    severity: LegacyIssueSeverity;
+    count: number;
+  }>;
+  duplicateGroups: Array<{
+    key: string;
+    count: number;
+    linhas: number[];
+  }>;
+  rows: LegacyAnalysisRow[];
+};
+type LegacyWorkbookSheet = {
+  headers: string[];
+  previewRows: Array<Record<string, string>>;
+  records: ImportacaoLegadoXlsxRow[];
+};
+type LegacyWorkbookState = {
+  fileName: string;
+  sheetNames: string[];
+  selectedSheet: string;
+  sheets: Record<string, LegacyWorkbookSheet>;
+};
 
 const TEIXEIRA_FREITAS_CNPJ_FORMAT = "13.650.403/0001-28";
 
@@ -162,6 +254,74 @@ function mapWorkflowSituacaoFromExternal(value?: string | null) {
 function formatCurrencyForForm(value: number | null | undefined) {
   if (value === null || value === undefined) return "";
   return maskCurrencyInputBR(String(value));
+}
+
+function parseLegacyNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const normalized = String(value)
+    .trim()
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseLegacyCell(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function normalizeLegacyWorkbookRow(
+  row: Record<string, unknown>,
+  linha: number,
+): ImportacaoLegadoXlsxRow {
+  return {
+    linha,
+    legacyId: parseLegacyCell(row["ID"]),
+    modalidade: parseLegacyCell(row["Modalidade"]),
+    formaConducao: parseLegacyCell(row["Forma de Condução"]),
+    processoAdministrativo: parseLegacyCell(row["Processo Administrativo"]),
+    protocolo: parseLegacyCell(row["Protocolo"]),
+    numeroEdital: parseLegacyCell(row["Numero do Edital"]),
+    plataforma: parseLegacyCell(row["Plataforma"]),
+    prioridade: parseLegacyCell(row["Prioridade"]),
+    status: parseLegacyCell(row["Status"]),
+    condutorProcesso: parseLegacyCell(row["Condutor do Processo"]),
+    resumoObjeto: parseLegacyCell(row["Resumo do Objeto"]),
+    objeto: parseLegacyCell(row["Objeto"]),
+    secretaria: parseLegacyCell(row["Secretaria"]),
+    dataPublicacaoDom: parseLegacyCell(row["Data de Publicação DOM"]),
+    dataPublicacaoDou: parseLegacyCell(row["Data de Publicação DOU"]),
+    dataPublicacaoJornal: parseLegacyCell(row["Data de Publicação Jornal"]),
+    dataInicio: parseLegacyCell(row["Data de Início"]),
+    dataEntrada: parseLegacyCell(row["Data de Entrada"]),
+    dataEnvioParecerista: parseLegacyCell(row["Data de Envio ao Parecerista"]),
+    dataAutorizacao: parseLegacyCell(row["Data de Autorização"]),
+    horarioInicio: parseLegacyCell(row["Horário de Início"]),
+    dataAbertura: parseLegacyCell(row["Data de Abertura"]),
+    horarioAbertura: parseLegacyCell(row["Horário de Abertura"]),
+    dataAberturaPropostas: parseLegacyCell(
+      row["Data de Abertura das Propostas"],
+    ),
+    horaAberturaPropostas: parseLegacyCell(
+      row["Hora de Abertura das Propostas"],
+    ),
+    dataSuspensao: parseLegacyCell(row["Data de Suspensão"]),
+    dataRevogacao: parseLegacyCell(row["Data de Revogação"]),
+    dataAdjudicacao: parseLegacyCell(row["Data de Adjudicação"]),
+    dataHomologacao: parseLegacyCell(row["Data de Homologação"]),
+    observacoesProcesso: parseLegacyCell(row["Observações do processo"]),
+    valorEstimado: parseLegacyNumber(row["Valor Estimado"]),
+    valorContratado: parseLegacyNumber(row["Valor Contratado"]),
+    vencedor: parseLegacyCell(row["Vencedor"]),
+    cnpj: parseLegacyCell(row["CNPJ"]),
+    licitantes: parseLegacyCell(row["Licitantes"]),
+  };
 }
 
 function getInternalProcessHref(
@@ -288,7 +448,9 @@ export function ImportacoesPage() {
   const [activeTab, setActiveTab] = useState<ImportacoesTab>("DASHBOARD");
   const [syncAction, setSyncAction] = useState<SyncAction>("TODOS");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>({
+  const [visibleColumns, setVisibleColumns] = useState<
+    Record<ColumnKey, boolean>
+  >({
     origem: true,
     processoInterno: true,
     publicacao: true,
@@ -298,6 +460,12 @@ export function ImportacoesPage() {
     registrosFile: null,
     itensFile: null,
   });
+  const [legacyWorkbook, setLegacyWorkbook] =
+    useState<LegacyWorkbookState | null>(null);
+  const [legacyBusy, setLegacyBusy] = useState(false);
+  const [legacyAnalysis, setLegacyAnalysis] =
+    useState<LegacyAnalysisResult | null>(null);
+  const [legacyOnlyFlagged, setLegacyOnlyFlagged] = useState(true);
   const [pncpDateRange, setPncpDateRange] = useState({
     dataInicio: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -337,6 +505,21 @@ export function ImportacoesPage() {
     },
   );
   const pncpImportMutation = trpc.pncpTeixeira.importAllData.useMutation();
+  const analyzeLegacyMutation = trpc.importacoes.analyzeLegacyXlsx.useMutation({
+    onSuccess: (data) => {
+      setLegacyAnalysis(data as LegacyAnalysisResult);
+      setFeedback({
+        variant: "success",
+        message: `Análise do legado concluída: ${formatIntegerBR(data.summary.totalRows)} linha(s), ${formatIntegerBR(data.summary.rowsWithIssues)} com pendências e ${formatIntegerBR(data.summary.cleanRows)} aptas para a próxima etapa.`,
+      });
+    },
+    onError: (error) => {
+      setFeedback({
+        variant: "error",
+        message: error.message || "Não foi possível analisar o XLSX legado.",
+      });
+    },
+  });
   const deferredSearch = useDeferredValue(search.trim());
   const deferredPncpStoredSearch = useDeferredValue(pncpStoredSearch.trim());
   const deferredManualProcessSearch = useDeferredValue(
@@ -446,7 +629,10 @@ export function ImportacoesPage() {
     try {
       const result = await pncpPreviewQuery.refetch();
       setPncpPreviewData(result.data);
-      setFeedback({ variant: "success", message: "Preview PNCP carregado com sucesso." });
+      setFeedback({
+        variant: "success",
+        message: "Preview PNCP carregado com sucesso.",
+      });
     } catch (error: any) {
       setFeedback({
         variant: "error",
@@ -473,16 +659,17 @@ export function ImportacoesPage() {
         incluirContratos: true,
         dryRun: false,
       });
-      setFeedback({ variant: "success", message: result.message ?? "Importação PNCP concluída." });
+      setFeedback({
+        variant: "success",
+        message: result.message ?? "Importação PNCP concluída.",
+      });
       await Promise.all([invalidateImportacoes(), invalidatePncp()]);
       setPncpPreviewData(null);
     } catch (error: any) {
       setFeedback({
         variant: "error",
         message:
-          error instanceof Error
-            ? error.message
-            : "Falha ao importar PNCP.",
+          error instanceof Error ? error.message : "Falha ao importar PNCP.",
       });
     } finally {
       setPncpLoading(false);
@@ -495,7 +682,9 @@ export function ImportacoesPage() {
     if (!selectedRecordId || !recordsQuery.data?.items) return;
 
     const currentRecords = recordsQuery.data.items;
-    const currentIndex = currentRecords.findIndex(record => record.id === selectedRecordId);
+    const currentIndex = currentRecords.findIndex(
+      (record) => record.id === selectedRecordId,
+    );
 
     if (currentIndex === -1) return;
 
@@ -510,11 +699,14 @@ export function ImportacoesPage() {
     if (!selectedRecordId || !recordsQuery.data?.items) return;
 
     const currentRecords = recordsQuery.data.items;
-    const currentIndex = currentRecords.findIndex(record => record.id === selectedRecordId);
+    const currentIndex = currentRecords.findIndex(
+      (record) => record.id === selectedRecordId,
+    );
 
     if (currentIndex === -1) return;
 
-    const prevIndex = currentIndex === 0 ? currentRecords.length - 1 : currentIndex - 1;
+    const prevIndex =
+      currentIndex === 0 ? currentRecords.length - 1 : currentIndex - 1;
     const prevRecord = currentRecords[prevIndex];
 
     setSelectedRecordId(prevRecord.id);
@@ -526,7 +718,9 @@ export function ImportacoesPage() {
     if (!selectedRecordId || !recordsQuery.data?.items) return null;
 
     const currentRecords = recordsQuery.data.items;
-    const currentIndex = currentRecords.findIndex(record => record.id === selectedRecordId);
+    const currentIndex = currentRecords.findIndex(
+      (record) => record.id === selectedRecordId,
+    );
 
     if (currentIndex === -1) return null;
 
@@ -539,7 +733,9 @@ export function ImportacoesPage() {
   const getCurrentPncpPosition = () => {
     if (!pncpStoredDetail || !pncpStoredListQuery.data?.items) return null;
     const currentItems = pncpStoredListQuery.data.items;
-    const currentIndex = currentItems.findIndex((row: any) => row.id === pncpStoredDetail.id);
+    const currentIndex = currentItems.findIndex(
+      (row: any) => row.id === pncpStoredDetail.id,
+    );
     if (currentIndex === -1) return null;
     return {
       current: currentIndex + 1,
@@ -550,19 +746,30 @@ export function ImportacoesPage() {
   const navigateToNextPncp = () => {
     if (!pncpStoredDetail || !pncpStoredListQuery.data?.items?.length) return;
     const currentItems = pncpStoredListQuery.data.items;
-    const currentIndex = currentItems.findIndex((row: any) => row.id === pncpStoredDetail.id);
+    const currentIndex = currentItems.findIndex(
+      (row: any) => row.id === pncpStoredDetail.id,
+    );
     if (currentIndex === -1) return;
     const nextIndex = (currentIndex + 1) % currentItems.length;
-    setPncpStoredDetail({ tipo: pncpStoredDetail.tipo, id: currentItems[nextIndex].id });
+    setPncpStoredDetail({
+      tipo: pncpStoredDetail.tipo,
+      id: currentItems[nextIndex].id,
+    });
   };
 
   const navigateToPreviousPncp = () => {
     if (!pncpStoredDetail || !pncpStoredListQuery.data?.items?.length) return;
     const currentItems = pncpStoredListQuery.data.items;
-    const currentIndex = currentItems.findIndex((row: any) => row.id === pncpStoredDetail.id);
+    const currentIndex = currentItems.findIndex(
+      (row: any) => row.id === pncpStoredDetail.id,
+    );
     if (currentIndex === -1) return;
-    const previousIndex = currentIndex === 0 ? currentItems.length - 1 : currentIndex - 1;
-    setPncpStoredDetail({ tipo: pncpStoredDetail.tipo, id: currentItems[previousIndex].id });
+    const previousIndex =
+      currentIndex === 0 ? currentItems.length - 1 : currentIndex - 1;
+    setPncpStoredDetail({
+      tipo: pncpStoredDetail.tipo,
+      id: currentItems[previousIndex].id,
+    });
   };
 
   // Atalhos de teclado para navegação
@@ -572,12 +779,15 @@ export function ImportacoesPage() {
       if (selectedRecordId === null && pncpStoredDetail === null) return;
 
       // Evita conflito com campos de input
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
         return;
       }
 
       switch (event.key) {
-        case 'ArrowLeft':
+        case "ArrowLeft":
           event.preventDefault();
           if (selectedRecordId !== null) {
             navigateToPreviousProcess();
@@ -585,7 +795,7 @@ export function ImportacoesPage() {
             navigateToPreviousPncp();
           }
           break;
-        case 'ArrowRight':
+        case "ArrowRight":
           event.preventDefault();
           if (selectedRecordId !== null) {
             navigateToNextProcess();
@@ -596,9 +806,14 @@ export function ImportacoesPage() {
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedRecordId, pncpStoredDetail, recordsQuery.data?.items, pncpStoredListQuery.data?.items]);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedRecordId,
+    pncpStoredDetail,
+    recordsQuery.data?.items,
+    pncpStoredListQuery.data?.items,
+  ]);
 
   useEffect(() => {
     setSelectedRecordIds([]);
@@ -695,23 +910,24 @@ export function ImportacoesPage() {
   });
 
   // PNCP mutations
-  const pncpAutoConciliateMutation = trpc.importacoes.autoConciliatePncp.useMutation({
-    onSuccess: (result) => {
-      setFeedback({
-        variant: "success",
-        message: result.message,
-      });
-      void Promise.all([invalidateImportacoes(), invalidatePncp()]);
-      setPncpOperation(null);
-    },
-    onError: (error) => {
-      setFeedback({
-        variant: "error",
-        message: error.message,
-      });
-      setPncpOperation(null);
-    },
-  });
+  const pncpAutoConciliateMutation =
+    trpc.importacoes.autoConciliatePncp.useMutation({
+      onSuccess: (result) => {
+        setFeedback({
+          variant: "success",
+          message: result.message,
+        });
+        void Promise.all([invalidateImportacoes(), invalidatePncp()]);
+        setPncpOperation(null);
+      },
+      onError: (error) => {
+        setFeedback({
+          variant: "error",
+          message: error.message,
+        });
+        setPncpOperation(null);
+      },
+    });
   const deletePncpStoredMutation = trpc.pncpTeixeira.deleteStored.useMutation({
     onSuccess: async (result) => {
       setFeedback({ variant: "success", message: result.message });
@@ -729,14 +945,15 @@ export function ImportacoesPage() {
     onError: (error) =>
       setFeedback({ variant: "error", message: error.message }),
   });
-  const pncpUnlinkProcessoMutation = trpc.pncpTeixeira.unlinkProcesso.useMutation({
-    onSuccess: async (result) => {
-      setFeedback({ variant: "success", message: result.message });
-      await invalidatePncp();
-    },
-    onError: (error) =>
-      setFeedback({ variant: "error", message: error.message }),
-  });
+  const pncpUnlinkProcessoMutation =
+    trpc.pncpTeixeira.unlinkProcesso.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({ variant: "success", message: result.message });
+        await invalidatePncp();
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
 
   const detailData = detailQuery.data;
   const suggestionRows =
@@ -816,12 +1033,15 @@ export function ImportacoesPage() {
     ];
   }, [summaryQuery.data]);
 
-  const importacoesTabs = useMemo<Array<{ value: ImportacoesTab; label: string }>>(
+  const importacoesTabs = useMemo<
+    Array<{ value: ImportacoesTab; label: string }>
+  >(
     () => [
       { value: "DASHBOARD", label: "Dashboard" },
       { value: "BASE", label: "Base importada" },
       { value: "PNCP", label: "PNCP" },
       { value: "CSV", label: "Importação CSV" },
+      { value: "LEGADO", label: "Legado XLSX" },
       { value: "HISTORICO", label: "Histórico" },
     ],
     [],
@@ -835,7 +1055,9 @@ export function ImportacoesPage() {
 
   const createProcessInitialValues = useMemo(() => {
     const normalize = (value?: string | null) =>
-      String(value ?? "").trim().toLocaleLowerCase();
+      String(value ?? "")
+        .trim()
+        .toLocaleLowerCase();
 
     const tipoContratoMap = (
       value?: string | null,
@@ -869,7 +1091,8 @@ export function ImportacoesPage() {
         "";
       const modoDisputaNorm = normalize(String(modoDisputaRaw));
       const modoDisputa =
-        modoDisputaNorm.includes("aberto") && modoDisputaNorm.includes("fechado")
+        modoDisputaNorm.includes("aberto") &&
+        modoDisputaNorm.includes("fechado")
           ? "ABERTO_FECHADO"
           : modoDisputaNorm.includes("aberto")
             ? "ABERTO"
@@ -906,7 +1129,9 @@ export function ImportacoesPage() {
               registro.numeroContrato ??
               "",
           ) || "",
-        numeroEdital: String(dadosOriginais.numeroCompra ?? registro.numeroContrato ?? ""),
+        numeroEdital: String(
+          dadosOriginais.numeroCompra ?? registro.numeroContrato ?? "",
+        ),
         anoReferencia,
         objeto: String(registro.objeto ?? ""),
         valorEstimado: formatCurrencyForForm(
@@ -929,9 +1154,7 @@ export function ImportacoesPage() {
         situacao: mapWorkflowSituacaoFromExternal(String(situacaoRaw)),
         modalidadeId: matchedModalidade ? String(matchedModalidade.id) : "",
         tipoContratacao:
-          pncpStoredDetail?.tipo === "ATAS"
-            ? "REGISTRO_PRECO"
-            : "AQUISICAO",
+          pncpStoredDetail?.tipo === "ATAS" ? "REGISTRO_PRECO" : "AQUISICAO",
         modoDisputa,
         statusId: matchedStatus ? String(matchedStatus.id) : "",
         foraDoFluxo: true,
@@ -987,8 +1210,12 @@ export function ImportacoesPage() {
           formatDateForInput(detailData.record.publicacaoEm) ||
           formatDateForInput(detailData.record.inicioRecepcaoEm),
         dataPublicacao: formatDateForInput(detailData.record.publicacaoEm),
-        dataDisputaSessao: formatDateTimeForInput(detailData.record.inicioDisputaEm),
-        situacao: mapWorkflowSituacaoFromExternal(detailData.record.situacaoExterna),
+        dataDisputaSessao: formatDateTimeForInput(
+          detailData.record.inicioDisputaEm,
+        ),
+        situacao: mapWorkflowSituacaoFromExternal(
+          detailData.record.situacaoExterna,
+        ),
         modalidadeId: matchedModalidade ? String(matchedModalidade.id) : "",
         tipoContratacao: tipoContratoMap(detailData.record.tipoContrato),
         modoDisputa: modoDisputaFromBll,
@@ -1017,13 +1244,13 @@ export function ImportacoesPage() {
       const registro = pncpDetailData.registro as Record<string, any>;
       return {
         sourceLabel: "PNCP",
-        publicacaoEm: registro.dataPublicacao ?? registro.dataAssinatura ?? null,
-        disputaEm: registro.dataAberturaProposta ?? registro.dataInicioVigencia ?? null,
+        publicacaoEm:
+          registro.dataPublicacao ?? registro.dataAssinatura ?? null,
+        disputaEm:
+          registro.dataAberturaProposta ?? registro.dataInicioVigencia ?? null,
         recebimentoInicialEm: registro.dataAberturaProposta ?? null,
         recebimentoFinalEm:
-          registro.dataEncerramentoProposta ??
-          registro.dataFimVigencia ??
-          null,
+          registro.dataEncerramentoProposta ?? registro.dataFimVigencia ?? null,
       };
     }
 
@@ -1039,6 +1266,108 @@ export function ImportacoesPage() {
 
     return undefined;
   }, [createProcessSource, detailData, pncpDetailData]);
+
+  const selectedLegacySheet = useMemo(() => {
+    if (!legacyWorkbook) return null;
+    return legacyWorkbook.sheets[legacyWorkbook.selectedSheet] ?? null;
+  }, [legacyWorkbook]);
+
+  const visibleLegacyRows = useMemo(() => {
+    if (!legacyAnalysis) return [];
+    const baseRows = legacyOnlyFlagged
+      ? legacyAnalysis.rows.filter((row) => row.issues.length > 0)
+      : legacyAnalysis.rows;
+    return baseRows.slice(0, 80);
+  }, [legacyAnalysis, legacyOnlyFlagged]);
+
+  async function handleLegacyFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+
+    setLegacyBusy(true);
+    try {
+      const XLSX = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, {
+        type: "array",
+        cellDates: true,
+      });
+
+      const sheets = Object.fromEntries(
+        workbook.SheetNames.map((sheetName) => {
+          const worksheet = workbook.Sheets[sheetName];
+          const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+            worksheet,
+            {
+              defval: null,
+              raw: false,
+            },
+          );
+          const headers = Object.keys(rawRows[0] ?? {});
+          const records = rawRows
+            .map((row, index) => normalizeLegacyWorkbookRow(row, index + 2))
+            .filter(
+              (row) =>
+                row.legacyId ||
+                row.numeroEdital ||
+                row.processoAdministrativo ||
+                row.objeto ||
+                row.resumoObjeto,
+            );
+          const previewRows = rawRows
+            .slice(0, 5)
+            .map((row) =>
+              Object.fromEntries(
+                Object.entries(row).map(([key, value]) => [
+                  key,
+                  value === null || value === undefined ? "" : String(value),
+                ]),
+              ),
+            );
+          return [sheetName, { headers, previewRows, records }];
+        }),
+      ) as Record<string, LegacyWorkbookSheet>;
+
+      const selectedSheet = workbook.SheetNames[0] ?? "";
+      setLegacyWorkbook({
+        fileName: file.name,
+        sheetNames: workbook.SheetNames,
+        selectedSheet,
+        sheets,
+      });
+      setLegacyAnalysis(null);
+      setFeedback({
+        variant: "info",
+        message: `Arquivo legado carregado: ${file.name}. Revise a prévia e execute a análise para detectar duplicidades e inconsistências antes da importação total.`,
+      });
+    } catch (error) {
+      setFeedback({
+        variant: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível ler o XLSX legado.",
+      });
+    } finally {
+      setLegacyBusy(false);
+    }
+  }
+
+  async function handleAnalyzeLegacy() {
+    if (!legacyWorkbook || !selectedLegacySheet) {
+      setFeedback({
+        variant: "warning",
+        message: "Carregue um arquivo XLSX legado antes de iniciar a análise.",
+      });
+      return;
+    }
+
+    await analyzeLegacyMutation.mutateAsync({
+      filename: legacyWorkbook.fileName,
+      sheetName: legacyWorkbook.selectedSheet,
+      records: selectedLegacySheet.records,
+    });
+  }
 
   async function handleCsvImport() {
     try {
@@ -1155,7 +1484,12 @@ export function ImportacoesPage() {
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
                   {card.label}
                 </p>
-                <span className={["inline-flex h-8 w-8 items-center justify-center rounded-full border", card.tone].join(" ")}>
+                <span
+                  className={[
+                    "inline-flex h-8 w-8 items-center justify-center rounded-full border",
+                    card.tone,
+                  ].join(" ")}
+                >
                   <card.icon className="h-4 w-4" />
                 </span>
               </div>
@@ -1177,12 +1511,16 @@ export function ImportacoesPage() {
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
               <Select
                 value={syncAction}
-                onChange={(event) => setSyncAction(event.target.value as SyncAction)}
+                onChange={(event) =>
+                  setSyncAction(event.target.value as SyncAction)
+                }
                 className="h-11 rounded-2xl border-[rgba(204,225,255,0.95)]"
               >
                 <option value="TODOS">Sincronizar todas as origens</option>
                 <option value="LICITACAO">Sincronizar licitações BLL</option>
-                <option value="COMPRA_DIRETA">Sincronizar compras diretas BLL</option>
+                <option value="COMPRA_DIRETA">
+                  Sincronizar compras diretas BLL
+                </option>
               </Select>
               <Button
                 onClick={() => void handleRunSyncAction()}
@@ -1208,7 +1546,9 @@ export function ImportacoesPage() {
                 disabled={autoReconcileMutation.isPending}
                 icon={<Link2 className="h-4 w-4" />}
               >
-                {autoReconcileMutation.isPending ? "Conciliando..." : "Conciliar automaticamente"}
+                {autoReconcileMutation.isPending
+                  ? "Conciliando..."
+                  : "Conciliar automaticamente"}
               </Button>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1288,7 +1628,8 @@ export function ImportacoesPage() {
                 Prioridade de hoje
               </p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Concilie pendências e sugestões antes da próxima sincronização automática.
+                Concilie pendências e sugestões antes da próxima sincronização
+                automática.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
@@ -1321,10 +1662,15 @@ export function ImportacoesPage() {
                 Integração PNCP
               </p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Faça preview e importação completa com filtros por período em uma única área operacional.
+                Faça preview e importação completa com filtros por período em
+                uma única área operacional.
               </p>
               <div className="mt-4">
-                <Button size="sm" variant="outline" onClick={() => setActiveTab("PNCP")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActiveTab("PNCP")}
+                >
                   Abrir painel PNCP
                 </Button>
               </div>
@@ -1334,10 +1680,15 @@ export function ImportacoesPage() {
                 Auditoria e histórico
               </p>
               <p className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                Consulte execuções com erro e valide a saúde da rotina de importação.
+                Consulte execuções com erro e valide a saúde da rotina de
+                importação.
               </p>
               <div className="mt-4">
-                <Button size="sm" variant="outline" onClick={() => setActiveTab("HISTORICO")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setActiveTab("HISTORICO")}
+                >
                   Abrir histórico
                 </Button>
               </div>
@@ -1347,890 +1698,1443 @@ export function ImportacoesPage() {
       ) : null}
       {activeTab === "PNCP" ? (
         <>
-      <SectionCard
-        title="Gerenciamento PNCP"
-        description={`Integração do PNCP para ${TEIXEIRA_FREITAS_CNPJ_FORMAT}, com preview, importação completa e conciliação automática.`}
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-          <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
-            <div className="grid gap-3 md:grid-cols-2">
+          <SectionCard
+            title="Gerenciamento PNCP"
+            description={`Integração do PNCP para ${TEIXEIRA_FREITAS_CNPJ_FORMAT}, com preview, importação completa e conciliação automática.`}
+          >
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+              <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FormField label="Data início">
+                    <Input
+                      type="date"
+                      value={pncpDateRange.dataInicio}
+                      onChange={(event) =>
+                        setPncpDateRange((prev) => ({
+                          ...prev,
+                          dataInicio: event.target.value,
+                        }))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Data fim">
+                    <Input
+                      type="date"
+                      value={pncpDateRange.dataFim}
+                      onChange={(event) =>
+                        setPncpDateRange((prev) => ({
+                          ...prev,
+                          dataFim: event.target.value,
+                        }))
+                      }
+                    />
+                  </FormField>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => void previewPncpData()}
+                    disabled={pncpLoading || pncpPreviewQuery.isFetching}
+                    icon={<Search className="h-4 w-4" />}
+                  >
+                    {pncpLoading ? "Buscando..." : "Preview PNCP"}
+                  </Button>
+                  <Button
+                    onClick={() => void importPncpData()}
+                    disabled={
+                      pncpLoading ||
+                      pncpImportMutation.isPending ||
+                      !pncpPreviewData
+                    }
+                    icon={<Upload className="h-4 w-4" />}
+                  >
+                    Importar tudo
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => void handlePncpConciliate()}
+                    disabled={
+                      pncpAutoConciliateMutation.isPending ||
+                      pncpLoading ||
+                      pncpImportMutation.isPending
+                    }
+                    icon={<Sparkles className="h-4 w-4" />}
+                  >
+                    {pncpAutoConciliateMutation.isPending
+                      ? "Conciliando PNCP..."
+                      : "Conciliar PNCP"}
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.72))] px-4 py-4 shadow-sm">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                  Status da integração
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                  Último período consultado:{" "}
+                  <span className="font-semibold text-[var(--color-neutral-900)]">
+                    {pncpDateRange.dataInicio} até {pncpDateRange.dataFim}
+                  </span>
+                </p>
+                {pncpPreviewData ? (
+                  <ul className="mt-3 grid gap-2 text-xs text-[var(--color-neutral-700)] md:grid-cols-3">
+                    <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
+                      Contratações:{" "}
+                      <span className="font-black text-[var(--color-primary-800)]">
+                        {formatIntegerBR(pncpPreviewData.contratacoes.total)}
+                      </span>
+                    </li>
+                    <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
+                      Atas:{" "}
+                      <span className="font-black text-[var(--color-primary-800)]">
+                        {formatIntegerBR(pncpPreviewData.atas.total)}
+                      </span>
+                    </li>
+                    <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
+                      Contratos:{" "}
+                      <span className="font-black text-[var(--color-primary-800)]">
+                        {formatIntegerBR(pncpPreviewData.contratos.total)}
+                      </span>
+                    </li>
+                  </ul>
+                ) : (
+                  <Alert variant="info" className="mt-3">
+                    Gere um preview para visualizar o volume disponível no PNCP
+                    antes da importação.
+                  </Alert>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+          <SectionCard
+            title="PNCP armazenado"
+            description="Visualize as contratações, atas e contratos já importados do PNCP com itens e aditivos."
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              {(["CONTRATACOES", "ATAS", "CONTRATOS"] as const).map((tipo) => (
+                <button
+                  key={tipo}
+                  type="button"
+                  onClick={() => {
+                    setPncpStoredTab(tipo);
+                    setPncpStoredPage(1);
+                    setPncpStoredDetail(null);
+                  }}
+                  className={[
+                    "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.2em]",
+                    tipo === pncpStoredTab
+                      ? "border-[var(--color-primary-500)] bg-[var(--color-primary-50)] text-[var(--color-primary-700)]"
+                      : "border-slate-200 text-[var(--color-neutral-500)] hover:border-[var(--color-primary-200)] hover:text-[var(--color-primary-600)]",
+                  ].join(" ")}
+                >
+                  {tipo === "CONTRATACOES"
+                    ? "Contratações"
+                    : tipo === "ATAS"
+                      ? "Atas"
+                      : "Contratos"}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <FormField label="Busca textual">
+                <Input
+                  value={pncpStoredSearch}
+                  onChange={(event) => {
+                    setPncpStoredPage(1);
+                    setPncpStoredSearch(event.target.value);
+                  }}
+                  placeholder="Objeto, número, fornecedor"
+                />
+              </FormField>
               <FormField label="Data início">
                 <Input
                   type="date"
-                  value={pncpDateRange.dataInicio}
-                  onChange={(event) =>
-                    setPncpDateRange((prev) => ({ ...prev, dataInicio: event.target.value }))
-                  }
+                  value={pncpStoredRange.dataInicio}
+                  onChange={(event) => {
+                    setPncpStoredPage(1);
+                    setPncpStoredRange((prev) => ({
+                      ...prev,
+                      dataInicio: event.target.value,
+                    }));
+                  }}
                 />
               </FormField>
               <FormField label="Data fim">
                 <Input
                   type="date"
-                  value={pncpDateRange.dataFim}
-                  onChange={(event) =>
-                    setPncpDateRange((prev) => ({ ...prev, dataFim: event.target.value }))
-                  }
+                  value={pncpStoredRange.dataFim}
+                  onChange={(event) => {
+                    setPncpStoredPage(1);
+                    setPncpStoredRange((prev) => ({
+                      ...prev,
+                      dataFim: event.target.value,
+                    }));
+                  }}
                 />
               </FormField>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setPncpStoredSearch("");
+                    setPncpStoredRange({
+                      dataInicio: "",
+                      dataFim: "",
+                    });
+                    setPncpStoredPage(1);
+                  }}
+                >
+                  Limpar filtros
+                </Button>
+              </div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                onClick={() => void previewPncpData()}
-                disabled={pncpLoading || pncpPreviewQuery.isFetching}
-                icon={<Search className="h-4 w-4" />}
-              >
-                {pncpLoading ? "Buscando..." : "Preview PNCP"}
-              </Button>
-              <Button
-                onClick={() => void importPncpData()}
-                disabled={pncpLoading || pncpImportMutation.isPending || !pncpPreviewData}
-                icon={<Upload className="h-4 w-4" />}
-              >
-                Importar tudo
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void handlePncpConciliate()}
-                disabled={
-                  pncpAutoConciliateMutation.isPending ||
-                  pncpLoading ||
-                  pncpImportMutation.isPending
-                }
-                icon={<Sparkles className="h-4 w-4" />}
-              >
-                {pncpAutoConciliateMutation.isPending ? "Conciliando PNCP..." : "Conciliar PNCP"}
-              </Button>
-            </div>
-          </div>
-          <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.72))] px-4 py-4 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-              Status da integração
-            </p>
-            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
-              Último período consultado:{" "}
-              <span className="font-semibold text-[var(--color-neutral-900)]">
-                {pncpDateRange.dataInicio} até {pncpDateRange.dataFim}
-              </span>
-            </p>
-            {pncpPreviewData ? (
-              <ul className="mt-3 grid gap-2 text-xs text-[var(--color-neutral-700)] md:grid-cols-3">
-                <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
-                  Contratações:{" "}
-                  <span className="font-black text-[var(--color-primary-800)]">
-                    {formatIntegerBR(pncpPreviewData.contratacoes.total)}
-                  </span>
-                </li>
-                <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
-                  Atas:{" "}
-                  <span className="font-black text-[var(--color-primary-800)]">
-                    {formatIntegerBR(pncpPreviewData.atas.total)}
-                  </span>
-                </li>
-                <li className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2">
-                  Contratos:{" "}
-                  <span className="font-black text-[var(--color-primary-800)]">
-                    {formatIntegerBR(pncpPreviewData.contratos.total)}
-                  </span>
-                </li>
-              </ul>
-            ) : (
-              <Alert variant="info" className="mt-3">
-                Gere um preview para visualizar o volume disponível no PNCP antes da importação.
-              </Alert>
-            )}
-          </div>
-        </div>
-      </SectionCard>
-      <SectionCard
-        title="PNCP armazenado"
-        description="Visualize as contratações, atas e contratos já importados do PNCP com itens e aditivos."
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {(["CONTRATACOES", "ATAS", "CONTRATOS"] as const).map((tipo) => (
-            <button
-              key={tipo}
-              type="button"
-              onClick={() => {
-                setPncpStoredTab(tipo);
-                setPncpStoredPage(1);
-                setPncpStoredDetail(null);
-              }}
-              className={[
-                "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-[0.2em]",
-                tipo === pncpStoredTab
-                  ? "border-[var(--color-primary-500)] bg-[var(--color-primary-50)] text-[var(--color-primary-700)]"
-                  : "border-slate-200 text-[var(--color-neutral-500)] hover:border-[var(--color-primary-200)] hover:text-[var(--color-primary-600)]",
-              ].join(" ")}
-            >
-              {tipo === "CONTRATACOES"
-                ? "Contratações"
-                : tipo === "ATAS"
-                  ? "Atas"
-                  : "Contratos"}
-            </button>
-          ))}
-        </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <FormField label="Busca textual">
-            <Input
-              value={pncpStoredSearch}
-              onChange={(event) => {
-                setPncpStoredPage(1);
-                setPncpStoredSearch(event.target.value);
-              }}
-              placeholder="Objeto, número, fornecedor"
-            />
-          </FormField>
-          <FormField label="Data início">
-            <Input
-              type="date"
-              value={pncpStoredRange.dataInicio}
-              onChange={(event) => {
-                setPncpStoredPage(1);
-                setPncpStoredRange((prev) => ({
-                  ...prev,
-                  dataInicio: event.target.value,
-                }));
-              }}
-            />
-          </FormField>
-          <FormField label="Data fim">
-            <Input
-              type="date"
-              value={pncpStoredRange.dataFim}
-              onChange={(event) => {
-                setPncpStoredPage(1);
-                setPncpStoredRange((prev) => ({
-                  ...prev,
-                  dataFim: event.target.value,
-                }));
-              }}
-            />
-          </FormField>
-          <div className="flex items-end">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                setPncpStoredSearch("");
-                setPncpStoredRange({
-                  dataInicio: "",
-                  dataFim: "",
-                });
-                setPncpStoredPage(1);
-              }}
-            >
-              Limpar filtros
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-4 overflow-x-auto">
-          <Table>
-            <TableHead>
-              <tr>
-                {pncpStoredTab === "CONTRATACOES" ? (
-                  <>
-                    <TableHeaderCell>Número PNCP</TableHeaderCell>
-                    <TableHeaderCell>Objeto</TableHeaderCell>
-                    <TableHeaderCell>Modalidade</TableHeaderCell>
-                    <TableHeaderCell>Publicação</TableHeaderCell>
-                    <TableHeaderCell>Valor estimado</TableHeaderCell>
-                    <TableHeaderCell>Situação</TableHeaderCell>
-                    <TableHeaderCell className="text-right">
-                      Ações
-                    </TableHeaderCell>
-                  </>
-                ) : pncpStoredTab === "ATAS" ? (
-                  <>
-                    <TableHeaderCell>Número da ata</TableHeaderCell>
-                    <TableHeaderCell>Objeto</TableHeaderCell>
-                    <TableHeaderCell>Vigência</TableHeaderCell>
-                    <TableHeaderCell>Fornecedor</TableHeaderCell>
-                    <TableHeaderCell>Valor</TableHeaderCell>
-                    <TableHeaderCell>Situação</TableHeaderCell>
-                    <TableHeaderCell className="text-right">
-                      Ações
-                    </TableHeaderCell>
-                  </>
-                ) : (
-                  <>
-                    <TableHeaderCell>Número do contrato</TableHeaderCell>
-                    <TableHeaderCell>Objeto</TableHeaderCell>
-                    <TableHeaderCell>Fornecedor</TableHeaderCell>
-                    <TableHeaderCell>Assinatura</TableHeaderCell>
-                    <TableHeaderCell>Vigência fim</TableHeaderCell>
-                    <TableHeaderCell>Valor</TableHeaderCell>
-                    <TableHeaderCell>Situação</TableHeaderCell>
-                    <TableHeaderCell className="text-right">
-                      Ações
-                    </TableHeaderCell>
-                  </>
-                )}
-              </tr>
-            </TableHead>
-            <TableBody>
-              {pncpStoredListQuery.error ? (
-                <TableRow>
-                  <TableCell colSpan={pncpStoredColSpan} className="py-6">
-                    <Alert variant="error">
-                      {pncpStoredListQuery.error.message ||
-                        "Falha ao carregar a base PNCP armazenada."}
-                    </Alert>
-                  </TableCell>
-                </TableRow>
-              ) : pncpStoredListQuery.isLoading ? (
-                Array.from({ length: 4 }).map((_, index) => (
-                  <TableRow key={index}>
-                    <TableCell colSpan={pncpStoredColSpan}>
-                      <Skeleton className="h-16 w-full rounded-[20px]" />
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (pncpStoredListQuery.data?.items?.length ?? 0) === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={pncpStoredColSpan}
-                    className="py-10 text-center text-sm text-[var(--color-neutral-500)]"
-                  >
-                    <div className="mx-auto max-w-lg space-y-2">
-                      <p className="text-sm font-semibold text-[var(--color-neutral-700)]">
-                        Nenhum registro PNCP encontrado para o período atual.
-                      </p>
-                      <p className="text-xs text-[var(--color-neutral-500)]">
-                        Use "Preview PNCP" para validar o recorte e depois "Importar tudo" para popular esta base.
-                      </p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                pncpStoredListQuery.data?.items.map((item: any) => (
-                  <TableRow key={`${pncpStoredTab}-${item.id}`}>
+            <div className="mt-4 overflow-x-auto">
+              <Table>
+                <TableHead>
+                  <tr>
                     {pncpStoredTab === "CONTRATACOES" ? (
                       <>
-                        <TableCell className="font-semibold text-[var(--color-neutral-900)]">
-                          {item.numeroControlePncp}
-                        </TableCell>
-                        <TableCell>{item.objeto}</TableCell>
-                        <TableCell>{item.modalidade ?? "-"}</TableCell>
-                        <TableCell>
-                          {formatShortDateBR(item.dataPublicacao)}
-                        </TableCell>
-                        <TableCell>
-                          {formatCurrencyBRL(item.valorTotalEstimado)}
-                        </TableCell>
-                        <TableCell>{item.situacao ?? "-"}</TableCell>
+                        <TableHeaderCell>Número PNCP</TableHeaderCell>
+                        <TableHeaderCell>Objeto</TableHeaderCell>
+                        <TableHeaderCell>Modalidade</TableHeaderCell>
+                        <TableHeaderCell>Publicação</TableHeaderCell>
+                        <TableHeaderCell>Valor estimado</TableHeaderCell>
+                        <TableHeaderCell>Situação</TableHeaderCell>
+                        <TableHeaderCell className="text-right">
+                          Ações
+                        </TableHeaderCell>
                       </>
                     ) : pncpStoredTab === "ATAS" ? (
                       <>
-                        <TableCell className="font-semibold text-[var(--color-neutral-900)]">
-                          {item.numeroAta ?? item.idAtaPncp}
-                        </TableCell>
-                        <TableCell>{item.objeto}</TableCell>
-                        <TableCell>
-                          {formatShortDateBR(item.dataInicioVigencia)}{" "}
-                          {item.dataFimVigencia
-                            ? `• ${formatShortDateBR(item.dataFimVigencia)}`
-                            : ""}
-                        </TableCell>
-                        <TableCell>{item.fornecedorNome ?? "-"}</TableCell>
-                        <TableCell>{formatCurrencyBRL(item.valorGlobal)}</TableCell>
-                        <TableCell>{item.situacao ?? "-"}</TableCell>
+                        <TableHeaderCell>Número da ata</TableHeaderCell>
+                        <TableHeaderCell>Objeto</TableHeaderCell>
+                        <TableHeaderCell>Vigência</TableHeaderCell>
+                        <TableHeaderCell>Fornecedor</TableHeaderCell>
+                        <TableHeaderCell>Valor</TableHeaderCell>
+                        <TableHeaderCell>Situação</TableHeaderCell>
+                        <TableHeaderCell className="text-right">
+                          Ações
+                        </TableHeaderCell>
                       </>
                     ) : (
                       <>
-                        <TableCell className="font-semibold text-[var(--color-neutral-900)]">
-                          {item.numeroContrato ?? item.idContratoPncp}
-                        </TableCell>
-                        <TableCell>{item.objeto}</TableCell>
-                        <TableCell>{item.fornecedorNome ?? "-"}</TableCell>
-                        <TableCell>
-                          {formatShortDateBR(item.dataAssinatura)}
-                        </TableCell>
-                        <TableCell>
-                          {formatShortDateBR(item.dataFimVigencia)}
-                        </TableCell>
-                        <TableCell>{formatCurrencyBRL(item.valorTotal)}</TableCell>
-                        <TableCell>{item.situacao ?? "-"}</TableCell>
+                        <TableHeaderCell>Número do contrato</TableHeaderCell>
+                        <TableHeaderCell>Objeto</TableHeaderCell>
+                        <TableHeaderCell>Fornecedor</TableHeaderCell>
+                        <TableHeaderCell>Assinatura</TableHeaderCell>
+                        <TableHeaderCell>Vigência fim</TableHeaderCell>
+                        <TableHeaderCell>Valor</TableHeaderCell>
+                        <TableHeaderCell>Situação</TableHeaderCell>
+                        <TableHeaderCell className="text-right">
+                          Ações
+                        </TableHeaderCell>
                       </>
                     )}
-                    <TableCell className="text-right">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        icon={<Eye className="h-4 w-4" />}
-                        onClick={() =>
-                          setPncpStoredDetail({
-                            tipo: pncpStoredTab,
-                            id: item.id,
-                          })
-                        }
-                        aria-label="Detalhar registro PNCP"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--color-neutral-600)]">
-            Total encontrado:{" "}
-            <span className="font-bold text-[var(--color-neutral-900)]">
-              {formatIntegerBR(pncpStoredListQuery.data?.total ?? 0)}
-            </span>
-          </p>
-          <Pagination
-            page={pncpStoredPage}
-            totalPages={pncpStoredListQuery.data?.totalPages ?? 1}
-            onPageChange={setPncpStoredPage}
-          />
-        </div>
-      </SectionCard>
-        </>
-      ) : null}
-      {activeTab === "BASE" || activeTab === "CSV" ? (
-      <div className="grid gap-6">
-        {activeTab === "BASE" ? (
-        <SectionCard
-          title="Base importada"
-          description="Consulte registros públicos já carregados e acompanhe o status da conciliação com processos internos."
-        >
-          <div className="sticky top-[76px] z-[5] rounded-[20px] border border-[rgba(204,225,255,0.95)] bg-white/95 p-3 shadow-sm backdrop-blur">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-              <FormField label="Busca textual">
-                <Input
-                  value={search}
-                  onChange={(event) => {
-                    setPage(1);
-                    setSearch(event.target.value);
-                  }}
-                  placeholder="Edital, objeto, autoridade ou fornecedor"
-                />
-              </FormField>
-              <div className="flex items-end">
-                <Button
-                  variant="outline"
-                  className="w-full md:w-auto"
-                  onClick={() => setShowAdvancedFilters((current) => !current)}
-                >
-                  {showAdvancedFilters ? "Ocultar filtros avançados" : "Filtros avançados"}
-                </Button>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  variant="outline"
-                  className="w-full md:w-auto"
-                  onClick={() => {
-                    setSearch("");
-                    setSourceFilter("");
-                    setConciliationFilter("");
-                    setPage(1);
-                  }}
-                >
-                  Limpar
-                </Button>
-              </div>
-            </div>
-            {showAdvancedFilters ? (
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <FormField label="Origem">
-                  <Select
-                    value={sourceFilter}
-                    onChange={(event) => {
-                      setPage(1);
-                      setSourceFilter(
-                        event.target.value as "" | ImportacaoBllSource,
-                      );
-                    }}
-                  >
-                    <option value="">Todas</option>
-                    {sourceOptions.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </Select>
-                </FormField>
-                <FormField label="Conciliação">
-                  <Select
-                    value={conciliationFilter}
-                    onChange={(event) => {
-                      setPage(1);
-                      setConciliationFilter(
-                        event.target.value as "" | ImportacaoBllConciliacaoStatus,
-                      );
-                    }}
-                  >
-                    <option value="">Todas</option>
-                    {conciliationOptions.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </Select>
-                </FormField>
-                <div className="rounded-2xl border border-[rgba(204,225,255,0.95)] bg-[var(--color-primary-50)]/45 px-3 py-2">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">
-                    Colunas visíveis
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--color-neutral-700)]">
-                    <label className="inline-flex items-center gap-2">
-                      <Checkbox
-                        checked={visibleColumns.origem}
-                        onChange={(event) =>
-                          setVisibleColumns((current) => ({
-                            ...current,
-                            origem: event.target.checked,
-                          }))
-                        }
-                      />
-                      Origem
-                    </label>
-                    <label className="inline-flex items-center gap-2">
-                      <Checkbox
-                        checked={visibleColumns.processoInterno}
-                        onChange={(event) =>
-                          setVisibleColumns((current) => ({
-                            ...current,
-                            processoInterno: event.target.checked,
-                          }))
-                        }
-                      />
-                      Processo interno
-                    </label>
-                    <label className="inline-flex items-center gap-2">
-                      <Checkbox
-                        checked={visibleColumns.publicacao}
-                        onChange={(event) =>
-                          setVisibleColumns((current) => ({
-                            ...current,
-                            publicacao: event.target.checked,
-                          }))
-                        }
-                      />
-                      Publicação
-                    </label>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <Button
-              variant="destructive"
-              disabled={selectedRecordIds.length === 0 || deleteProcessosMutation.isPending}
-              onClick={async () => {
-                if (selectedRecordIds.length === 0) return;
-                if (!window.confirm(`Deseja excluir ${selectedRecordIds.length} registro(s) importado(s)?`)) return;
-                await deleteProcessosMutation.mutateAsync({ importedIds: selectedRecordIds });
-              }}
-              icon={<Trash2 className="h-4 w-4" />}
-            >
-              Excluir selecionados
-            </Button>
-            {selectedRecordIds.length > 0 ? (
-              <p className="text-sm text-[var(--color-neutral-600)]">
-                {selectedRecordIds.length} selecionado(s)
-              </p>
-            ) : null}
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <Table>
-              <TableHead>
-                <tr>
-                  <TableHeaderCell className="w-[40px]">
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onChange={(event) => {
-                        const checked = event.target.checked;
-                        if (checked) {
-                          setSelectedRecordIds(visibleRecordIds);
-                        } else {
-                          setSelectedRecordIds([]);
-                        }
-                      }}
-                    />
-                  </TableHeaderCell>
-                  {visibleColumns.origem ? (
-                    <TableHeaderCell>Origem</TableHeaderCell>
-                  ) : null}
-                  <TableHeaderCell>Processo público</TableHeaderCell>
-                  <TableHeaderCell>Objeto</TableHeaderCell>
-                  <TableHeaderCell>Conciliação</TableHeaderCell>
-                  {visibleColumns.processoInterno ? (
-                    <TableHeaderCell>Processo interno</TableHeaderCell>
-                  ) : null}
-                  {visibleColumns.publicacao ? (
-                    <TableHeaderCell>Publicação</TableHeaderCell>
-                  ) : null}
-                  <TableHeaderCell className="text-right">
-                    Ações
-                  </TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {recordsQuery.isLoading
-                  ? Array.from({ length: 6 }).map((_, index) => (
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {pncpStoredListQuery.error ? (
+                    <TableRow>
+                      <TableCell colSpan={pncpStoredColSpan} className="py-6">
+                        <Alert variant="error">
+                          {pncpStoredListQuery.error.message ||
+                            "Falha ao carregar a base PNCP armazenada."}
+                        </Alert>
+                      </TableCell>
+                    </TableRow>
+                  ) : pncpStoredListQuery.isLoading ? (
+                    Array.from({ length: 4 }).map((_, index) => (
                       <TableRow key={index}>
-                        <TableCell colSpan={baseTableColSpan}>
+                        <TableCell colSpan={pncpStoredColSpan}>
                           <Skeleton className="h-16 w-full rounded-[20px]" />
                         </TableCell>
                       </TableRow>
                     ))
-                  : recordsQuery.data?.items.map((row) => (
-                      <TableRow
-                        key={row.id}
-                        className="cursor-pointer transition hover:bg-[var(--color-primary-50)]/55"
-                        onClick={() => {
-                          setSelectedRecordId(row.id);
-                          setManualProcessSearch("");
-                        }}
+                  ) : (pncpStoredListQuery.data?.items?.length ?? 0) === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={pncpStoredColSpan}
+                        className="py-10 text-center text-sm text-[var(--color-neutral-500)]"
                       >
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedRecordIds.includes(row.id)}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => {
-                              const checked = event.target.checked;
-                              setSelectedRecordIds((current) => {
-                                if (checked) {
-                                  return Array.from(new Set([...current, row.id]));
-                                }
-                                return current.filter((id) => id !== row.id);
-                              });
-                            }}
-                          />
-                        </TableCell>
-                        {visibleColumns.origem ? (
-                          <TableCell>
-                            <p className="font-semibold text-[var(--color-neutral-900)]">
-                              {importacaoBllSourceLabels[row.origem]}
-                            </p>
-                            <p className="text-xs text-[var(--color-neutral-500)]">
-                              {row.tipoContrato ||
-                                row.situacaoExterna ||
-                                "Sem fase externa"}
-                            </p>
-                          </TableCell>
-                        ) : null}
-                        <TableCell>
-                          <p className="font-semibold text-[var(--color-neutral-900)]">
-                            {row.numeroEdital || row.chaveExterna}
+                        <div className="mx-auto max-w-lg space-y-2">
+                          <p className="text-sm font-semibold text-[var(--color-neutral-700)]">
+                            Nenhum registro PNCP encontrado para o período
+                            atual.
                           </p>
                           <p className="text-xs text-[var(--color-neutral-500)]">
-                            {row.numeroAdministrativo ||
-                              "Sem número administrativo"}
+                            Use "Preview PNCP" para validar o recorte e depois
+                            "Importar tudo" para popular esta base.
                           </p>
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-[360px]">
-                            <p className="line-clamp-2 font-semibold text-[var(--color-neutral-900)]">
-                              {row.objeto}
-                            </p>
-                            <p className="text-xs text-[var(--color-neutral-500)]">
-                              {row.modalidade}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <ConciliationBadge status={row.statusConciliacao} />
-                            {row.scoreConciliacao ? (
-                              <span
-                                title={`Score de conciliação: ${row.scoreConciliacao}`}
-                                className="inline-flex rounded-full border border-[rgba(204,225,255,0.95)] bg-[var(--color-primary-50)] px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]"
-                              >
-                                S{row.scoreConciliacao}
-                              </span>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                        {visibleColumns.processoInterno ? (
-                          <TableCell>
-                            {row.processoInternoId ? (
-                              <div>
-                                <p className="font-semibold text-[var(--color-neutral-900)]">
-                                  {row.processoInternoNumeroSirel}
-                                </p>
-                                <p className="text-xs text-[var(--color-neutral-500)]">
-                                  {row.processoInternoNumeroAdministrativo ||
-                                    row.processoInternoModuloAtual ||
-                                    "Processo interno vinculado"}
-                                </p>
-                              </div>
-                            ) : (
-                              <span className="text-sm text-[var(--color-neutral-500)]">
-                                Não vinculado
-                              </span>
-                            )}
-                          </TableCell>
-                        ) : null}
-                        {visibleColumns.publicacao ? (
-                          <TableCell>
-                            <p className="font-semibold text-[var(--color-neutral-900)]">
-                              {formatShortDateBR(row.publicacaoEm)}
-                            </p>
-                            <p className="text-xs text-[var(--color-neutral-500)]">
-                              Atualizado{" "}
-                              {formatShortDateTimeBR(row.ultimaAtualizacaoEm)}
-                            </p>
-                          </TableCell>
-                        ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pncpStoredListQuery.data?.items.map((item: any) => (
+                      <TableRow key={`${pncpStoredTab}-${item.id}`}>
+                        {pncpStoredTab === "CONTRATACOES" ? (
+                          <>
+                            <TableCell className="font-semibold text-[var(--color-neutral-900)]">
+                              {item.numeroControlePncp}
+                            </TableCell>
+                            <TableCell>{item.objeto}</TableCell>
+                            <TableCell>{item.modalidade ?? "-"}</TableCell>
+                            <TableCell>
+                              {formatShortDateBR(item.dataPublicacao)}
+                            </TableCell>
+                            <TableCell>
+                              {formatCurrencyBRL(item.valorTotalEstimado)}
+                            </TableCell>
+                            <TableCell>{item.situacao ?? "-"}</TableCell>
+                          </>
+                        ) : pncpStoredTab === "ATAS" ? (
+                          <>
+                            <TableCell className="font-semibold text-[var(--color-neutral-900)]">
+                              {item.numeroAta ?? item.idAtaPncp}
+                            </TableCell>
+                            <TableCell>{item.objeto}</TableCell>
+                            <TableCell>
+                              {formatShortDateBR(item.dataInicioVigencia)}{" "}
+                              {item.dataFimVigencia
+                                ? `• ${formatShortDateBR(item.dataFimVigencia)}`
+                                : ""}
+                            </TableCell>
+                            <TableCell>{item.fornecedorNome ?? "-"}</TableCell>
+                            <TableCell>
+                              {formatCurrencyBRL(item.valorGlobal)}
+                            </TableCell>
+                            <TableCell>{item.situacao ?? "-"}</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="font-semibold text-[var(--color-neutral-900)]">
+                              {item.numeroContrato ?? item.idContratoPncp}
+                            </TableCell>
+                            <TableCell>{item.objeto}</TableCell>
+                            <TableCell>{item.fornecedorNome ?? "-"}</TableCell>
+                            <TableCell>
+                              {formatShortDateBR(item.dataAssinatura)}
+                            </TableCell>
+                            <TableCell>
+                              {formatShortDateBR(item.dataFimVigencia)}
+                            </TableCell>
+                            <TableCell>
+                              {formatCurrencyBRL(item.valorTotal)}
+                            </TableCell>
+                            <TableCell>{item.situacao ?? "-"}</TableCell>
+                          </>
+                        )}
                         <TableCell className="text-right">
                           <Button
-                            variant="outline"
                             size="icon"
-                            onClick={(event) => {
-                              event.stopPropagation();
+                            variant="outline"
+                            icon={<Eye className="h-4 w-4" />}
+                            onClick={() =>
+                              setPncpStoredDetail({
+                                tipo: pncpStoredTab,
+                                id: item.id,
+                              })
+                            }
+                            aria-label="Detalhar registro PNCP"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-[var(--color-neutral-600)]">
+                Total encontrado:{" "}
+                <span className="font-bold text-[var(--color-neutral-900)]">
+                  {formatIntegerBR(pncpStoredListQuery.data?.total ?? 0)}
+                </span>
+              </p>
+              <Pagination
+                page={pncpStoredPage}
+                totalPages={pncpStoredListQuery.data?.totalPages ?? 1}
+                onPageChange={setPncpStoredPage}
+              />
+            </div>
+          </SectionCard>
+        </>
+      ) : null}
+      {activeTab === "BASE" || activeTab === "CSV" || activeTab === "LEGADO" ? (
+        <div className="grid gap-6">
+          {activeTab === "BASE" ? (
+            <SectionCard
+              title="Base importada"
+              description="Consulte registros públicos já carregados e acompanhe o status da conciliação com processos internos."
+            >
+              <div className="sticky top-[76px] z-[5] rounded-[20px] border border-[rgba(204,225,255,0.95)] bg-white/95 p-3 shadow-sm backdrop-blur">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <FormField label="Busca textual">
+                    <Input
+                      value={search}
+                      onChange={(event) => {
+                        setPage(1);
+                        setSearch(event.target.value);
+                      }}
+                      placeholder="Edital, objeto, autoridade ou fornecedor"
+                    />
+                  </FormField>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      className="w-full md:w-auto"
+                      onClick={() =>
+                        setShowAdvancedFilters((current) => !current)
+                      }
+                    >
+                      {showAdvancedFilters
+                        ? "Ocultar filtros avançados"
+                        : "Filtros avançados"}
+                    </Button>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      className="w-full md:w-auto"
+                      onClick={() => {
+                        setSearch("");
+                        setSourceFilter("");
+                        setConciliationFilter("");
+                        setPage(1);
+                      }}
+                    >
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
+                {showAdvancedFilters ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <FormField label="Origem">
+                      <Select
+                        value={sourceFilter}
+                        onChange={(event) => {
+                          setPage(1);
+                          setSourceFilter(
+                            event.target.value as "" | ImportacaoBllSource,
+                          );
+                        }}
+                      >
+                        <option value="">Todas</option>
+                        {sourceOptions.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <FormField label="Conciliação">
+                      <Select
+                        value={conciliationFilter}
+                        onChange={(event) => {
+                          setPage(1);
+                          setConciliationFilter(
+                            event.target.value as
+                              | ""
+                              | ImportacaoBllConciliacaoStatus,
+                          );
+                        }}
+                      >
+                        <option value="">Todas</option>
+                        {conciliationOptions.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.95)] bg-[var(--color-primary-50)]/45 px-3 py-2">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">
+                        Colunas visíveis
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--color-neutral-700)]">
+                        <label className="inline-flex items-center gap-2">
+                          <Checkbox
+                            checked={visibleColumns.origem}
+                            onChange={(event) =>
+                              setVisibleColumns((current) => ({
+                                ...current,
+                                origem: event.target.checked,
+                              }))
+                            }
+                          />
+                          Origem
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <Checkbox
+                            checked={visibleColumns.processoInterno}
+                            onChange={(event) =>
+                              setVisibleColumns((current) => ({
+                                ...current,
+                                processoInterno: event.target.checked,
+                              }))
+                            }
+                          />
+                          Processo interno
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <Checkbox
+                            checked={visibleColumns.publicacao}
+                            onChange={(event) =>
+                              setVisibleColumns((current) => ({
+                                ...current,
+                                publicacao: event.target.checked,
+                              }))
+                            }
+                          />
+                          Publicação
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <Button
+                  variant="destructive"
+                  disabled={
+                    selectedRecordIds.length === 0 ||
+                    deleteProcessosMutation.isPending
+                  }
+                  onClick={async () => {
+                    if (selectedRecordIds.length === 0) return;
+                    if (
+                      !window.confirm(
+                        `Deseja excluir ${selectedRecordIds.length} registro(s) importado(s)?`,
+                      )
+                    )
+                      return;
+                    await deleteProcessosMutation.mutateAsync({
+                      importedIds: selectedRecordIds,
+                    });
+                  }}
+                  icon={<Trash2 className="h-4 w-4" />}
+                >
+                  Excluir selecionados
+                </Button>
+                {selectedRecordIds.length > 0 ? (
+                  <p className="text-sm text-[var(--color-neutral-600)]">
+                    {selectedRecordIds.length} selecionado(s)
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <Table>
+                  <TableHead>
+                    <tr>
+                      <TableHeaderCell className="w-[40px]">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            if (checked) {
+                              setSelectedRecordIds(visibleRecordIds);
+                            } else {
+                              setSelectedRecordIds([]);
+                            }
+                          }}
+                        />
+                      </TableHeaderCell>
+                      {visibleColumns.origem ? (
+                        <TableHeaderCell>Origem</TableHeaderCell>
+                      ) : null}
+                      <TableHeaderCell>Processo público</TableHeaderCell>
+                      <TableHeaderCell>Objeto</TableHeaderCell>
+                      <TableHeaderCell>Conciliação</TableHeaderCell>
+                      {visibleColumns.processoInterno ? (
+                        <TableHeaderCell>Processo interno</TableHeaderCell>
+                      ) : null}
+                      {visibleColumns.publicacao ? (
+                        <TableHeaderCell>Publicação</TableHeaderCell>
+                      ) : null}
+                      <TableHeaderCell className="text-right">
+                        Ações
+                      </TableHeaderCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {recordsQuery.isLoading
+                      ? Array.from({ length: 6 }).map((_, index) => (
+                          <TableRow key={index}>
+                            <TableCell colSpan={baseTableColSpan}>
+                              <Skeleton className="h-16 w-full rounded-[20px]" />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      : recordsQuery.data?.items.map((row) => (
+                          <TableRow
+                            key={row.id}
+                            className="cursor-pointer transition hover:bg-[var(--color-primary-50)]/55"
+                            onClick={() => {
                               setSelectedRecordId(row.id);
                               setManualProcessSearch("");
                             }}
-                            icon={<ChevronRight className="h-4 w-4" />}
-                            aria-label="Detalhar registro"
-                          />
+                          >
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedRecordIds.includes(row.id)}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setSelectedRecordIds((current) => {
+                                    if (checked) {
+                                      return Array.from(
+                                        new Set([...current, row.id]),
+                                      );
+                                    }
+                                    return current.filter(
+                                      (id) => id !== row.id,
+                                    );
+                                  });
+                                }}
+                              />
+                            </TableCell>
+                            {visibleColumns.origem ? (
+                              <TableCell>
+                                <p className="font-semibold text-[var(--color-neutral-900)]">
+                                  {importacaoBllSourceLabels[row.origem]}
+                                </p>
+                                <p className="text-xs text-[var(--color-neutral-500)]">
+                                  {row.tipoContrato ||
+                                    row.situacaoExterna ||
+                                    "Sem fase externa"}
+                                </p>
+                              </TableCell>
+                            ) : null}
+                            <TableCell>
+                              <p className="font-semibold text-[var(--color-neutral-900)]">
+                                {row.numeroEdital || row.chaveExterna}
+                              </p>
+                              <p className="text-xs text-[var(--color-neutral-500)]">
+                                {row.numeroAdministrativo ||
+                                  "Sem número administrativo"}
+                              </p>
+                            </TableCell>
+                            <TableCell>
+                              <div className="max-w-[360px]">
+                                <p className="line-clamp-2 font-semibold text-[var(--color-neutral-900)]">
+                                  {row.objeto}
+                                </p>
+                                <p className="text-xs text-[var(--color-neutral-500)]">
+                                  {row.modalidade}
+                                </p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <ConciliationBadge
+                                  status={row.statusConciliacao}
+                                />
+                                {row.scoreConciliacao ? (
+                                  <span
+                                    title={`Score de conciliação: ${row.scoreConciliacao}`}
+                                    className="inline-flex rounded-full border border-[rgba(204,225,255,0.95)] bg-[var(--color-primary-50)] px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]"
+                                  >
+                                    S{row.scoreConciliacao}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            {visibleColumns.processoInterno ? (
+                              <TableCell>
+                                {row.processoInternoId ? (
+                                  <div>
+                                    <p className="font-semibold text-[var(--color-neutral-900)]">
+                                      {row.processoInternoNumeroSirel}
+                                    </p>
+                                    <p className="text-xs text-[var(--color-neutral-500)]">
+                                      {row.processoInternoNumeroAdministrativo ||
+                                        row.processoInternoModuloAtual ||
+                                        "Processo interno vinculado"}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-[var(--color-neutral-500)]">
+                                    Não vinculado
+                                  </span>
+                                )}
+                              </TableCell>
+                            ) : null}
+                            {visibleColumns.publicacao ? (
+                              <TableCell>
+                                <p className="font-semibold text-[var(--color-neutral-900)]">
+                                  {formatShortDateBR(row.publicacaoEm)}
+                                </p>
+                                <p className="text-xs text-[var(--color-neutral-500)]">
+                                  Atualizado{" "}
+                                  {formatShortDateTimeBR(
+                                    row.ultimaAtualizacaoEm,
+                                  )}
+                                </p>
+                              </TableCell>
+                            ) : null}
+                            <TableCell className="text-right">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedRecordId(row.id);
+                                  setManualProcessSearch("");
+                                }}
+                                icon={<ChevronRight className="h-4 w-4" />}
+                                aria-label="Detalhar registro"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {!recordsQuery.isLoading && !recordsQuery.data?.items.length ? (
+                <Alert variant="info" className="mt-4">
+                  Nenhum registro importado encontrado com os filtros atuais.
+                </Alert>
+              ) : null}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[var(--color-neutral-600)]">
+                  Total localizado:{" "}
+                  <span className="font-bold text-[var(--color-neutral-900)]">
+                    {formatIntegerBR(recordsQuery.data?.total ?? 0)}
+                  </span>
+                </p>
+                <Pagination
+                  page={page}
+                  totalPages={recordsQuery.data?.totalPages ?? 1}
+                  onPageChange={setPage}
+                />
+              </div>
+            </SectionCard>
+          ) : null}
+
+          {activeTab === "CSV" ? (
+            <div className="space-y-6">
+              <SectionCard
+                title="Importação manual por CSV"
+                description="Use o mesmo padrão de arquivos separados em registros e itens para importar lotes históricos ou repetir a carga pública."
+              >
+                <div className="grid gap-3">
+                  <FormField label="Origem dos CSVs">
+                    <Select
+                      value={csvState.source}
+                      onChange={(event) =>
+                        setCsvState((current) => ({
+                          ...current,
+                          source: event.target.value as ImportacaoBllSource,
+                        }))
+                      }
+                    >
+                      {sourceOptions.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <FormField label="Arquivo de registros">
+                    <Input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(event) =>
+                        handleCsvFileChange("registrosFile", event)
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Arquivo de itens">
+                    <Input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(event) =>
+                        handleCsvFileChange("itensFile", event)
+                      }
+                    />
+                  </FormField>
+                  <Button
+                    onClick={() => void handleCsvImport()}
+                    disabled={importCsvMutation.isPending}
+                    icon={<Upload className="h-4 w-4" />}
+                  >
+                    Importar pacote CSV
+                  </Button>
+                </div>
+              </SectionCard>
+
+              <SectionCard
+                title="Mapa de equivalências"
+                description="Campos usados pelo reconciliador para vincular a base pública a processos internos do SIREL."
+              >
+                <details className="group rounded-[20px] border border-[rgba(204,225,255,0.95)] bg-white">
+                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[var(--color-primary-700)]">
+                    Mostrar mapa de equivalências de deduplicação
+                  </summary>
+                  <div className="border-t border-[rgba(204,225,255,0.85)] px-4 py-4">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHead>
+                          <tr>
+                            <TableHeaderCell>Origem pública</TableHeaderCell>
+                            <TableHeaderCell>Processo SIREL</TableHeaderCell>
+                            <TableHeaderCell>
+                              Uso na deduplicação
+                            </TableHeaderCell>
+                          </tr>
+                        </TableHead>
+                        <TableBody>
+                          {[
+                            [
+                              "Número do edital / ID BLL",
+                              "processos.numeroEdital",
+                              "Match direto e prioridade alta",
+                            ],
+                            [
+                              "Número administrativo",
+                              "processos.numeroAdministrativo",
+                              "Match direto e prioridade alta",
+                            ],
+                            [
+                              "Modalidade",
+                              "modalidades.nome",
+                              "Compatibilidade de contexto",
+                            ],
+                            [
+                              "Objeto",
+                              "processos.objeto",
+                              "Proximidade textual por tokens",
+                            ],
+                            [
+                              "Valor público",
+                              "processos.valorEstimado",
+                              "Proximidade de valor",
+                            ],
+                            [
+                              "Publicação",
+                              "processos.dataAbertura",
+                              "Janela temporal de apoio",
+                            ],
+                          ].map(([from, to, usage]) => (
+                            <TableRow key={from}>
+                              <TableCell className="font-semibold text-[var(--color-neutral-900)]">
+                                {from}
+                              </TableCell>
+                              <TableCell className="text-sm text-[var(--color-neutral-700)]">
+                                {to}
+                              </TableCell>
+                              <TableCell className="text-sm text-[var(--color-neutral-700)]">
+                                {usage}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </details>
+              </SectionCard>
+            </div>
+          ) : null}
+
+          {activeTab === "LEGADO" ? (
+            <div className="space-y-6">
+              <SectionCard
+                title="Análise de legado XLSX"
+                description="Carregue a exportação do SIREL antigo, detecte duplicidades e inconsistências e só depois decida o que seguirá para a etapa de importação total."
+              >
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                  <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+                    <div className="grid gap-3">
+                      <FormField label="Arquivo XLSX legado">
+                        <Input
+                          type="file"
+                          accept=".xlsx,.xlsm,.xls"
+                          onChange={(event) =>
+                            void handleLegacyFileChange(event)
+                          }
+                        />
+                      </FormField>
+                      {legacyWorkbook ? (
+                        <>
+                          <FormField label="Aba da planilha">
+                            <Select
+                              value={legacyWorkbook.selectedSheet}
+                              onChange={(event) => {
+                                setLegacyAnalysis(null);
+                                setLegacyWorkbook((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        selectedSheet: event.target.value,
+                                      }
+                                    : current,
+                                );
+                              }}
+                            >
+                              {legacyWorkbook.sheetNames.map((sheetName) => (
+                                <option key={sheetName} value={sheetName}>
+                                  {sheetName}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormField>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                                Arquivo
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
+                                {legacyWorkbook.fileName}
+                              </p>
+                            </div>
+                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                                Colunas detectadas
+                              </p>
+                              <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">
+                                {formatIntegerBR(
+                                  selectedLegacySheet?.headers.length ?? 0,
+                                )}
+                              </p>
+                            </div>
+                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                                Linhas prontas para análise
+                              </p>
+                              <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">
+                                {formatIntegerBR(
+                                  selectedLegacySheet?.records.length ?? 0,
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            onClick={() => void handleAnalyzeLegacy()}
+                            disabled={
+                              analyzeLegacyMutation.isPending ||
+                              legacyBusy ||
+                              !selectedLegacySheet?.records.length
+                            }
+                            icon={
+                              analyzeLegacyMutation.isPending ? (
+                                <RefreshCcw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Search className="h-4 w-4" />
+                              )
+                            }
+                          >
+                            {analyzeLegacyMutation.isPending
+                              ? "Analisando lote legado..."
+                              : "Analisar lote legado"}
+                          </Button>
+                        </>
+                      ) : (
+                        <Alert variant="info">
+                          Use aqui o arquivo exportado do Access/legado. O SIREL
+                          vai fazer a leitura no navegador e enviar apenas o
+                          lote estruturado para análise de duplicidades e
+                          inconsistências.
+                        </Alert>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.72))] px-4 py-4 shadow-sm">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Prévia da aba selecionada
+                    </p>
+                    {selectedLegacySheet?.previewRows.length ? (
+                      <div className="mt-3 overflow-x-auto">
+                        <Table>
+                          <TableHead>
+                            <tr>
+                              {selectedLegacySheet.headers
+                                .slice(0, 6)
+                                .map((header) => (
+                                  <TableHeaderCell key={header}>
+                                    {header}
+                                  </TableHeaderCell>
+                                ))}
+                            </tr>
+                          </TableHead>
+                          <TableBody>
+                            {selectedLegacySheet.previewRows
+                              .slice(0, 4)
+                              .map((row, index) => (
+                                <TableRow key={`${index}-${row.ID ?? "row"}`}>
+                                  {selectedLegacySheet.headers
+                                    .slice(0, 6)
+                                    .map((header) => (
+                                      <TableCell
+                                        key={`${index}-${header}`}
+                                        className="max-w-[180px] truncate text-sm text-[var(--color-neutral-700)]"
+                                      >
+                                        {row[header] || "-"}
+                                      </TableCell>
+                                    ))}
+                                </TableRow>
+                              ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-[var(--color-neutral-600)]">
+                        Após carregar o arquivo, mostramos aqui uma amostra das
+                        primeiras linhas para conferência rápida.
+                      </p>
+                    )}
+                    <p className="mt-4 text-xs leading-6 text-[var(--color-neutral-500)]">
+                      A análise compara o lote com processos internos e com a
+                      base pública já importada, além de verificar ausência de
+                      campos críticos, datas incoerentes, CNPJ inválido e
+                      repetição no próprio arquivo.
+                    </p>
+                  </div>
+                </div>
+              </SectionCard>
+
+              {legacyAnalysis ? (
+                <>
+                  <SectionCard
+                    title="Resultado da análise prévia"
+                    description="Leitura consolidada do lote legado antes da etapa de importação total."
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+                      {[
+                        {
+                          label: "Linhas analisadas",
+                          value: legacyAnalysis.summary.totalRows,
+                          note: "Volume bruto do lote legado.",
+                        },
+                        {
+                          label: "Linhas limpas",
+                          value: legacyAnalysis.summary.cleanRows,
+                          note: "Sem pendências detectadas na triagem inicial.",
+                        },
+                        {
+                          label: "Com pendências",
+                          value: legacyAnalysis.summary.rowsWithIssues,
+                          note: "Exigem revisão antes do import total.",
+                        },
+                        {
+                          label: "Críticas",
+                          value: legacyAnalysis.summary.criticalRows,
+                          note: "Risco alto de inconsistência ou duplicidade.",
+                        },
+                        {
+                          label: "Match interno",
+                          value: legacyAnalysis.summary.rowsWithInternalMatches,
+                          note: "Possível processo já existente no SIREL.",
+                        },
+                        {
+                          label: "Match base importada",
+                          value: legacyAnalysis.summary.rowsWithImportedMatches,
+                          note: "Possível colisão com BLL/PNCP já conciliados.",
+                        },
+                      ].map((card) => (
+                        <article
+                          key={card.label}
+                          className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm"
+                        >
+                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                            {card.label}
+                          </p>
+                          <p className="mt-3 text-3xl font-black text-[var(--color-primary-900)]">
+                            {formatIntegerBR(card.value)}
+                          </p>
+                          <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                            {card.note}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Buckets de inconsistência"
+                    description="Os itens abaixo orientam a limpeza do lote antes da importação total."
+                  >
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                      <div className="space-y-3">
+                        {legacyAnalysis.issueBuckets.length ? (
+                          legacyAnalysis.issueBuckets.map((bucket) => (
+                            <article
+                              key={bucket.code}
+                              className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3 shadow-sm"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-[var(--color-neutral-900)]">
+                                    {bucket.label}
+                                  </p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[var(--color-neutral-500)]">
+                                    {bucket.code}
+                                  </p>
+                                </div>
+                                <span
+                                  className={[
+                                    "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
+                                    bucket.severity === "CRITICO"
+                                      ? "bg-rose-50 text-rose-700"
+                                      : "bg-amber-50 text-amber-800",
+                                  ].join(" ")}
+                                >
+                                  {formatIntegerBR(bucket.count)}
+                                </span>
+                              </div>
+                            </article>
+                          ))
+                        ) : (
+                          <Alert variant="success">
+                            Nenhuma inconsistência foi detectada no lote
+                            selecionado.
+                          </Alert>
+                        )}
+                      </div>
+                      <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                              Duplicidades do próprio lote
+                            </p>
+                            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                              Top combinações repetidas por modalidade +
+                              processo administrativo + número do edital.
+                            </p>
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-sm text-[var(--color-neutral-600)]">
+                            <Checkbox
+                              checked={legacyOnlyFlagged}
+                              onChange={(event) =>
+                                setLegacyOnlyFlagged(event.target.checked)
+                              }
+                            />
+                            Mostrar só linhas com pendência
+                          </label>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {legacyAnalysis.duplicateGroups.length ? (
+                            legacyAnalysis.duplicateGroups.map((group) => (
+                              <article
+                                key={group.key}
+                                className="rounded-[18px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3"
+                              >
+                                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                                  {group.count} ocorrência(s)
+                                </p>
+                                <p className="mt-2 break-all text-sm font-semibold text-[var(--color-neutral-900)]">
+                                  {group.key}
+                                </p>
+                                <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                                  Linhas: {group.linhas.join(", ")}
+                                </p>
+                              </article>
+                            ))
+                          ) : (
+                            <p className="text-sm text-[var(--color-neutral-600)]">
+                              Nenhuma duplicidade exata detectada nesse primeiro
+                              recorte.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Linhas sinalizadas"
+                    description="Primeiras 80 linhas do lote ordenadas por criticidade, com candidatos internos e importados para saneamento."
+                  >
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHead>
+                          <tr>
+                            <TableHeaderCell>Linha</TableHeaderCell>
+                            <TableHeaderCell>Identificação</TableHeaderCell>
+                            <TableHeaderCell>Objeto</TableHeaderCell>
+                            <TableHeaderCell>Pendências</TableHeaderCell>
+                            <TableHeaderCell>Possíveis matches</TableHeaderCell>
+                          </tr>
+                        </TableHead>
+                        <TableBody>
+                          {visibleLegacyRows.map((row) => (
+                            <TableRow
+                              key={`${row.linha}-${row.legacyId ?? row.numeroEdital ?? "legacy"}`}
+                            >
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <p className="font-semibold text-[var(--color-neutral-900)]">
+                                    #{row.linha}
+                                  </p>
+                                  <span
+                                    className={[
+                                      "inline-flex rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
+                                      row.severity === "CRITICO"
+                                        ? "bg-rose-50 text-rose-700"
+                                        : row.severity === "ATENCAO"
+                                          ? "bg-amber-50 text-amber-800"
+                                          : "bg-emerald-50 text-emerald-700",
+                                    ].join(" ")}
+                                  >
+                                    {row.severity}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <p className="font-semibold text-[var(--color-neutral-900)]">
+                                  {row.numeroEdital ||
+                                    row.processoAdministrativo ||
+                                    row.protocolo ||
+                                    "Sem identificador"}
+                                </p>
+                                <p className="text-xs text-[var(--color-neutral-500)]">
+                                  {row.modalidade || "Modalidade ausente"}
+                                  {row.secretaria ? ` • ${row.secretaria}` : ""}
+                                </p>
+                                {row.mappedSecretaria ? (
+                                  <p className="mt-1 text-xs text-[var(--color-primary-700)]">
+                                    Mapeada para: {row.mappedSecretaria}
+                                  </p>
+                                ) : null}
+                              </TableCell>
+                              <TableCell>
+                                <div className="max-w-[320px]">
+                                  <p className="line-clamp-3 text-sm font-medium text-[var(--color-neutral-900)]">
+                                    {row.objetoResumo ||
+                                      "Objeto não informado."}
+                                  </p>
+                                  <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                                    Estimado:{" "}
+                                    {formatCurrencyBRL(row.valorEstimado)} •
+                                    Contratado:{" "}
+                                    {formatCurrencyBRL(row.valorContratado)}
+                                  </p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex max-w-[320px] flex-wrap gap-2">
+                                  {row.issues.length ? (
+                                    row.issues.map((issue) => (
+                                      <span
+                                        key={`${row.linha}-${issue.code}`}
+                                        className={[
+                                          "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]",
+                                          issue.severity === "CRITICO"
+                                            ? "bg-rose-50 text-rose-700"
+                                            : "bg-amber-50 text-amber-800",
+                                        ].join(" ")}
+                                      >
+                                        {issue.label}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-sm text-[var(--color-neutral-500)]">
+                                      Sem pendências nesta linha.
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-3">
+                                  {row.internalMatches.length ? (
+                                    <div>
+                                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                                        Interno
+                                      </p>
+                                      <div className="mt-2 space-y-2">
+                                        {row.internalMatches.map((match) => (
+                                          <div
+                                            key={`${row.linha}-internal-${match.processoId}`}
+                                            className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2"
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <Link
+                                                href={getInternalProcessHref(
+                                                  match.processoId,
+                                                  match.moduloAtual,
+                                                )}
+                                              >
+                                                <span className="cursor-pointer text-sm font-semibold text-[var(--color-primary-700)]">
+                                                  {match.numeroSirel}
+                                                </span>
+                                              </Link>
+                                              <span className="rounded-full bg-[var(--color-primary-50)] px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]">
+                                                S{match.score}
+                                              </span>
+                                            </div>
+                                            <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                                              {match.numeroEdital ||
+                                                match.numeroAdministrativo ||
+                                                "Sem identificador"}
+                                            </p>
+                                            <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                                              {match.motivos.join(" • ")}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {row.importedMatches.length ? (
+                                    <div>
+                                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                                        Base pública
+                                      </p>
+                                      <div className="mt-2 space-y-2">
+                                        {row.importedMatches.map((match) => (
+                                          <div
+                                            key={`${row.linha}-imported-${match.importedId}`}
+                                            className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2"
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-sm font-semibold text-[var(--color-neutral-900)]">
+                                                {match.origem}
+                                              </span>
+                                              <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]">
+                                                S{match.score}
+                                              </span>
+                                            </div>
+                                            <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                                              {match.numeroEdital ||
+                                                match.numeroAdministrativo ||
+                                                "Sem identificador"}
+                                            </p>
+                                            <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                                              {match.motivos.join(" • ")}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {!row.internalMatches.length &&
+                                  !row.importedMatches.length ? (
+                                    <p className="text-sm text-[var(--color-neutral-500)]">
+                                      Sem colisões relevantes detectadas nesta
+                                      primeira análise.
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {legacyAnalysis.rows.length > visibleLegacyRows.length ? (
+                      <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
+                        Exibindo {formatIntegerBR(visibleLegacyRows.length)} de{" "}
+                        {formatIntegerBR(legacyAnalysis.rows.length)} linhas
+                        analisadas. Na próxima etapa, podemos adicionar
+                        paginação e ações de saneamento direto nessa grade.
+                      </p>
+                    ) : null}
+                  </SectionCard>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {activeTab === "HISTORICO" ? (
+        <SectionCard
+          title="Histórico de execuções"
+          description="Acompanhe as cargas automáticas e manuais realizadas para cada origem pública."
+        >
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableHeaderCell>Origem</TableHeaderCell>
+                  <TableHeaderCell>Modo</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>Início</TableHeaderCell>
+                  <TableHeaderCell>Resultado</TableHeaderCell>
+                  <TableHeaderCell>Referência</TableHeaderCell>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {executionsQuery.isLoading
+                  ? Array.from({ length: 4 }).map((_, index) => (
+                      <TableRow key={index}>
+                        <TableCell colSpan={6}>
+                          <Skeleton className="h-14 w-full rounded-[20px]" />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  : executionsQuery.data?.items.map((execution) => (
+                      <TableRow
+                        key={execution.id}
+                        className={
+                          execution.status === "ERRO"
+                            ? "bg-rose-50/65"
+                            : undefined
+                        }
+                      >
+                        <TableCell className="font-semibold text-[var(--color-neutral-900)]">
+                          {importacaoBllSourceLabels[execution.origem]}
+                        </TableCell>
+                        <TableCell>
+                          {importacaoBllModeLabels[execution.modo]}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={[
+                              "inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em]",
+                              execution.status === "ERRO"
+                                ? "border-rose-200 bg-rose-50 text-rose-700"
+                                : execution.status === "CONCLUIDA"
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : "border-sky-200 bg-sky-50 text-sky-700",
+                            ].join(" ")}
+                          >
+                            {
+                              importacaoBllExecutionStatusLabels[
+                                execution.status
+                              ]
+                            }
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {formatShortDateTimeBR(execution.iniciadoEm)}
+                        </TableCell>
+                        <TableCell>
+                          {formatIntegerBR(execution.totalRegistros)}{" "}
+                          registro(s) • {formatIntegerBR(execution.totalItens)}{" "}
+                          item(ns)
+                        </TableCell>
+                        <TableCell>
+                          {execution.referenciaRotina ||
+                            execution.arquivoRegistrosNome ||
+                            execution.urlFonte ||
+                            "-"}
                         </TableCell>
                       </TableRow>
                     ))}
               </TableBody>
             </Table>
           </div>
-          {!recordsQuery.isLoading && !recordsQuery.data?.items.length ? (
-            <Alert variant="info" className="mt-4">
-              Nenhum registro importado encontrado com os filtros atuais.
-            </Alert>
-          ) : null}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-[var(--color-neutral-600)]">
-              Total localizado:{" "}
+              Total de execuções:{" "}
               <span className="font-bold text-[var(--color-neutral-900)]">
-                {formatIntegerBR(recordsQuery.data?.total ?? 0)}
+                {formatIntegerBR(executionsQuery.data?.total ?? 0)}
               </span>
             </p>
             <Pagination
-              page={page}
-              totalPages={recordsQuery.data?.totalPages ?? 1}
-              onPageChange={setPage}
+              page={executionPage}
+              totalPages={executionsQuery.data?.totalPages ?? 1}
+              onPageChange={setExecutionPage}
             />
           </div>
         </SectionCard>
-        ) : null}
-
-        {activeTab === "CSV" ? (
-        <div className="space-y-6">
-          <SectionCard
-            title="Importação manual por CSV"
-            description="Use o mesmo padrão de arquivos separados em registros e itens para importar lotes históricos ou repetir a carga pública."
-          >
-            <div className="grid gap-3">
-              <FormField label="Origem dos CSVs">
-                <Select
-                  value={csvState.source}
-                  onChange={(event) =>
-                    setCsvState((current) => ({
-                      ...current,
-                      source: event.target.value as ImportacaoBllSource,
-                    }))
-                  }
-                >
-                  {sourceOptions.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-              </FormField>
-              <FormField label="Arquivo de registros">
-                <Input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) =>
-                    handleCsvFileChange("registrosFile", event)
-                  }
-                />
-              </FormField>
-              <FormField label="Arquivo de itens">
-                <Input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => handleCsvFileChange("itensFile", event)}
-                />
-              </FormField>
-              <Button
-                onClick={() => void handleCsvImport()}
-                disabled={importCsvMutation.isPending}
-                icon={<Upload className="h-4 w-4" />}
-              >
-                Importar pacote CSV
-              </Button>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Mapa de equivalências"
-            description="Campos usados pelo reconciliador para vincular a base pública a processos internos do SIREL."
-          >
-            <details className="group rounded-[20px] border border-[rgba(204,225,255,0.95)] bg-white">
-              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[var(--color-primary-700)]">
-                Mostrar mapa de equivalências de deduplicação
-              </summary>
-              <div className="border-t border-[rgba(204,225,255,0.85)] px-4 py-4">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHead>
-                      <tr>
-                        <TableHeaderCell>Origem pública</TableHeaderCell>
-                        <TableHeaderCell>Processo SIREL</TableHeaderCell>
-                        <TableHeaderCell>Uso na deduplicação</TableHeaderCell>
-                      </tr>
-                    </TableHead>
-                    <TableBody>
-                      {[
-                        [
-                          "Número do edital / ID BLL",
-                          "processos.numeroEdital",
-                          "Match direto e prioridade alta",
-                        ],
-                        [
-                          "Número administrativo",
-                          "processos.numeroAdministrativo",
-                          "Match direto e prioridade alta",
-                        ],
-                        [
-                          "Modalidade",
-                          "modalidades.nome",
-                          "Compatibilidade de contexto",
-                        ],
-                        [
-                          "Objeto",
-                          "processos.objeto",
-                          "Proximidade textual por tokens",
-                        ],
-                        [
-                          "Valor público",
-                          "processos.valorEstimado",
-                          "Proximidade de valor",
-                        ],
-                        [
-                          "Publicação",
-                          "processos.dataAbertura",
-                          "Janela temporal de apoio",
-                        ],
-                      ].map(([from, to, usage]) => (
-                        <TableRow key={from}>
-                          <TableCell className="font-semibold text-[var(--color-neutral-900)]">
-                            {from}
-                          </TableCell>
-                          <TableCell className="text-sm text-[var(--color-neutral-700)]">
-                            {to}
-                          </TableCell>
-                          <TableCell className="text-sm text-[var(--color-neutral-700)]">
-                            {usage}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </details>
-          </SectionCard>
-        </div>
-        ) : null}
-      </div>
-      ) : null}
-      {activeTab === "HISTORICO" ? (
-      <SectionCard
-        title="Histórico de execuções"
-        description="Acompanhe as cargas automáticas e manuais realizadas para cada origem pública."
-      >
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHead>
-              <tr>
-                <TableHeaderCell>Origem</TableHeaderCell>
-                <TableHeaderCell>Modo</TableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Início</TableHeaderCell>
-                <TableHeaderCell>Resultado</TableHeaderCell>
-                <TableHeaderCell>Referência</TableHeaderCell>
-              </tr>
-            </TableHead>
-            <TableBody>
-              {executionsQuery.isLoading
-                ? Array.from({ length: 4 }).map((_, index) => (
-                    <TableRow key={index}>
-                      <TableCell colSpan={6}>
-                        <Skeleton className="h-14 w-full rounded-[20px]" />
-                      </TableCell>
-                    </TableRow>
-                  ))
-                : executionsQuery.data?.items.map((execution) => (
-                    <TableRow
-                      key={execution.id}
-                      className={
-                        execution.status === "ERRO"
-                          ? "bg-rose-50/65"
-                          : undefined
-                      }
-                    >
-                      <TableCell className="font-semibold text-[var(--color-neutral-900)]">
-                        {importacaoBllSourceLabels[execution.origem]}
-                      </TableCell>
-                      <TableCell>
-                        {importacaoBllModeLabels[execution.modo]}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={[
-                            "inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em]",
-                            execution.status === "ERRO"
-                              ? "border-rose-200 bg-rose-50 text-rose-700"
-                              : execution.status === "CONCLUIDA"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : "border-sky-200 bg-sky-50 text-sky-700",
-                          ].join(" ")}
-                        >
-                          {importacaoBllExecutionStatusLabels[execution.status]}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {formatShortDateTimeBR(execution.iniciadoEm)}
-                      </TableCell>
-                      <TableCell>
-                        {formatIntegerBR(execution.totalRegistros)} registro(s)
-                        • {formatIntegerBR(execution.totalItens)} item(ns)
-                      </TableCell>
-                      <TableCell>
-                        {execution.referenciaRotina ||
-                          execution.arquivoRegistrosNome ||
-                          execution.urlFonte ||
-                          "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-            </TableBody>
-          </Table>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--color-neutral-600)]">
-            Total de execuções:{" "}
-            <span className="font-bold text-[var(--color-neutral-900)]">
-              {formatIntegerBR(executionsQuery.data?.total ?? 0)}
-            </span>
-          </p>
-          <Pagination
-            page={executionPage}
-            totalPages={executionsQuery.data?.totalPages ?? 1}
-            onPageChange={setExecutionPage}
-          />
-        </div>
-      </SectionCard>
       ) : null}
 
       {pncpBusy
@@ -2260,18 +3164,16 @@ export function ImportacoesPage() {
           setPncpStoredDetail(null);
           setPncpManualProcessSearch("");
         }}
-        title={
-          (() => {
-            const baseTitle =
-              pncpDetailData?.registro?.numeroControlePncp ||
-              pncpDetailData?.registro?.numeroAta ||
-              pncpDetailData?.registro?.numeroContrato ||
-              "Detalhes PNCP";
-            return pncpCurrentPosition
-              ? `${baseTitle} (${pncpCurrentPosition.current} de ${pncpCurrentPosition.total})`
-              : baseTitle;
-          })()
-        }
+        title={(() => {
+          const baseTitle =
+            pncpDetailData?.registro?.numeroControlePncp ||
+            pncpDetailData?.registro?.numeroAta ||
+            pncpDetailData?.registro?.numeroContrato ||
+            "Detalhes PNCP";
+          return pncpCurrentPosition
+            ? `${baseTitle} (${pncpCurrentPosition.current} de ${pncpCurrentPosition.total})`
+            : baseTitle;
+        })()}
         description={
           pncpStoredDetail?.tipo === "CONTRATACOES"
             ? "Contratação pública registrada no PNCP."
@@ -2286,7 +3188,10 @@ export function ImportacoesPage() {
               variant="outline"
               size="sm"
               onClick={navigateToPreviousPncp}
-              disabled={!pncpStoredListQuery.data?.items || pncpStoredListQuery.data.items.length <= 1}
+              disabled={
+                !pncpStoredListQuery.data?.items ||
+                pncpStoredListQuery.data.items.length <= 1
+              }
               icon={<ChevronLeft className="h-4 w-4" />}
             >
               Anterior
@@ -2295,7 +3200,10 @@ export function ImportacoesPage() {
               variant="outline"
               size="sm"
               onClick={navigateToNextPncp}
-              disabled={!pncpStoredListQuery.data?.items || pncpStoredListQuery.data.items.length <= 1}
+              disabled={
+                !pncpStoredListQuery.data?.items ||
+                pncpStoredListQuery.data.items.length <= 1
+              }
               icon={<ChevronRight className="h-4 w-4" />}
             >
               Próximo
@@ -2360,7 +3268,9 @@ export function ImportacoesPage() {
                 </span>
                 <span className="rounded-full border border-[rgba(204,225,255,0.95)] bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">
                   {formatIntegerBR(pncpDetailData.itens?.length ?? 0)}{" "}
-                  {pncpStoredDetail?.tipo === "CONTRATOS" ? "aditivo(s)" : "item(ns)"}
+                  {pncpStoredDetail?.tipo === "CONTRATOS"
+                    ? "aditivo(s)"
+                    : "item(ns)"}
                 </span>
                 <span className="rounded-full border border-[rgba(204,225,255,0.95)] bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">
                   {pncpDetailData.registro.situacao ?? "Sem situação"}
@@ -2602,7 +3512,9 @@ export function ImportacoesPage() {
             {pncpDetailTab === "ITENS" ? (
               <div className="rounded-[24px] border border-[rgba(204,225,255,0.9)] bg-white px-4 py-4 shadow-sm">
                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                  {pncpStoredDetail?.tipo === "CONTRATOS" ? "Aditivos" : "Itens"}
+                  {pncpStoredDetail?.tipo === "CONTRATOS"
+                    ? "Aditivos"
+                    : "Itens"}
                 </p>
                 <div className="mt-3 overflow-x-auto">
                   <Table>
@@ -2631,7 +3543,11 @@ export function ImportacoesPage() {
                     <TableBody>
                       {(pncpDetailData.itens?.length ?? 0) === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={pncpStoredDetail?.tipo === "CONTRATOS" ? 5 : 6}>
+                          <TableCell
+                            colSpan={
+                              pncpStoredDetail?.tipo === "CONTRATOS" ? 5 : 6
+                            }
+                          >
                             Nenhum registro adicional encontrado.
                           </TableCell>
                         </TableRow>
@@ -2665,7 +3581,9 @@ export function ImportacoesPage() {
                                 <TableCell>
                                   {formatCurrencyBRL(item.valorTotal)}
                                 </TableCell>
-                                <TableCell>{item.fornecedorNome ?? "-"}</TableCell>
+                                <TableCell>
+                                  {item.fornecedorNome ?? "-"}
+                                </TableCell>
                               </>
                             )}
                           </TableRow>
@@ -2682,7 +3600,11 @@ export function ImportacoesPage() {
                   Payload original PNCP
                 </p>
                 <pre className="mt-3 max-h-[420px] overflow-auto rounded-[18px] border border-[rgba(204,225,255,0.9)] bg-[var(--color-primary-50)]/45 p-3 text-xs leading-5 text-[var(--color-neutral-700)]">
-                  {JSON.stringify(pncpDetailData.registro?.dadosOriginais ?? {}, null, 2)}
+                  {JSON.stringify(
+                    pncpDetailData.registro?.dadosOriginais ?? {},
+                    null,
+                    2,
+                  )}
                 </pre>
               </div>
             ) : null}
@@ -2701,18 +3623,17 @@ export function ImportacoesPage() {
           setSelectedRecordId(null);
           setManualProcessSearch("");
         }}
-        title={
-          (() => {
-            const position = getCurrentPosition();
-            const baseTitle = detailData?.record.numeroEdital ||
-              detailData?.record.chaveExterna ||
-              "Conciliação de importação";
+        title={(() => {
+          const position = getCurrentPosition();
+          const baseTitle =
+            detailData?.record.numeroEdital ||
+            detailData?.record.chaveExterna ||
+            "Conciliação de importação";
 
-            return position
-              ? `${baseTitle} (${position.current} de ${position.total})`
-              : baseTitle;
-          })()
-        }
+          return position
+            ? `${baseTitle} (${position.current} de ${position.total})`
+            : baseTitle;
+        })()}
         description={
           recordsQuery.data?.items && recordsQuery.data.items.length > 1
             ? "Revise o registro público, vincule ao processo interno correto ou descarte duplicidades. Use ← → para navegar entre processos."
@@ -2725,7 +3646,9 @@ export function ImportacoesPage() {
               variant="outline"
               size="sm"
               onClick={navigateToPreviousProcess}
-              disabled={!recordsQuery.data?.items || recordsQuery.data.items.length <= 1}
+              disabled={
+                !recordsQuery.data?.items || recordsQuery.data.items.length <= 1
+              }
               icon={<ChevronLeft className="h-4 w-4" />}
             >
               Anterior
@@ -2734,7 +3657,9 @@ export function ImportacoesPage() {
               variant="outline"
               size="sm"
               onClick={navigateToNextProcess}
-              disabled={!recordsQuery.data?.items || recordsQuery.data.items.length <= 1}
+              disabled={
+                !recordsQuery.data?.items || recordsQuery.data.items.length <= 1
+              }
               icon={<ChevronRight className="h-4 w-4" />}
             >
               Próximo
@@ -2744,10 +3669,16 @@ export function ImportacoesPage() {
               size="sm"
               onClick={() => {
                 if (!detailData?.record?.id) return;
-                if (!window.confirm("Tem certeza que deseja excluir este registro importado? Esta ação é irreversível.")) {
+                if (
+                  !window.confirm(
+                    "Tem certeza que deseja excluir este registro importado? Esta ação é irreversível.",
+                  )
+                ) {
                   return;
                 }
-                void deleteProcessoMutation.mutateAsync({ importedId: detailData.record.id });
+                void deleteProcessoMutation.mutateAsync({
+                  importedId: detailData.record.id,
+                });
               }}
               disabled={deleteProcessoMutation.isPending}
               icon={<Trash2 className="h-4 w-4" />}
@@ -2812,315 +3743,315 @@ export function ImportacoesPage() {
               </div>
             </div>
             {detailTab === "GERAL" ? (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <ConciliationBadge
-                    status={detailData.record.statusConciliacao}
-                  />
-                  {detailData.record.scoreConciliacao ? (
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                      Score {detailData.record.scoreConciliacao}
-                    </span>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ConciliationBadge
+                      status={detailData.record.statusConciliacao}
+                    />
+                    {detailData.record.scoreConciliacao ? (
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                        Score {detailData.record.scoreConciliacao}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-3 text-lg font-black text-[var(--color-neutral-900)]">
+                    {detailData.record.objeto}
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Origem
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {importacaoBllSourceLabels[detailData.record.origem]}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Número administrativo
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {detailData.record.numeroAdministrativo ||
+                          "Não informado"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Modalidade
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {detailData.record.modalidade}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Valor público
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {formatCurrencyBRL(
+                          detailData.record.valorTotal ??
+                            detailData.record.valorReferencia,
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Publicação
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {formatShortDateBR(detailData.record.publicacaoEm)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        Fornecedor / autoridade
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
+                        {detailData.record.fornecedorNome ||
+                          detailData.record.autoridadeNome ||
+                          "Não informado"}
+                      </p>
+                    </div>
+                  </div>
+                  {detailData.record.linkExterno ? (
+                    <div className="mt-4">
+                      <a
+                        href={detailData.record.linkExterno}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-800)]"
+                      >
+                        Abrir fonte pública
+                        <ArrowUpRight className="h-4 w-4" />
+                      </a>
+                    </div>
                   ) : null}
                 </div>
-                <p className="mt-3 text-lg font-black text-[var(--color-neutral-900)]">
-                  {detailData.record.objeto}
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Origem
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {importacaoBllSourceLabels[detailData.record.origem]}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Número administrativo
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {detailData.record.numeroAdministrativo ||
-                        "Não informado"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Modalidade
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {detailData.record.modalidade}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Valor público
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {formatCurrencyBRL(
-                        detailData.record.valorTotal ??
-                          detailData.record.valorReferencia,
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Publicação
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {formatShortDateBR(detailData.record.publicacaoEm)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Fornecedor / autoridade
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">
-                      {detailData.record.fornecedorNome ||
-                        detailData.record.autoridadeNome ||
-                        "Não informado"}
-                    </p>
-                  </div>
-                </div>
-                {detailData.record.linkExterno ? (
-                  <div className="mt-4">
-                    <a
-                      href={detailData.record.linkExterno}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-800)]"
-                    >
-                      Abrir fonte pública
-                      <ArrowUpRight className="h-4 w-4" />
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-              <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                  Vínculo interno
-                </p>
-                {detailData.linkedProcess ? (
-                  <div className="mt-3 space-y-4">
-                    <div>
-                      <p className="text-lg font-black text-[var(--color-neutral-900)]">
-                        {detailData.linkedProcess.numeroSirel}
-                      </p>
-                      <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                        {detailData.linkedProcess.objeto}
-                      </p>
-                      <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                        {detailData.linkedProcess.secretariaNome}
-                        {detailData.linkedProcess.modalidadeNome
-                          ? ` • ${detailData.linkedProcess.modalidadeNome}`
-                          : ""}
-                        {detailData.linkedProcess.numeroAdministrativo
-                          ? ` • Adm ${detailData.linkedProcess.numeroAdministrativo}`
-                          : ""}
-                      </p>
+                <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                    Vínculo interno
+                  </p>
+                  {detailData.linkedProcess ? (
+                    <div className="mt-3 space-y-4">
+                      <div>
+                        <p className="text-lg font-black text-[var(--color-neutral-900)]">
+                          {detailData.linkedProcess.numeroSirel}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                          {detailData.linkedProcess.objeto}
+                        </p>
+                        <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+                          {detailData.linkedProcess.secretariaNome}
+                          {detailData.linkedProcess.modalidadeNome
+                            ? ` • ${detailData.linkedProcess.modalidadeNome}`
+                            : ""}
+                          {detailData.linkedProcess.numeroAdministrativo
+                            ? ` • Adm ${detailData.linkedProcess.numeroAdministrativo}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={getInternalProcessHref(
+                            detailData.linkedProcess.id,
+                            detailData.linkedProcess.moduloAtual,
+                          )}
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            icon={<ArrowUpRight className="h-4 w-4" />}
+                          >
+                            Abrir processo
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() =>
+                            void unlinkProcessoMutation.mutateAsync({
+                              importedId: detailData.record.id,
+                            })
+                          }
+                          disabled={unlinkProcessoMutation.isPending}
+                          icon={<Unlink className="h-4 w-4" />}
+                        >
+                          Desvincular
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={getInternalProcessHref(
-                          detailData.linkedProcess.id,
-                          detailData.linkedProcess.moduloAtual,
+                  ) : (
+                    <div className="mt-3 space-y-4">
+                      <Alert variant="info">
+                        Ainda não existe processo interno vinculado a este
+                        registro importado.
+                      </Alert>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setCreateProcessSource("BLL");
+                            setCreateProcessModalOpen(true);
+                          }}
+                          icon={<Link2 className="h-4 w-4" />}
+                        >
+                          Criar processo no SIREL
+                        </Button>
+                        {detailData.record.statusConciliacao === "IGNORADO" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void setIgnoredMutation.mutateAsync({
+                                importedId: detailData.record.id,
+                                ignored: false,
+                              })
+                            }
+                            disabled={setIgnoredMutation.isPending}
+                          >
+                            Reabrir conciliação
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() =>
+                              void setIgnoredMutation.mutateAsync({
+                                importedId: detailData.record.id,
+                                ignored: true,
+                              })
+                            }
+                            disabled={setIgnoredMutation.isPending}
+                          >
+                            Ignorar registro
+                          </Button>
                         )}
-                      >
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          icon={<ArrowUpRight className="h-4 w-4" />}
-                        >
-                          Abrir processo
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() =>
-                          void unlinkProcessoMutation.mutateAsync({
-                            importedId: detailData.record.id,
-                          })
-                        }
-                        disabled={unlinkProcessoMutation.isPending}
-                        icon={<Unlink className="h-4 w-4" />}
-                      >
-                        Desvincular
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 space-y-4">
-                    <Alert variant="info">
-                      Ainda não existe processo interno vinculado a este
-                      registro importado.
-                    </Alert>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setCreateProcessSource("BLL");
-                          setCreateProcessModalOpen(true);
-                        }}
-                        icon={<Link2 className="h-4 w-4" />}
-                      >
-                        Criar processo no SIREL
-                      </Button>
-                      {detailData.record.statusConciliacao === "IGNORADO" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void setIgnoredMutation.mutateAsync({
-                              importedId: detailData.record.id,
-                              ignored: false,
-                            })
-                          }
-                          disabled={setIgnoredMutation.isPending}
-                        >
-                          Reabrir conciliação
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() =>
-                            void setIgnoredMutation.mutateAsync({
-                              importedId: detailData.record.id,
-                              ignored: true,
-                            })
-                          }
-                          disabled={setIgnoredMutation.isPending}
-                        >
-                          Ignorar registro
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
             ) : null}
             {detailTab === "SUGESTOES" ? (
-            <SectionCard
-              title="Sugestões de conciliação"
-              description="O reconciliador usa número de edital, número administrativo, objeto, modalidade, valor e datas para propor o melhor match."
-              action={
-                <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                  {deferredManualProcessSearch
-                    ? "Busca manual ativa"
-                    : "Sugestões automáticas"}
-                </span>
-              }
-            >
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                <FormField label="Buscar processo interno específico">
-                  <Input
-                    value={manualProcessSearch}
-                    onChange={(event) =>
-                      setManualProcessSearch(event.target.value)
-                    }
-                    placeholder="Número SIREL, administrativo, edital ou objeto"
-                  />
-                </FormField>
-                <div className="flex items-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setManualProcessSearch("")}
-                    className="w-full md:w-auto"
-                    icon={<Search className="h-4 w-4" />}
-                  >
-                    Limpar busca
-                  </Button>
-                </div>
-              </div>
-              <div className="mt-4 space-y-3">
-                {(processSearchQuery.isLoading &&
-                  deferredManualProcessSearch) ||
-                detailQuery.isFetching ? (
-                  Array.from({ length: 3 }).map((_, index) => (
-                    <Skeleton
-                      key={index}
-                      className="h-32 w-full rounded-[24px]"
-                    />
-                  ))
-                ) : suggestionRows.length ? (
-                  suggestionRows.map((suggestion) => (
-                    <SuggestionCard
-                      key={`${suggestion.processoId}-${suggestion.score}`}
-                      suggestion={suggestion}
-                      onLink={(processoId) =>
-                        void linkProcessoMutation.mutateAsync({
-                          importedId: detailData.record.id,
-                          processoId,
-                        })
+              <SectionCard
+                title="Sugestões de conciliação"
+                description="O reconciliador usa número de edital, número administrativo, objeto, modalidade, valor e datas para propor o melhor match."
+                action={
+                  <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                    {deferredManualProcessSearch
+                      ? "Busca manual ativa"
+                      : "Sugestões automáticas"}
+                  </span>
+                }
+              >
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <FormField label="Buscar processo interno específico">
+                    <Input
+                      value={manualProcessSearch}
+                      onChange={(event) =>
+                        setManualProcessSearch(event.target.value)
                       }
-                      busy={linkProcessoMutation.isPending}
+                      placeholder="Número SIREL, administrativo, edital ou objeto"
                     />
-                  ))
-                ) : (
-                  <Alert variant="warning">
-                    Nenhum processo interno atingiu score suficiente com os
-                    filtros atuais.
-                  </Alert>
-                )}
-              </div>
-            </SectionCard>
+                  </FormField>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setManualProcessSearch("")}
+                      className="w-full md:w-auto"
+                      icon={<Search className="h-4 w-4" />}
+                    >
+                      Limpar busca
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {(processSearchQuery.isLoading &&
+                    deferredManualProcessSearch) ||
+                  detailQuery.isFetching ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                      <Skeleton
+                        key={index}
+                        className="h-32 w-full rounded-[24px]"
+                      />
+                    ))
+                  ) : suggestionRows.length ? (
+                    suggestionRows.map((suggestion) => (
+                      <SuggestionCard
+                        key={`${suggestion.processoId}-${suggestion.score}`}
+                        suggestion={suggestion}
+                        onLink={(processoId) =>
+                          void linkProcessoMutation.mutateAsync({
+                            importedId: detailData.record.id,
+                            processoId,
+                          })
+                        }
+                        busy={linkProcessoMutation.isPending}
+                      />
+                    ))
+                  ) : (
+                    <Alert variant="warning">
+                      Nenhum processo interno atingiu score suficiente com os
+                      filtros atuais.
+                    </Alert>
+                  )}
+                </div>
+              </SectionCard>
             ) : null}
             {detailTab === "ITENS" ? (
-            <SectionCard
-              title="Itens importados"
-              description="Itens públicos já associados ao registro importado atual. Use esta visão para validar escopo antes de vincular ao processo interno."
-            >
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHead>
-                    <tr>
-                      <TableHeaderCell>Lote / item</TableHeaderCell>
-                      <TableHeaderCell>Descrição</TableHeaderCell>
-                      <TableHeaderCell>Fornecedor</TableHeaderCell>
-                      <TableHeaderCell>Quantidade</TableHeaderCell>
-                      <TableHeaderCell>Valor</TableHeaderCell>
-                    </tr>
-                  </TableHead>
-                  <TableBody>
-                    {detailData.items.slice(0, 20).map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          {item.loteNumero || "-"} / {item.itemNumero || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-[460px]">
-                            <p className="line-clamp-2 font-semibold text-[var(--color-neutral-900)]">
-                              {item.descricao}
-                            </p>
-                            <p className="text-xs text-[var(--color-neutral-500)]">
-                              {item.unidade || "Unidade não informada"}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.fornecedorNome || "-"}</TableCell>
-                        <TableCell>{item.quantidade ?? "-"}</TableCell>
-                        <TableCell>
-                          {formatCurrencyBRL(
-                            item.valorUnitario ??
-                              item.valorReferencia ??
-                              item.subtotal,
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {detailData.items.length > 20 ? (
-                <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
-                  Mostrando 20 de {formatIntegerBR(detailData.items.length)}{" "}
-                  item(ns) importados.
-                </p>
-              ) : null}
-            </SectionCard>
+              <SectionCard
+                title="Itens importados"
+                description="Itens públicos já associados ao registro importado atual. Use esta visão para validar escopo antes de vincular ao processo interno."
+              >
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHead>
+                      <tr>
+                        <TableHeaderCell>Lote / item</TableHeaderCell>
+                        <TableHeaderCell>Descrição</TableHeaderCell>
+                        <TableHeaderCell>Fornecedor</TableHeaderCell>
+                        <TableHeaderCell>Quantidade</TableHeaderCell>
+                        <TableHeaderCell>Valor</TableHeaderCell>
+                      </tr>
+                    </TableHead>
+                    <TableBody>
+                      {detailData.items.slice(0, 20).map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>
+                            {item.loteNumero || "-"} / {item.itemNumero || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-[460px]">
+                              <p className="line-clamp-2 font-semibold text-[var(--color-neutral-900)]">
+                                {item.descricao}
+                              </p>
+                              <p className="text-xs text-[var(--color-neutral-500)]">
+                                {item.unidade || "Unidade não informada"}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{item.fornecedorNome || "-"}</TableCell>
+                          <TableCell>{item.quantidade ?? "-"}</TableCell>
+                          <TableCell>
+                            {formatCurrencyBRL(
+                              item.valorUnitario ??
+                                item.valorReferencia ??
+                                item.subtotal,
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                {detailData.items.length > 20 ? (
+                  <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
+                    Mostrando 20 de {formatIntegerBR(detailData.items.length)}{" "}
+                    item(ns) importados.
+                  </p>
+                ) : null}
+              </SectionCard>
             ) : null}
           </div>
         ) : (
@@ -3162,11 +4093,6 @@ export function ImportacoesPage() {
           })();
         }}
       />
-
     </div>
   );
 }
-
-
-
-
