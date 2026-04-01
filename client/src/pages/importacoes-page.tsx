@@ -26,6 +26,10 @@ import { createPortal } from "react-dom";
 import { Link } from "wouter";
 
 import {
+  mapLegacyCondutorName,
+  mapLegacySecretariaName,
+} from "@sirel/shared/legacy-import-mappings";
+import {
   importacaoBllConciliacaoStatusLabels,
   importacaoBllExecutionStatusLabels,
   importacaoLegadoLoteStatusLabels,
@@ -652,6 +656,11 @@ function normalizeLegacyWorkbookRow(
   row: Record<string, unknown>,
   linha: number,
 ): ImportacaoLegadoXlsxRow {
+  const condutorProcesso = mapLegacyCondutorName(
+    parseLegacyCell(row["Condutor do Processo"]),
+  );
+  const secretaria = mapLegacySecretariaName(parseLegacyCell(row["Secretaria"]));
+
   return {
     linha,
     legacyId: parseLegacyCell(row["ID"]),
@@ -663,10 +672,10 @@ function normalizeLegacyWorkbookRow(
     plataforma: parseLegacyCell(row["Plataforma"]),
     prioridade: parseLegacyCell(row["Prioridade"]),
     status: parseLegacyCell(row["Status"]),
-    condutorProcesso: parseLegacyCell(row["Condutor do Processo"]),
+    condutorProcesso,
     resumoObjeto: parseLegacyCell(row["Resumo do Objeto"]),
     objeto: parseLegacyCell(row["Objeto"]),
-    secretaria: parseLegacyCell(row["Secretaria"]),
+    secretaria,
     dataPublicacaoDom: parseLegacyCell(row["Data de Publicação DOM"]),
     dataPublicacaoDou: parseLegacyCell(row["Data de Publicação DOU"]),
     dataPublicacaoJornal: parseLegacyCell(row["Data de Publicação Jornal"]),

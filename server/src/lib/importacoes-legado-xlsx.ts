@@ -1,3 +1,7 @@
+import {
+  mapLegacyCondutorName,
+  mapLegacySecretariaName,
+} from "@sirel/shared/legacy-import-mappings";
 import type { ImportacaoLegadoXlsxRow } from "@sirel/shared/schemas/importacoes";
 
 type InternalProcessBase = {
@@ -298,33 +302,38 @@ function uniqueByKey<T>(items: T[], getKey: (item: T) => string) {
 }
 
 function prepareLegacyRow(row: ImportacaoLegadoXlsxRow): PreparedLegacyRow {
-  const objeto = getObjectSummary(row);
+  const normalizedRow = {
+    ...row,
+    condutorProcesso: mapLegacyCondutorName(row.condutorProcesso),
+    secretaria: mapLegacySecretariaName(row.secretaria),
+  };
+  const objeto = getObjectSummary(normalizedRow);
   const normalizedObjeto = normalizeText(objeto);
   const publicationDates = [
-    parseDate(row.dataPublicacaoDom),
-    parseDate(row.dataPublicacaoDou),
-    parseDate(row.dataPublicacaoJornal),
+    parseDate(normalizedRow.dataPublicacaoDom),
+    parseDate(normalizedRow.dataPublicacaoDou),
+    parseDate(normalizedRow.dataPublicacaoJornal),
   ].filter((value): value is Date => value instanceof Date);
 
   return {
-    source: row,
-    normalizedModalidade: normalizeText(row.modalidade),
+    source: normalizedRow,
+    normalizedModalidade: normalizeText(normalizedRow.modalidade),
     normalizedProcessoAdministrativo: normalizeIdentifier(
-      row.processoAdministrativo,
+      normalizedRow.processoAdministrativo,
     ),
-    normalizedNumeroEdital: normalizeIdentifier(row.numeroEdital),
-    normalizedProtocolo: normalizeIdentifier(row.protocolo),
-    normalizedSecretaria: normalizeText(row.secretaria),
-    secretariaTokens: tokenize(row.secretaria),
-    normalizedStatus: normalizeText(row.status),
-    normalizedCondutor: normalizeIdentifier(row.condutorProcesso),
+    normalizedNumeroEdital: normalizeIdentifier(normalizedRow.numeroEdital),
+    normalizedProtocolo: normalizeIdentifier(normalizedRow.protocolo),
+    normalizedSecretaria: normalizeText(normalizedRow.secretaria),
+    secretariaTokens: tokenize(normalizedRow.secretaria),
+    normalizedStatus: normalizeText(normalizedRow.status),
+    normalizedCondutor: normalizeIdentifier(normalizedRow.condutorProcesso),
     objeto,
     normalizedObjeto,
     objetoTokens: tokenizeNormalized(normalizedObjeto),
     duplicateKey: [
-      normalizeIdentifier(row.modalidade),
-      normalizeIdentifier(row.processoAdministrativo),
-      normalizeIdentifier(row.numeroEdital),
+      normalizeIdentifier(normalizedRow.modalidade),
+      normalizeIdentifier(normalizedRow.processoAdministrativo),
+      normalizeIdentifier(normalizedRow.numeroEdital),
     ]
       .filter(Boolean)
       .join("|"),

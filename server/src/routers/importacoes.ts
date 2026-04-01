@@ -23,6 +23,10 @@ import {
   importacaoBllSetIgnoredInputSchema,
   importacaoBllUnlinkProcessoInputSchema,
 } from "@sirel/shared/schemas/importacoes";
+import {
+  mapLegacyCondutorName,
+  mapLegacySecretariaName,
+} from "@sirel/shared/legacy-import-mappings";
 
 import { logAuditoria } from "../db/auditoria.js";
 import { requireDb } from "../db/client.js";
@@ -305,7 +309,8 @@ function coerceLegacyRawPayload(
     protocolo: row.protocolo ?? raw.protocolo ?? null,
     numeroEdital: row.numeroEdital ?? raw.numeroEdital ?? null,
     status: row.statusLegado ?? raw.status ?? null,
-    secretaria: row.secretaria ?? raw.secretaria ?? null,
+    secretaria: mapLegacySecretariaName(row.secretaria ?? raw.secretaria ?? null),
+    condutorProcesso: mapLegacyCondutorName(raw.condutorProcesso ?? null),
     resumoObjeto: row.objetoResumo ?? raw.resumoObjeto ?? null,
     dataPublicacaoDom: normalizeLegacyDateString(raw.dataPublicacaoDom),
     dataPublicacaoDou: normalizeLegacyDateString(raw.dataPublicacaoDou),
@@ -667,26 +672,30 @@ export const importacoesRouter = router({
         },
         items: rows.map((row) => {
           const { rawPayload, ...baseRow } = row;
+          const normalizedRawData = coerceLegacyRawPayload({
+            linha: row.linha,
+            legacyId: row.legacyId,
+            modalidade: row.modalidade,
+            processoAdministrativo: row.processoAdministrativo,
+            protocolo: row.protocolo,
+            numeroEdital: row.numeroEdital,
+            statusLegado: row.status,
+            secretaria: row.secretaria,
+            objetoResumo: row.objetoResumo,
+            valorEstimado: row.valorEstimado,
+            valorContratado: row.valorContratado,
+            rawPayload,
+          });
           return {
             ...baseRow,
+            secretaria: normalizedRawData.secretaria ?? baseRow.secretaria,
+            mappedSecretaria:
+              row.mappedSecretaria ?? normalizedRawData.secretaria ?? null,
             valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
             valorContratado: row.valorContratado
               ? toNumber(row.valorContratado)
               : null,
-            rawData: coerceLegacyRawPayload({
-              linha: row.linha,
-              legacyId: row.legacyId,
-              modalidade: row.modalidade,
-              processoAdministrativo: row.processoAdministrativo,
-              protocolo: row.protocolo,
-              numeroEdital: row.numeroEdital,
-              statusLegado: row.status,
-              secretaria: row.secretaria,
-              objetoResumo: row.objetoResumo,
-              valorEstimado: row.valorEstimado,
-              valorContratado: row.valorContratado,
-              rawPayload,
-            }),
+            rawData: normalizedRawData,
           };
         }),
         total: Number(totalRow[0]?.total ?? 0),
