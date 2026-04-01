@@ -241,6 +241,40 @@ function normalizeLegacyDateString(value: string | null | undefined) {
   return trimmed;
 }
 
+function normalizeLegacyNumberValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[^\d,.-]/g, "");
+  if (!cleaned || cleaned === "-") return null;
+
+  const commaIndex = cleaned.lastIndexOf(",");
+  const dotIndex = cleaned.lastIndexOf(".");
+  let normalized = cleaned;
+
+  if (commaIndex >= 0 && dotIndex >= 0) {
+    if (commaIndex > dotIndex) {
+      normalized = cleaned.replace(/\./g, "").replace(",", ".");
+    } else {
+      normalized = cleaned.replace(/,/g, "");
+    }
+  } else if (commaIndex >= 0) {
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else {
+    const dots = cleaned.match(/\./g)?.length ?? 0;
+    normalized = dots > 1 ? cleaned.replace(/\./g, "") : cleaned;
+  }
+
+  normalized = normalized.replace(/(?!^)-/g, "");
+  if (!normalized || normalized === "-") return null;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function coerceLegacyRawPayload(
   row: Pick<
     typeof importacaoLegadoRegistros.$inferSelect,
@@ -287,13 +321,15 @@ function coerceLegacyRawPayload(
     dataAdjudicacao: normalizeLegacyDateString(raw.dataAdjudicacao),
     dataHomologacao: normalizeLegacyDateString(raw.dataHomologacao),
     valorEstimado:
-      row.valorEstimado !== null && row.valorEstimado !== undefined
+      normalizeLegacyNumberValue(raw.valorEstimado) ??
+      (row.valorEstimado !== null && row.valorEstimado !== undefined
         ? toNumber(row.valorEstimado)
-        : raw.valorEstimado ?? null,
+        : null),
     valorContratado:
-      row.valorContratado !== null && row.valorContratado !== undefined
+      normalizeLegacyNumberValue(raw.valorContratado) ??
+      (row.valorContratado !== null && row.valorContratado !== undefined
         ? toNumber(row.valorContratado)
-        : raw.valorContratado ?? null,
+        : null),
   });
 }
 
