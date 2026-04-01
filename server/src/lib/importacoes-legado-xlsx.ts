@@ -200,6 +200,7 @@ function parseDate(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     const date = new Date(
@@ -207,11 +208,34 @@ function parseDate(value: string | null | undefined) {
     );
     return Number.isNaN(date.getTime()) ? null : date;
   }
-  const brMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (brMatch) {
-    const date = new Date(`${brMatch[3]}-${brMatch[2]}-${brMatch[1]}T00:00:00`);
-    return Number.isNaN(date.getTime()) ? null : date;
+
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (slashMatch) {
+    const first = Number(slashMatch[1]);
+    const second = Number(slashMatch[2]);
+    const year =
+      slashMatch[3].length === 2 ? 2000 + Number(slashMatch[3]) : Number(slashMatch[3]);
+
+    const build = (day: number, month: number) => {
+      const date = new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00`);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    if (slashMatch[3].length === 2) {
+      return build(second, first);
+    }
+
+    if (first > 12) {
+      return build(first, second);
+    }
+
+    if (second > 12) {
+      return build(second, first);
+    }
+
+    return build(first, second);
   }
+
   const fallback = new Date(trimmed);
   return Number.isNaN(fallback.getTime()) ? null : fallback;
 }

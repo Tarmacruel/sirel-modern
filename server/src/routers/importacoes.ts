@@ -186,6 +186,61 @@ async function refreshLegacyLoteReviewCounts(
   return counters;
 }
 
+function formatLegacyDateParts(day: number, month: number, year: number) {
+  if (
+    !Number.isInteger(day) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(year) ||
+    day < 1 ||
+    day > 31 ||
+    month < 1 ||
+    month > 12
+  ) {
+    return null;
+  }
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${String(year).padStart(4, "0")}`;
+}
+
+function normalizeLegacyDateString(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    return formatLegacyDateParts(
+      Number(isoMatch[3]),
+      Number(isoMatch[2]),
+      Number(isoMatch[1]),
+    );
+  }
+
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (slashMatch) {
+    const first = Number(slashMatch[1]);
+    const second = Number(slashMatch[2]);
+    const year =
+      slashMatch[3].length === 2 ? 2000 + Number(slashMatch[3]) : Number(slashMatch[3]);
+
+    if (slashMatch[3].length === 2) {
+      return formatLegacyDateParts(second, first, year);
+    }
+
+    if (first > 12) {
+      return formatLegacyDateParts(first, second, year);
+    }
+
+    if (second > 12) {
+      return formatLegacyDateParts(second, first, year);
+    }
+
+    return formatLegacyDateParts(first, second, year);
+  }
+
+  return trimmed;
+}
+
 function coerceLegacyRawPayload(
   row: Pick<
     typeof importacaoLegadoRegistros.$inferSelect,
@@ -218,6 +273,19 @@ function coerceLegacyRawPayload(
     status: row.statusLegado ?? raw.status ?? null,
     secretaria: row.secretaria ?? raw.secretaria ?? null,
     resumoObjeto: row.objetoResumo ?? raw.resumoObjeto ?? null,
+    dataPublicacaoDom: normalizeLegacyDateString(raw.dataPublicacaoDom),
+    dataPublicacaoDou: normalizeLegacyDateString(raw.dataPublicacaoDou),
+    dataPublicacaoJornal: normalizeLegacyDateString(raw.dataPublicacaoJornal),
+    dataInicio: normalizeLegacyDateString(raw.dataInicio),
+    dataEntrada: normalizeLegacyDateString(raw.dataEntrada),
+    dataEnvioParecerista: normalizeLegacyDateString(raw.dataEnvioParecerista),
+    dataAutorizacao: normalizeLegacyDateString(raw.dataAutorizacao),
+    dataAbertura: normalizeLegacyDateString(raw.dataAbertura),
+    dataAberturaPropostas: normalizeLegacyDateString(raw.dataAberturaPropostas),
+    dataSuspensao: normalizeLegacyDateString(raw.dataSuspensao),
+    dataRevogacao: normalizeLegacyDateString(raw.dataRevogacao),
+    dataAdjudicacao: normalizeLegacyDateString(raw.dataAdjudicacao),
+    dataHomologacao: normalizeLegacyDateString(raw.dataHomologacao),
     valorEstimado:
       row.valorEstimado !== null && row.valorEstimado !== undefined
         ? toNumber(row.valorEstimado)

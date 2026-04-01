@@ -397,11 +397,11 @@ function buildLegacySanitizedDraft(row: LegacyLoteDetailRow): LegacyRowSanitized
     resumoObjeto: toLegacyDraftString(raw.resumoObjeto ?? row.objetoResumo),
     objeto: toLegacyDraftString(raw.objeto),
     secretaria: toLegacyDraftString(raw.secretaria ?? row.secretaria),
-    dataPublicacaoDom: toLegacyDraftString(raw.dataPublicacaoDom),
-    dataPublicacaoDou: toLegacyDraftString(raw.dataPublicacaoDou),
-    dataPublicacaoJornal: toLegacyDraftString(raw.dataPublicacaoJornal),
-    dataAbertura: toLegacyDraftString(raw.dataAbertura),
-    dataHomologacao: toLegacyDraftString(raw.dataHomologacao),
+    dataPublicacaoDom: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoDom)),
+    dataPublicacaoDou: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoDou)),
+    dataPublicacaoJornal: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoJornal)),
+    dataAbertura: toLegacyDraftString(normalizeLegacyDateCell(raw.dataAbertura)),
+    dataHomologacao: toLegacyDraftString(normalizeLegacyDateCell(raw.dataHomologacao)),
     valorEstimado: formatCurrencyForForm(raw.valorEstimado ?? row.valorEstimado),
     valorContratado: formatCurrencyForForm(
       raw.valorContratado ?? row.valorContratado,
@@ -557,9 +557,72 @@ function findBestStatusMatch<T extends { nome: string }>(
   return findBestNamedMatch(items, rawStatus);
 }
 
+function formatLegacyDateParts(day: number, month: number, year: number) {
+  if (
+    !Number.isInteger(day) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(year) ||
+    day < 1 ||
+    day > 31 ||
+    month < 1 ||
+    month > 12
+  ) {
+    return null;
+  }
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${String(year).padStart(4, "0")}`;
+}
+
+function normalizeLegacyDateCell(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (value instanceof Date) {
+    return formatLegacyDateParts(
+      value.getDate(),
+      value.getMonth() + 1,
+      value.getFullYear(),
+    );
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    return formatLegacyDateParts(
+      Number(isoMatch[3]),
+      Number(isoMatch[2]),
+      Number(isoMatch[1]),
+    );
+  }
+
+  const slashMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (slashMatch) {
+    const first = Number(slashMatch[1]);
+    const second = Number(slashMatch[2]);
+    const rawYear = Number(slashMatch[3]);
+    const year = slashMatch[3].length === 2 ? 2000 + rawYear : rawYear;
+
+    if (slashMatch[3].length === 2) {
+      return formatLegacyDateParts(second, first, year);
+    }
+
+    if (first > 12) {
+      return formatLegacyDateParts(first, second, year);
+    }
+
+    if (second > 12) {
+      return formatLegacyDateParts(second, first, year);
+    }
+
+    return formatLegacyDateParts(first, second, year);
+  }
+
+  return text;
+}
+
 function parseLegacyCell(value: unknown) {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
   const text = String(value).trim();
   return text ? text : null;
 }
@@ -587,13 +650,13 @@ function normalizeLegacyWorkbookRow(
     dataPublicacaoDou: parseLegacyCell(row["Data de Publicação DOU"]),
     dataPublicacaoJornal: parseLegacyCell(row["Data de Publicação Jornal"]),
     dataInicio: parseLegacyCell(row["Data de Início"]),
-    dataEntrada: parseLegacyCell(row["Data de Entrada"]),
-    dataEnvioParecerista: parseLegacyCell(row["Data de Envio ao Parecerista"]),
+    dataEntrada: normalizeLegacyDateCell(row["Data de Entrada"]),
+    dataEnvioParecerista: normalizeLegacyDateCell(row["Data de Envio ao Parecerista"]),
     dataAutorizacao: parseLegacyCell(row["Data de Autorização"]),
     horarioInicio: parseLegacyCell(row["Horário de Início"]),
-    dataAbertura: parseLegacyCell(row["Data de Abertura"]),
+    dataAbertura: normalizeLegacyDateCell(row["Data de Abertura"]),
     horarioAbertura: parseLegacyCell(row["Horário de Abertura"]),
-    dataAberturaPropostas: parseLegacyCell(
+    dataAberturaPropostas: normalizeLegacyDateCell(
       row["Data de Abertura das Propostas"],
     ),
     horaAberturaPropostas: parseLegacyCell(
