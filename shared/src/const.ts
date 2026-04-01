@@ -820,3 +820,18 @@ export const importacaoBllConciliacaoStatusLabels = {
   VINCULADO: "Vinculado",
   IGNORADO: "Ignorado",
 } as const;
+
+export const importacaoLegadoLoteStatusLabels = {
+  EM_REVISAO: "Em revisão",
+  PRONTO_PARA_IMPORTACAO: "Pronto para importação",
+  ARQUIVADO: "Arquivado",
+} as const;
+
+export const importacaoLegadoRowReviewStatusLabels = {
+  PENDENTE: "Pendente",
+  APROVAR_IMPORTACAO: "Aprovar para importação",
+  IGNORAR: "Ignorar linha",
+  VINCULAR_INTERNO: "Vincular ao processo interno",
+  DUPLICADO_BASE: "Marcar como duplicada da base",
+  REVISAR: "Manter em revisão",
+} as const;

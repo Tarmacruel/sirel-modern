@@ -28,12 +28,16 @@ import { Link } from "wouter";
 import {
   importacaoBllConciliacaoStatusLabels,
   importacaoBllExecutionStatusLabels,
+  importacaoLegadoLoteStatusLabels,
+  importacaoLegadoRowReviewStatusLabels,
   importacaoBllModeLabels,
   importacaoBllSourceLabels,
 } from "@sirel/shared/const";
 import type {
   ImportacaoBllConciliacaoStatus,
   ImportacaoBllSource,
+  ImportacaoLegadoLoteStatus,
+  ImportacaoLegadoRowReviewStatus,
   ImportacaoLegadoXlsxRow,
   PncpStoredEntity,
 } from "@sirel/shared/schemas/importacoes";
@@ -125,6 +129,44 @@ type LegacyAnalysisImportedMatch = {
   score: number;
   motivos: string[];
 };
+type LegacyLoteListItem = {
+  id: number;
+  filename: string;
+  sheetName: string;
+  status: ImportacaoLegadoLoteStatus;
+  totalRegistros: number;
+  totalLimpos: number;
+  totalPendencias: number;
+  totalCriticos: number;
+  totalMatchInterno: number;
+  totalMatchBase: number;
+  totalPendentesRevisao: number;
+  totalAprovadosImportacao: number;
+  totalIgnorados: number;
+  totalVinculadosInterno: number;
+  totalDuplicadosBase: number;
+  criadoEm: string;
+  atualizadoEm: string;
+};
+type LegacyLoteDetailRow = LegacyAnalysisRow & {
+  id: number;
+  reviewStatus: ImportacaoLegadoRowReviewStatus;
+  reviewNotes: string | null;
+  selectedInternalProcessId: number | null;
+  selectedImportedProcessId: number | null;
+  reviewedAt: string | null;
+};
+type LegacyLoteDetail = {
+  lote: LegacyLoteListItem & {
+    issueBuckets: LegacyAnalysisResult["issueBuckets"];
+    duplicateGroups: LegacyAnalysisResult["duplicateGroups"];
+    reviewCounts: Record<ImportacaoLegadoRowReviewStatus, number>;
+  };
+  items: LegacyLoteDetailRow[];
+  total: number;
+  page: number;
+  totalPages: number;
+};
 type LegacyAnalysisRow = {
   linha: number;
   legacyId: string | null;
@@ -145,6 +187,13 @@ type LegacyAnalysisRow = {
   internalMatches: LegacyAnalysisInternalMatch[];
   importedMatches: LegacyAnalysisImportedMatch[];
 };
+type LegacyReviewModalState = {
+  row: LegacyLoteDetailRow;
+  reviewStatus: ImportacaoLegadoRowReviewStatus;
+  reviewNotes: string;
+  selectedInternalProcessId: string;
+  selectedImportedProcessId: string;
+} | null;
 type LegacyAnalysisResult = {
   summary: {
     totalRows: number;
@@ -466,6 +515,27 @@ export function ImportacoesPage() {
   const [legacyAnalysis, setLegacyAnalysis] =
     useState<LegacyAnalysisResult | null>(null);
   const [legacyOnlyFlagged, setLegacyOnlyFlagged] = useState(true);
+  const [legacyLotesPage, setLegacyLotesPage] = useState(1);
+  const [legacySelectedLoteId, setLegacySelectedLoteId] = useState<number | null>(
+    null,
+  );
+  const [legacyRowsPage, setLegacyRowsPage] = useState(1);
+  const [legacyRowsSearch, setLegacyRowsSearch] = useState("");
+  const [legacyRowsSeverityFilter, setLegacyRowsSeverityFilter] = useState<
+    "" | "CRITICO" | "ATENCAO" | "OK"
+  >("");
+  const [legacyRowsReviewFilter, setLegacyRowsReviewFilter] = useState<
+    "" | ImportacaoLegadoRowReviewStatus
+  >("");
+  const [legacySelectedRowIds, setLegacySelectedRowIds] = useState<number[]>([]);
+  const [legacyBulkReviewStatus, setLegacyBulkReviewStatus] = useState<
+    ImportacaoLegadoRowReviewStatus
+  >("APROVAR_IMPORTACAO");
+  const [legacyBulkNotes, setLegacyBulkNotes] = useState("");
+  const [legacyLoteStatusDraft, setLegacyLoteStatusDraft] =
+    useState<ImportacaoLegadoLoteStatus>("EM_REVISAO");
+  const [legacyReviewModal, setLegacyReviewModal] =
+    useState<LegacyReviewModalState>(null);
   const [pncpDateRange, setPncpDateRange] = useState({
     dataInicio: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -520,7 +590,32 @@ export function ImportacoesPage() {
       });
     },
   });
+  const createLegacyLoteMutation =
+    trpc.importacoes.createLegacyXlsxLote.useMutation({
+      onSuccess: async (data) => {
+        setLegacyAnalysis(null);
+        setLegacySelectedRowIds([]);
+        setLegacyRowsPage(1);
+        setLegacySelectedLoteId(data.loteId);
+        setFeedback({
+          variant: "success",
+          message: `Lote legado criado para saneamento manual com ${formatIntegerBR(data.summary.totalRows)} linha(s). Agora a equipe já pode revisar as pendências dentro do SIREL.`,
+        });
+        await Promise.all([
+          utils.importacoes.listLegacyXlsxLotes.invalidate(),
+          utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
+        ]);
+      },
+      onError: (error) => {
+        setFeedback({
+          variant: "error",
+          message:
+            error.message || "Não foi possível criar o lote legado para revisão.",
+        });
+      },
+    });
   const deferredSearch = useDeferredValue(search.trim());
+  const deferredLegacyRowsSearch = useDeferredValue(legacyRowsSearch.trim());
   const deferredPncpStoredSearch = useDeferredValue(pncpStoredSearch.trim());
   const deferredManualProcessSearch = useDeferredValue(
     manualProcessSearch.trim(),
@@ -601,11 +696,83 @@ export function ImportacoesPage() {
       retry: false,
     },
   );
+  const legacyLotesQuery = trpc.importacoes.listLegacyXlsxLotes.useQuery(
+    { page: legacyLotesPage, pageSize: 6 },
+    { retry: false, placeholderData: (previous) => previous },
+  );
+  const legacyLoteDetailQuery = trpc.importacoes.getLegacyXlsxLoteDetail.useQuery(
+    {
+      loteId: legacySelectedLoteId ?? 0,
+      page: legacyRowsPage,
+      pageSize: 20,
+      search: deferredLegacyRowsSearch || undefined,
+      severity: legacyRowsSeverityFilter || undefined,
+      reviewStatus: legacyRowsReviewFilter || undefined,
+      onlyIssues: legacyOnlyFlagged,
+    },
+    {
+      enabled: legacySelectedLoteId !== null,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
+  const updateLegacyRowMutation =
+    trpc.importacoes.updateLegacyXlsxRow.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({ variant: "success", message: result.message });
+        setLegacyReviewModal(null);
+        await Promise.all([
+          utils.importacoes.listLegacyXlsxLotes.invalidate(),
+          utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
+        ]);
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
+  const bulkLegacyRowsMutation =
+    trpc.importacoes.bulkUpdateLegacyXlsxRows.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({ variant: "success", message: result.message });
+        setLegacySelectedRowIds([]);
+        setLegacyBulkNotes("");
+        await Promise.all([
+          utils.importacoes.listLegacyXlsxLotes.invalidate(),
+          utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
+        ]);
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
+  const setLegacyLoteStatusMutation =
+    trpc.importacoes.setLegacyXlsxLoteStatus.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({ variant: "success", message: result.message });
+        await Promise.all([
+          utils.importacoes.listLegacyXlsxLotes.invalidate(),
+          utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
+        ]);
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
 
   const visibleRecordIds = recordsQuery.data?.items.map((row) => row.id) ?? [];
   const allVisibleSelected =
     visibleRecordIds.length > 0 &&
     visibleRecordIds.every((id) => selectedRecordIds.includes(id));
+  const legacyLotesData = legacyLotesQuery.data as
+    | { items: LegacyLoteListItem[]; totalPages: number }
+    | undefined;
+  const legacyLoteDetailData = legacyLoteDetailQuery.data as
+    | LegacyLoteDetail
+    | undefined;
+  const selectedLegacyLote = legacyLoteDetailData?.lote ?? null;
+  const visibleLegacyRows =
+    (legacyLoteDetailData?.items ?? []) as LegacyLoteDetailRow[];
+  const visibleLegacyRowIds = visibleLegacyRows.map((row) => row.id);
+  const allVisibleLegacyRowsSelected =
+    visibleLegacyRowIds.length > 0 &&
+    visibleLegacyRowIds.every((id) => legacySelectedRowIds.includes(id));
 
   const invalidateImportacoes = async () => {
     await Promise.all([
@@ -613,6 +780,8 @@ export function ImportacoesPage() {
       utils.importacoes.list.invalidate(),
       utils.importacoes.executions.invalidate(),
       utils.importacoes.detail.invalidate(),
+      utils.importacoes.listLegacyXlsxLotes.invalidate(),
+      utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
     ]);
   };
 
@@ -818,6 +987,31 @@ export function ImportacoesPage() {
   useEffect(() => {
     setSelectedRecordIds([]);
   }, [search, sourceFilter, conciliationFilter, page]);
+
+  useEffect(() => {
+    if (legacySelectedLoteId !== null) return;
+    const firstLote = legacyLotesData?.items?.[0];
+    if (firstLote) {
+      setLegacySelectedLoteId(firstLote.id);
+      setLegacyLoteStatusDraft(firstLote.status);
+    }
+  }, [legacyLotesData?.items, legacySelectedLoteId]);
+
+  useEffect(() => {
+    if (!selectedLegacyLote) return;
+    setLegacyLoteStatusDraft(selectedLegacyLote.status);
+  }, [selectedLegacyLote]);
+
+  useEffect(() => {
+    setLegacyRowsPage(1);
+    setLegacySelectedRowIds([]);
+  }, [
+    legacySelectedLoteId,
+    deferredLegacyRowsSearch,
+    legacyRowsSeverityFilter,
+    legacyRowsReviewFilter,
+    legacyOnlyFlagged,
+  ]);
 
   useEffect(() => {
     if (selectedRecordId !== null) {
@@ -1272,14 +1466,6 @@ export function ImportacoesPage() {
     return legacyWorkbook.sheets[legacyWorkbook.selectedSheet] ?? null;
   }, [legacyWorkbook]);
 
-  const visibleLegacyRows = useMemo(() => {
-    if (!legacyAnalysis) return [];
-    const baseRows = legacyOnlyFlagged
-      ? legacyAnalysis.rows.filter((row) => row.issues.length > 0)
-      : legacyAnalysis.rows;
-    return baseRows.slice(0, 80);
-  }, [legacyAnalysis, legacyOnlyFlagged]);
-
   async function handleLegacyFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
@@ -1366,6 +1552,87 @@ export function ImportacoesPage() {
       filename: legacyWorkbook.fileName,
       sheetName: legacyWorkbook.selectedSheet,
       records: selectedLegacySheet.records,
+    });
+  }
+
+  async function handleCreateLegacyLote() {
+    if (!legacyWorkbook || !selectedLegacySheet) {
+      setFeedback({
+        variant: "warning",
+        message:
+          "Carregue um arquivo XLSX legado antes de criar o lote de saneamento.",
+      });
+      return;
+    }
+
+    await createLegacyLoteMutation.mutateAsync({
+      filename: legacyWorkbook.fileName,
+      sheetName: legacyWorkbook.selectedSheet,
+      records: selectedLegacySheet.records,
+    });
+  }
+
+  function handleToggleLegacyRow(rowId: number, checked: boolean) {
+    setLegacySelectedRowIds((current) =>
+      checked
+        ? Array.from(new Set([...current, rowId]))
+        : current.filter((id) => id !== rowId),
+    );
+  }
+
+  function handleToggleAllLegacyRows(checked: boolean) {
+    setLegacySelectedRowIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...visibleLegacyRowIds]));
+      }
+      return current.filter((id) => !visibleLegacyRowIds.includes(id));
+    });
+  }
+
+  async function handleApplyBulkLegacyDecision() {
+    if (!legacySelectedLoteId || !legacySelectedRowIds.length) {
+      setFeedback({
+        variant: "warning",
+        message: "Selecione ao menos uma linha para aplicar a decisão em lote.",
+      });
+      return;
+    }
+
+    await bulkLegacyRowsMutation.mutateAsync({
+      loteId: legacySelectedLoteId,
+      rowIds: legacySelectedRowIds,
+      reviewStatus: legacyBulkReviewStatus,
+      reviewNotes: legacyBulkNotes.trim() || null,
+    });
+  }
+
+  async function handleSaveLegacyRowReview() {
+    if (!legacyReviewModal || !legacySelectedLoteId) return;
+
+    await updateLegacyRowMutation.mutateAsync({
+      loteId: legacySelectedLoteId,
+      rowId: legacyReviewModal.row.id,
+      reviewStatus: legacyReviewModal.reviewStatus,
+      reviewNotes: legacyReviewModal.reviewNotes.trim() || null,
+      selectedInternalProcessId:
+        legacyReviewModal.reviewStatus === "VINCULAR_INTERNO" &&
+        legacyReviewModal.selectedInternalProcessId
+          ? Number(legacyReviewModal.selectedInternalProcessId)
+          : null,
+      selectedImportedProcessId:
+        legacyReviewModal.reviewStatus === "DUPLICADO_BASE" &&
+        legacyReviewModal.selectedImportedProcessId
+          ? Number(legacyReviewModal.selectedImportedProcessId)
+          : null,
+    });
+  }
+
+  async function handleSaveLegacyLoteStatus() {
+    if (!legacySelectedLoteId) return;
+
+    await setLegacyLoteStatusMutation.mutateAsync({
+      loteId: legacySelectedLoteId,
+      status: legacyLoteStatusDraft,
     });
   }
 
@@ -1456,6 +1723,116 @@ export function ImportacoesPage() {
       document.body.style.overflow = previousOverflow;
     };
   }, [pncpBusy]);
+
+  const renderLegacyStage = () => (
+    <div className="space-y-6">
+      <SectionCard
+        title="Saneamento do legado XLSX"
+        description="Crie lotes persistentes a partir da exporta??o do SIREL antigo, revise duplicidades com a equipe e s? ent?o avance para a importa??o total."
+      >
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+            <div className="grid gap-3">
+              <FormField label="Arquivo XLSX legado">
+                <Input type="file" accept=".xlsx,.xlsm,.xls" onChange={(event) => void handleLegacyFileChange(event)} />
+              </FormField>
+              {legacyWorkbook ? (
+                <>
+                  <FormField label="Aba da planilha">
+                    <Select
+                      value={legacyWorkbook.selectedSheet}
+                      onChange={(event) => {
+                        setLegacyAnalysis(null);
+                        setLegacyWorkbook((current) =>
+                          current ? { ...current, selectedSheet: event.target.value } : current,
+                        );
+                      }}
+                    >
+                      {legacyWorkbook.sheetNames.map((sheetName) => (
+                        <option key={sheetName} value={sheetName}>{sheetName}</option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">Arquivo</p>
+                      <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">{legacyWorkbook.fileName}</p>
+                    </div>
+                    <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">Colunas</p>
+                      <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatIntegerBR(selectedLegacySheet?.headers.length ?? 0)}</p>
+                    </div>
+                    <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">Linhas prontas</p>
+                      <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatIntegerBR(selectedLegacySheet?.records.length ?? 0)}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => void handleAnalyzeLegacy()} disabled={analyzeLegacyMutation.isPending || legacyBusy || !selectedLegacySheet?.records.length} icon={analyzeLegacyMutation.isPending ? <RefreshCcw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}>Pr?-an?lise r?pida</Button>
+                    <Button onClick={() => void handleCreateLegacyLote()} disabled={createLegacyLoteMutation.isPending || legacyBusy || !selectedLegacySheet?.records.length} icon={createLegacyLoteMutation.isPending ? <RefreshCcw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}>{createLegacyLoteMutation.isPending ? "Criando lote..." : "Criar lote para saneamento"}</Button>
+                  </div>
+                  {legacyAnalysis ? <Alert variant="info">Pr?-an?lise local: {formatIntegerBR(legacyAnalysis.summary.rowsWithIssues)} linha(s) com pend?ncia e {formatIntegerBR(legacyAnalysis.summary.criticalRows)} cr?tica(s).</Alert> : null}
+                </>
+              ) : (
+                <Alert variant="info">Carregue aqui o XLSX exportado do sistema antigo. Depois criamos um lote persistente para a equipe revisar dentro do pr?prio SIREL.</Alert>
+              )}
+            </div>
+          </div>
+          <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.72))] px-4 py-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Lotes recentes do legado</p>
+                <p className="mt-2 text-sm text-[var(--color-neutral-600)]">Selecione um lote salvo para continuar o saneamento manual com a equipe.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => void legacyLotesQuery.refetch()} icon={<RefreshCcw className="h-4 w-4" />}>Atualizar</Button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {legacyLotesQuery.isLoading ? (
+                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-20 w-full rounded-[20px]" />)
+              ) : legacyLotesData?.items.length ? (
+                legacyLotesData.items.map((lote) => (
+                  <button key={lote.id} type="button" onClick={() => { setLegacySelectedLoteId(lote.id); setLegacyRowsPage(1); setLegacySelectedRowIds([]); }} className={["w-full rounded-[20px] border px-4 py-4 text-left transition", legacySelectedLoteId === lote.id ? "border-[var(--color-primary-400)] bg-white shadow-[0_18px_34px_-28px_rgba(36,64,167,0.55)]" : "border-[rgba(204,225,255,0.92)] bg-white/75 hover:border-[rgba(47,84,196,0.35)] hover:bg-white"].join(" ")}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--color-neutral-900)]">#{lote.id} ? {lote.filename}</p>
+                        <p className="mt-1 text-xs text-[var(--color-neutral-500)]">Aba {lote.sheetName} ? {formatShortDateTimeBR(lote.criadoEm)}</p>
+                      </div>
+                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">{importacaoLegadoLoteStatusLabels[lote.status]}</span>
+                    </div>
+                  </button>
+                ))
+              ) : <Alert variant="info">Ainda n?o existe lote salvo para saneamento manual.</Alert>}
+            </div>
+            {legacyLotesData?.totalPages && legacyLotesData.totalPages > 1 ? <div className="mt-4"><Pagination page={legacyLotesPage} totalPages={legacyLotesData.totalPages} onPageChange={setLegacyLotesPage} /></div> : null}
+          </div>
+        </div>
+      </SectionCard>
+      {selectedLegacyLote ? (
+        <SectionCard title={`Lote #${selectedLegacyLote.id} em saneamento`} description="Filtre as linhas do lote, revise os matches sugeridos e registre a decis?o final de cada caso diretamente no SIREL." action={<div className="flex flex-wrap items-center gap-2"><Select value={legacyLoteStatusDraft} onChange={(event) => setLegacyLoteStatusDraft(event.target.value as ImportacaoLegadoLoteStatus)} className="min-w-[220px]">{Object.entries(importacaoLegadoLoteStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><Button variant="outline" onClick={() => void handleSaveLegacyLoteStatus()} disabled={setLegacyLoteStatusMutation.isPending} icon={<CheckCircle2 className="h-4 w-4" />}>Salvar status do lote</Button></div>}>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">{[["Registros", selectedLegacyLote.totalRegistros],["Cr?ticos", selectedLegacyLote.totalCriticos],["Pendentes", selectedLegacyLote.reviewCounts.PENDENTE],["Aprovados", selectedLegacyLote.reviewCounts.APROVAR_IMPORTACAO],["V?nculo interno", selectedLegacyLote.reviewCounts.VINCULAR_INTERNO],["Duplicada da base", selectedLegacyLote.reviewCounts.DUPLICADO_BASE]].map(([label, value]) => <div key={String(label)} className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3 shadow-sm"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">{label}</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatIntegerBR(Number(value))}</p></div>)}</div>
+            <div className="space-y-3 rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)]/40 px-4 py-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField label="Buscar na grade"><Input value={legacyRowsSearch} onChange={(event) => setLegacyRowsSearch(event.target.value)} placeholder="Edital, administrativo, protocolo, secretaria ou objeto" /></FormField>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FormField label="Severidade"><Select value={legacyRowsSeverityFilter} onChange={(event) => setLegacyRowsSeverityFilter(event.target.value as "" | "CRITICO" | "ATENCAO" | "OK")}><option value="">Todas</option><option value="CRITICO">Cr?tico</option><option value="ATENCAO">Aten??o</option><option value="OK">Sem pend?ncia</option></Select></FormField>
+                  <FormField label="Decis?o"><Select value={legacyRowsReviewFilter} onChange={(event) => setLegacyRowsReviewFilter(event.target.value as "" | ImportacaoLegadoRowReviewStatus)}><option value="">Todas</option>{Object.entries(importacaoLegadoRowReviewStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></FormField>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex h-11 items-center gap-2 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 text-sm text-[var(--text-secondary)]"><Checkbox checked={legacyOnlyFlagged} onChange={(event) => setLegacyOnlyFlagged(event.target.checked)} />Mostrar s? pend?ncias</label>
+                <Select value={legacyBulkReviewStatus} onChange={(event) => setLegacyBulkReviewStatus(event.target.value as ImportacaoLegadoRowReviewStatus)} className="min-w-[220px]">{Object.entries(importacaoLegadoRowReviewStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>
+                <Input value={legacyBulkNotes} onChange={(event) => setLegacyBulkNotes(event.target.value)} placeholder="Observa??o da equipe para a decis?o em lote" className="min-w-[260px] flex-1" />
+                <Button variant="outline" onClick={() => void handleApplyBulkLegacyDecision()} disabled={bulkLegacyRowsMutation.isPending || !legacySelectedRowIds.length} icon={<CheckCircle2 className="h-4 w-4" />}>Aplicar em {formatIntegerBR(legacySelectedRowIds.length)} linha(s)</Button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto"><Table><TableHead><tr><TableHeaderCell><Checkbox checked={allVisibleLegacyRowsSelected} onChange={(event) => handleToggleAllLegacyRows(event.target.checked)} /></TableHeaderCell><TableHeaderCell>Linha</TableHeaderCell><TableHeaderCell>Identifica??o</TableHeaderCell><TableHeaderCell>Pend?ncias</TableHeaderCell><TableHeaderCell>Matches</TableHeaderCell><TableHeaderCell>Decis?o</TableHeaderCell><TableHeaderCell>A??es</TableHeaderCell></tr></TableHead><TableBody>{legacyLoteDetailQuery.isLoading ? Array.from({ length: 6 }).map((_, index) => <TableRow key={index}><TableCell colSpan={7}><Skeleton className="h-16 w-full rounded-[18px]" /></TableCell></TableRow>) : visibleLegacyRows.length ? visibleLegacyRows.map((row) => <TableRow key={row.id}><TableCell><Checkbox checked={legacySelectedRowIds.includes(row.id)} onChange={(event) => handleToggleLegacyRow(row.id, event.target.checked)} /></TableCell><TableCell><div className="space-y-1"><p className="font-semibold text-[var(--color-neutral-900)]">#{row.linha}</p><span className={["inline-flex rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em]", row.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : row.severity === "ATENCAO" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"].join(" ")}>{row.severity}</span></div></TableCell><TableCell><div className="max-w-[280px]"><p className="font-semibold text-[var(--color-neutral-900)]">{row.numeroEdital || row.processoAdministrativo || row.protocolo || "Sem identificador"}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.modalidade || "Modalidade ausente"}{row.secretaria ? ` ? ${row.secretaria}` : ""}</p><p className="mt-1 line-clamp-2 text-xs text-[var(--color-neutral-600)]">{row.objetoResumo || "Objeto n?o informado."}</p></div></TableCell><TableCell><div className="flex max-w-[260px] flex-wrap gap-2">{row.issues.length ? row.issues.map((issue) => <span key={`${row.id}-${issue.code}`} className={["inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]", issue.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"].join(" ")}>{issue.label}</span>) : <span className="text-sm text-[var(--color-neutral-500)]">Sem pend?ncias.</span>}</div></TableCell><TableCell><div className="space-y-2">{row.internalMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Interno</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.internalMatches[0].numeroSirel}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.internalMatches[0].motivos.join(" ? ")}</p></div> : null}{row.importedMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Base p?blica</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.importedMatches[0].origem}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.importedMatches[0].motivos.join(" ? ")}</p></div> : null}{!row.internalMatches.length && !row.importedMatches.length ? <span className="text-sm text-[var(--color-neutral-500)]">Sem colis?es relevantes.</span> : null}</div></TableCell><TableCell><div className="space-y-1"><span className="inline-flex rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">{importacaoLegadoRowReviewStatusLabels[row.reviewStatus]}</span>{row.reviewNotes ? <p className="max-w-[220px] line-clamp-3 text-xs text-[var(--color-neutral-500)]">{row.reviewNotes}</p> : null}</div></TableCell><TableCell><Button variant="outline" size="sm" onClick={() => setLegacyReviewModal({ row, reviewStatus: row.reviewStatus, reviewNotes: row.reviewNotes ?? "", selectedInternalProcessId: row.selectedInternalProcessId ? String(row.selectedInternalProcessId) : row.internalMatches[0] ? String(row.internalMatches[0].processoId) : "", selectedImportedProcessId: row.selectedImportedProcessId ? String(row.selectedImportedProcessId) : row.importedMatches[0] ? String(row.importedMatches[0].importedId) : "" })} icon={<Eye className="h-4 w-4" />}>Revisar</Button></TableCell></TableRow>) : <TableRow><TableCell colSpan={7}>Nenhuma linha encontrada com os filtros atuais.</TableCell></TableRow>}</TableBody></Table></div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-[var(--color-neutral-500)]">{legacyLoteDetailData ? `Exibindo ${formatIntegerBR(legacyLoteDetailData.items.length)} de ${formatIntegerBR(legacyLoteDetailData.total)} linha(s) filtradas.` : ""}</p><Pagination page={legacyRowsPage} totalPages={legacyLoteDetailData?.totalPages ?? 1} onPageChange={setLegacyRowsPage} /></div>
+        </SectionCard>
+      ) : <Alert variant="info">Assim que um lote for criado, ele aparece aqui com status persistente para a equipe iniciar o saneamento manual no pr?prio SIREL.</Alert>}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -2541,508 +2918,10 @@ export function ImportacoesPage() {
             </div>
           ) : null}
 
-          {activeTab === "LEGADO" ? (
-            <div className="space-y-6">
-              <SectionCard
-                title="Análise de legado XLSX"
-                description="Carregue a exportação do SIREL antigo, detecte duplicidades e inconsistências e só depois decida o que seguirá para a etapa de importação total."
-              >
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                  <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
-                    <div className="grid gap-3">
-                      <FormField label="Arquivo XLSX legado">
-                        <Input
-                          type="file"
-                          accept=".xlsx,.xlsm,.xls"
-                          onChange={(event) =>
-                            void handleLegacyFileChange(event)
-                          }
-                        />
-                      </FormField>
-                      {legacyWorkbook ? (
-                        <>
-                          <FormField label="Aba da planilha">
-                            <Select
-                              value={legacyWorkbook.selectedSheet}
-                              onChange={(event) => {
-                                setLegacyAnalysis(null);
-                                setLegacyWorkbook((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        selectedSheet: event.target.value,
-                                      }
-                                    : current,
-                                );
-                              }}
-                            >
-                              {legacyWorkbook.sheetNames.map((sheetName) => (
-                                <option key={sheetName} value={sheetName}>
-                                  {sheetName}
-                                </option>
-                              ))}
-                            </Select>
-                          </FormField>
-                          <div className="grid gap-3 md:grid-cols-3">
-                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                                Arquivo
-                              </p>
-                              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
-                                {legacyWorkbook.fileName}
-                              </p>
-                            </div>
-                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                                Colunas detectadas
-                              </p>
-                              <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">
-                                {formatIntegerBR(
-                                  selectedLegacySheet?.headers.length ?? 0,
-                                )}
-                              </p>
-                            </div>
-                            <div className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                                Linhas prontas para análise
-                              </p>
-                              <p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">
-                                {formatIntegerBR(
-                                  selectedLegacySheet?.records.length ?? 0,
-                                )}
-                              </p>
-                            </div>
-                          </div>
-                          <Button
-                            onClick={() => void handleAnalyzeLegacy()}
-                            disabled={
-                              analyzeLegacyMutation.isPending ||
-                              legacyBusy ||
-                              !selectedLegacySheet?.records.length
-                            }
-                            icon={
-                              analyzeLegacyMutation.isPending ? (
-                                <RefreshCcw className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Search className="h-4 w-4" />
-                              )
-                            }
-                          >
-                            {analyzeLegacyMutation.isPending
-                              ? "Analisando lote legado..."
-                              : "Analisar lote legado"}
-                          </Button>
-                        </>
-                      ) : (
-                        <Alert variant="info">
-                          Use aqui o arquivo exportado do Access/legado. O SIREL
-                          vai fazer a leitura no navegador e enviar apenas o
-                          lote estruturado para análise de duplicidades e
-                          inconsistências.
-                        </Alert>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.72))] px-4 py-4 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Prévia da aba selecionada
-                    </p>
-                    {selectedLegacySheet?.previewRows.length ? (
-                      <div className="mt-3 overflow-x-auto">
-                        <Table>
-                          <TableHead>
-                            <tr>
-                              {selectedLegacySheet.headers
-                                .slice(0, 6)
-                                .map((header) => (
-                                  <TableHeaderCell key={header}>
-                                    {header}
-                                  </TableHeaderCell>
-                                ))}
-                            </tr>
-                          </TableHead>
-                          <TableBody>
-                            {selectedLegacySheet.previewRows
-                              .slice(0, 4)
-                              .map((row, index) => (
-                                <TableRow key={`${index}-${row.ID ?? "row"}`}>
-                                  {selectedLegacySheet.headers
-                                    .slice(0, 6)
-                                    .map((header) => (
-                                      <TableCell
-                                        key={`${index}-${header}`}
-                                        className="max-w-[180px] truncate text-sm text-[var(--color-neutral-700)]"
-                                      >
-                                        {row[header] || "-"}
-                                      </TableCell>
-                                    ))}
-                                </TableRow>
-                              ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    ) : (
-                      <p className="mt-3 text-sm text-[var(--color-neutral-600)]">
-                        Após carregar o arquivo, mostramos aqui uma amostra das
-                        primeiras linhas para conferência rápida.
-                      </p>
-                    )}
-                    <p className="mt-4 text-xs leading-6 text-[var(--color-neutral-500)]">
-                      A análise compara o lote com processos internos e com a
-                      base pública já importada, além de verificar ausência de
-                      campos críticos, datas incoerentes, CNPJ inválido e
-                      repetição no próprio arquivo.
-                    </p>
-                  </div>
-                </div>
-              </SectionCard>
-
-              {legacyAnalysis ? (
-                <>
-                  <SectionCard
-                    title="Resultado da análise prévia"
-                    description="Leitura consolidada do lote legado antes da etapa de importação total."
-                  >
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
-                      {[
-                        {
-                          label: "Linhas analisadas",
-                          value: legacyAnalysis.summary.totalRows,
-                          note: "Volume bruto do lote legado.",
-                        },
-                        {
-                          label: "Linhas limpas",
-                          value: legacyAnalysis.summary.cleanRows,
-                          note: "Sem pendências detectadas na triagem inicial.",
-                        },
-                        {
-                          label: "Com pendências",
-                          value: legacyAnalysis.summary.rowsWithIssues,
-                          note: "Exigem revisão antes do import total.",
-                        },
-                        {
-                          label: "Críticas",
-                          value: legacyAnalysis.summary.criticalRows,
-                          note: "Risco alto de inconsistência ou duplicidade.",
-                        },
-                        {
-                          label: "Match interno",
-                          value: legacyAnalysis.summary.rowsWithInternalMatches,
-                          note: "Possível processo já existente no SIREL.",
-                        },
-                        {
-                          label: "Match base importada",
-                          value: legacyAnalysis.summary.rowsWithImportedMatches,
-                          note: "Possível colisão com BLL/PNCP já conciliados.",
-                        },
-                      ].map((card) => (
-                        <article
-                          key={card.label}
-                          className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm"
-                        >
-                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                            {card.label}
-                          </p>
-                          <p className="mt-3 text-3xl font-black text-[var(--color-primary-900)]">
-                            {formatIntegerBR(card.value)}
-                          </p>
-                          <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                            {card.note}
-                          </p>
-                        </article>
-                      ))}
-                    </div>
-                  </SectionCard>
-
-                  <SectionCard
-                    title="Buckets de inconsistência"
-                    description="Os itens abaixo orientam a limpeza do lote antes da importação total."
-                  >
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                      <div className="space-y-3">
-                        {legacyAnalysis.issueBuckets.length ? (
-                          legacyAnalysis.issueBuckets.map((bucket) => (
-                            <article
-                              key={bucket.code}
-                              className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3 shadow-sm"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-[var(--color-neutral-900)]">
-                                    {bucket.label}
-                                  </p>
-                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[var(--color-neutral-500)]">
-                                    {bucket.code}
-                                  </p>
-                                </div>
-                                <span
-                                  className={[
-                                    "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
-                                    bucket.severity === "CRITICO"
-                                      ? "bg-rose-50 text-rose-700"
-                                      : "bg-amber-50 text-amber-800",
-                                  ].join(" ")}
-                                >
-                                  {formatIntegerBR(bucket.count)}
-                                </span>
-                              </div>
-                            </article>
-                          ))
-                        ) : (
-                          <Alert variant="success">
-                            Nenhuma inconsistência foi detectada no lote
-                            selecionado.
-                          </Alert>
-                        )}
-                      </div>
-                      <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                              Duplicidades do próprio lote
-                            </p>
-                            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                              Top combinações repetidas por modalidade +
-                              processo administrativo + número do edital.
-                            </p>
-                          </div>
-                          <label className="inline-flex items-center gap-2 text-sm text-[var(--color-neutral-600)]">
-                            <Checkbox
-                              checked={legacyOnlyFlagged}
-                              onChange={(event) =>
-                                setLegacyOnlyFlagged(event.target.checked)
-                              }
-                            />
-                            Mostrar só linhas com pendência
-                          </label>
-                        </div>
-                        <div className="mt-4 space-y-3">
-                          {legacyAnalysis.duplicateGroups.length ? (
-                            legacyAnalysis.duplicateGroups.map((group) => (
-                              <article
-                                key={group.key}
-                                className="rounded-[18px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3"
-                              >
-                                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
-                                  {group.count} ocorrência(s)
-                                </p>
-                                <p className="mt-2 break-all text-sm font-semibold text-[var(--color-neutral-900)]">
-                                  {group.key}
-                                </p>
-                                <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
-                                  Linhas: {group.linhas.join(", ")}
-                                </p>
-                              </article>
-                            ))
-                          ) : (
-                            <p className="text-sm text-[var(--color-neutral-600)]">
-                              Nenhuma duplicidade exata detectada nesse primeiro
-                              recorte.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </SectionCard>
-
-                  <SectionCard
-                    title="Linhas sinalizadas"
-                    description="Primeiras 80 linhas do lote ordenadas por criticidade, com candidatos internos e importados para saneamento."
-                  >
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHead>
-                          <tr>
-                            <TableHeaderCell>Linha</TableHeaderCell>
-                            <TableHeaderCell>Identificação</TableHeaderCell>
-                            <TableHeaderCell>Objeto</TableHeaderCell>
-                            <TableHeaderCell>Pendências</TableHeaderCell>
-                            <TableHeaderCell>Possíveis matches</TableHeaderCell>
-                          </tr>
-                        </TableHead>
-                        <TableBody>
-                          {visibleLegacyRows.map((row) => (
-                            <TableRow
-                              key={`${row.linha}-${row.legacyId ?? row.numeroEdital ?? "legacy"}`}
-                            >
-                              <TableCell>
-                                <div className="space-y-1">
-                                  <p className="font-semibold text-[var(--color-neutral-900)]">
-                                    #{row.linha}
-                                  </p>
-                                  <span
-                                    className={[
-                                      "inline-flex rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
-                                      row.severity === "CRITICO"
-                                        ? "bg-rose-50 text-rose-700"
-                                        : row.severity === "ATENCAO"
-                                          ? "bg-amber-50 text-amber-800"
-                                          : "bg-emerald-50 text-emerald-700",
-                                    ].join(" ")}
-                                  >
-                                    {row.severity}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <p className="font-semibold text-[var(--color-neutral-900)]">
-                                  {row.numeroEdital ||
-                                    row.processoAdministrativo ||
-                                    row.protocolo ||
-                                    "Sem identificador"}
-                                </p>
-                                <p className="text-xs text-[var(--color-neutral-500)]">
-                                  {row.modalidade || "Modalidade ausente"}
-                                  {row.secretaria ? ` • ${row.secretaria}` : ""}
-                                </p>
-                                {row.mappedSecretaria ? (
-                                  <p className="mt-1 text-xs text-[var(--color-primary-700)]">
-                                    Mapeada para: {row.mappedSecretaria}
-                                  </p>
-                                ) : null}
-                              </TableCell>
-                              <TableCell>
-                                <div className="max-w-[320px]">
-                                  <p className="line-clamp-3 text-sm font-medium text-[var(--color-neutral-900)]">
-                                    {row.objetoResumo ||
-                                      "Objeto não informado."}
-                                  </p>
-                                  <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
-                                    Estimado:{" "}
-                                    {formatCurrencyBRL(row.valorEstimado)} •
-                                    Contratado:{" "}
-                                    {formatCurrencyBRL(row.valorContratado)}
-                                  </p>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex max-w-[320px] flex-wrap gap-2">
-                                  {row.issues.length ? (
-                                    row.issues.map((issue) => (
-                                      <span
-                                        key={`${row.linha}-${issue.code}`}
-                                        className={[
-                                          "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]",
-                                          issue.severity === "CRITICO"
-                                            ? "bg-rose-50 text-rose-700"
-                                            : "bg-amber-50 text-amber-800",
-                                        ].join(" ")}
-                                      >
-                                        {issue.label}
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-sm text-[var(--color-neutral-500)]">
-                                      Sem pendências nesta linha.
-                                    </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="space-y-3">
-                                  {row.internalMatches.length ? (
-                                    <div>
-                                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                                        Interno
-                                      </p>
-                                      <div className="mt-2 space-y-2">
-                                        {row.internalMatches.map((match) => (
-                                          <div
-                                            key={`${row.linha}-internal-${match.processoId}`}
-                                            className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2"
-                                          >
-                                            <div className="flex items-center justify-between gap-2">
-                                              <Link
-                                                href={getInternalProcessHref(
-                                                  match.processoId,
-                                                  match.moduloAtual,
-                                                )}
-                                              >
-                                                <span className="cursor-pointer text-sm font-semibold text-[var(--color-primary-700)]">
-                                                  {match.numeroSirel}
-                                                </span>
-                                              </Link>
-                                              <span className="rounded-full bg-[var(--color-primary-50)] px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]">
-                                                S{match.score}
-                                              </span>
-                                            </div>
-                                            <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
-                                              {match.numeroEdital ||
-                                                match.numeroAdministrativo ||
-                                                "Sem identificador"}
-                                            </p>
-                                            <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
-                                              {match.motivos.join(" • ")}
-                                            </p>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ) : null}
-
-                                  {row.importedMatches.length ? (
-                                    <div>
-                                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                                        Base pública
-                                      </p>
-                                      <div className="mt-2 space-y-2">
-                                        {row.importedMatches.map((match) => (
-                                          <div
-                                            key={`${row.linha}-imported-${match.importedId}`}
-                                            className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2"
-                                          >
-                                            <div className="flex items-center justify-between gap-2">
-                                              <span className="text-sm font-semibold text-[var(--color-neutral-900)]">
-                                                {match.origem}
-                                              </span>
-                                              <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-[var(--color-primary-700)]">
-                                                S{match.score}
-                                              </span>
-                                            </div>
-                                            <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
-                                              {match.numeroEdital ||
-                                                match.numeroAdministrativo ||
-                                                "Sem identificador"}
-                                            </p>
-                                            <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
-                                              {match.motivos.join(" • ")}
-                                            </p>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ) : null}
-
-                                  {!row.internalMatches.length &&
-                                  !row.importedMatches.length ? (
-                                    <p className="text-sm text-[var(--color-neutral-500)]">
-                                      Sem colisões relevantes detectadas nesta
-                                      primeira análise.
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    {legacyAnalysis.rows.length > visibleLegacyRows.length ? (
-                      <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
-                        Exibindo {formatIntegerBR(visibleLegacyRows.length)} de{" "}
-                        {formatIntegerBR(legacyAnalysis.rows.length)} linhas
-                        analisadas. Na próxima etapa, podemos adicionar
-                        paginação e ações de saneamento direto nessa grade.
-                      </p>
-                    ) : null}
-                  </SectionCard>
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          {activeTab === "LEGADO" ? renderLegacyStage() : null}
         </div>
       ) : null}
+
       {activeTab === "HISTORICO" ? (
         <SectionCard
           title="Histórico de execuções"
@@ -3157,6 +3036,147 @@ export function ImportacoesPage() {
             document.body,
           )
         : null}
+
+      <Modal
+        open={legacyReviewModal !== null}
+        onClose={() => setLegacyReviewModal(null)}
+        title={
+          legacyReviewModal
+            ? `Linha #${legacyReviewModal.row.linha} • saneamento manual`
+            : "Saneamento manual"
+        }
+        description="Registre a decisão da equipe para esta linha do legado antes da importação total."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setLegacyReviewModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleSaveLegacyRowReview()}
+              disabled={updateLegacyRowMutation.isPending || !legacyReviewModal}
+              icon={<CheckCircle2 className="h-4 w-4" />}
+            >
+              Salvar decisão
+            </Button>
+          </div>
+        }
+      >
+        {legacyReviewModal ? (
+          <div className="space-y-5">
+            <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)]/45 px-4 py-4">
+              <p className="text-sm font-semibold text-[var(--color-neutral-900)]">
+                {legacyReviewModal.row.numeroEdital ||
+                  legacyReviewModal.row.processoAdministrativo ||
+                  legacyReviewModal.row.protocolo ||
+                  "Sem identificador"}
+              </p>
+              <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                {legacyReviewModal.row.objetoResumo || "Objeto não informado."}
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Decisão manual">
+                <Select
+                  value={legacyReviewModal.reviewStatus}
+                  onChange={(event) =>
+                    setLegacyReviewModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            reviewStatus:
+                              event.target.value as ImportacaoLegadoRowReviewStatus,
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  {Object.entries(importacaoLegadoRowReviewStatusLabels).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </FormField>
+              <FormField label="Observação da equipe">
+                <Input
+                  value={legacyReviewModal.reviewNotes}
+                  onChange={(event) =>
+                    setLegacyReviewModal((current) =>
+                      current
+                        ? { ...current, reviewNotes: event.target.value }
+                        : current,
+                    )
+                  }
+                  placeholder="Explique a decisão, contexto ou pendência restante"
+                />
+              </FormField>
+            </div>
+
+            {legacyReviewModal.reviewStatus === "VINCULAR_INTERNO" ? (
+              <FormField label="Processo interno correspondente">
+                <Select
+                  value={legacyReviewModal.selectedInternalProcessId}
+                  onChange={(event) =>
+                    setLegacyReviewModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            selectedInternalProcessId: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="">Selecione o processo interno</option>
+                  {legacyReviewModal.row.internalMatches.map((match) => (
+                    <option
+                      key={match.processoId}
+                      value={String(match.processoId)}
+                    >
+                      {match.numeroSirel} • {match.numeroEdital || match.numeroAdministrativo || "Sem identificador"}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+            ) : null}
+
+            {legacyReviewModal.reviewStatus === "DUPLICADO_BASE" ? (
+              <FormField label="Registro da base pública correspondente">
+                <Select
+                  value={legacyReviewModal.selectedImportedProcessId}
+                  onChange={(event) =>
+                    setLegacyReviewModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            selectedImportedProcessId: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="">Selecione o registro da base</option>
+                  {legacyReviewModal.row.importedMatches.map((match) => (
+                    <option
+                      key={match.importedId}
+                      value={String(match.importedId)}
+                    >
+                      {match.origem} • {match.numeroEdital || match.numeroAdministrativo || "Sem identificador"}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal
         open={pncpStoredDetail !== null}

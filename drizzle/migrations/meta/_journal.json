@@ -288,6 +288,13 @@
                         "when":  1774954800000,
                         "tag":  "0040_expand_tipo_objeto_servicos",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  41,
+                        "version":  "7",
+                        "when":  1775035200000,
+                        "tag":  "0041_importacao_legado_staging",
+                        "breakpoints":  true
                     }
                 ]
 }

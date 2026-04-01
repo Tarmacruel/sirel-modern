@@ -240,6 +240,21 @@ export const importacaoBllEdicaoOrigemEnum = pgEnum(
   "importacao_bll_edicao_origem",
   ["MANUAL", "IMPORTACAO_BLL", "PNCP_SYNC"],
 );
+export const importacaoLegadoLoteStatusEnum = pgEnum(
+  "importacao_legado_lote_status",
+  ["EM_REVISAO", "PRONTO_PARA_IMPORTACAO", "ARQUIVADO"],
+);
+export const importacaoLegadoRowReviewStatusEnum = pgEnum(
+  "importacao_legado_row_review_status",
+  [
+    "PENDENTE",
+    "APROVAR_IMPORTACAO",
+    "IGNORAR",
+    "VINCULAR_INTERNO",
+    "DUPLICADO_BASE",
+    "REVISAR",
+  ],
+);
 export const importacaoPncpStatusExecucaoEnum = pgEnum(
   "importacao_pncp_status_execucao",
   ["PROCESSANDO", "CONCLUIDA", "ERRO"],
@@ -1816,6 +1831,131 @@ export const importacaoBllEdicoesAudit = pgTable(
     ),
     idxUsuario: index("importacao_bll_edicoes_audit_usuario_idx").on(
       table.usuarioId,
+    ),
+  }),
+);
+
+export const importacaoLegadoLotes = pgTable(
+  "importacao_legado_lotes",
+  {
+    id: serial("id").primaryKey(),
+    filename: varchar("filename", { length: 255 }).notNull(),
+    sheetName: varchar("sheet_name", { length: 160 }).notNull(),
+    status: importacaoLegadoLoteStatusEnum("status")
+      .notNull()
+      .default("EM_REVISAO"),
+    totalRegistros: integer("total_registros").notNull().default(0),
+    totalLimpos: integer("total_limpos").notNull().default(0),
+    totalPendencias: integer("total_pendencias").notNull().default(0),
+    totalCriticos: integer("total_criticos").notNull().default(0),
+    totalMatchInterno: integer("total_match_interno").notNull().default(0),
+    totalMatchBase: integer("total_match_base").notNull().default(0),
+    totalPendentesRevisao: integer("total_pendentes_revisao")
+      .notNull()
+      .default(0),
+    totalAprovadosImportacao: integer("total_aprovados_importacao")
+      .notNull()
+      .default(0),
+    totalIgnorados: integer("total_ignorados").notNull().default(0),
+    totalVinculadosInterno: integer("total_vinculados_interno")
+      .notNull()
+      .default(0),
+    totalDuplicadosBase: integer("total_duplicados_base")
+      .notNull()
+      .default(0),
+    issueBuckets: jsonb("issue_buckets").notNull().default(sql`'[]'::jsonb`),
+    duplicateGroups: jsonb("duplicate_groups")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxStatus: index("importacao_legado_lotes_status_idx").on(table.status),
+    idxCriadoEm: index("importacao_legado_lotes_criado_em_idx").on(
+      table.criadoEm,
+    ),
+  }),
+);
+
+export const importacaoLegadoRegistros = pgTable(
+  "importacao_legado_registros",
+  {
+    id: serial("id").primaryKey(),
+    loteId: integer("lote_id")
+      .notNull()
+      .references(() => importacaoLegadoLotes.id, { onDelete: "cascade" }),
+    linha: integer("linha").notNull(),
+    legacyId: varchar("legacy_id", { length: 128 }),
+    modalidade: varchar("modalidade", { length: 160 }),
+    processoAdministrativo: varchar("processo_administrativo", {
+      length: 160,
+    }),
+    protocolo: varchar("protocolo", { length: 160 }),
+    numeroEdital: varchar("numero_edital", { length: 160 }),
+    statusLegado: varchar("status_legado", { length: 160 }),
+    secretaria: varchar("secretaria", { length: 255 }),
+    mappedSecretaria: varchar("mapped_secretaria", { length: 255 }),
+    objetoResumo: text("objeto_resumo"),
+    valorEstimado: numeric("valor_estimado", { precision: 18, scale: 2 }),
+    valorContratado: numeric("valor_contratado", { precision: 18, scale: 2 }),
+    analysisSeverity: varchar("analysis_severity", { length: 24 }).notNull(),
+    issues: jsonb("issues").notNull().default(sql`'[]'::jsonb`),
+    duplicateFileCount: integer("duplicate_file_count").notNull().default(0),
+    duplicateGroupKey: varchar("duplicate_group_key", { length: 255 }),
+    internalMatches: jsonb("internal_matches")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    importedMatches: jsonb("imported_matches")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    reviewStatus: importacaoLegadoRowReviewStatusEnum("review_status")
+      .notNull()
+      .default("PENDENTE"),
+    reviewNotes: text("review_notes"),
+    selectedInternalProcessId: integer("selected_internal_process_id").references(
+      () => processos.id,
+      { onDelete: "set null" },
+    ),
+    selectedImportedProcessId: integer("selected_imported_process_id").references(
+      () => importacaoBllProcessos.id,
+      { onDelete: "set null" },
+    ),
+    reviewedBy: integer("reviewed_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    rawPayload: jsonb("raw_payload").notNull().default(sql`'{}'::jsonb`),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxLoteLinha: uniqueIndex("importacao_legado_registros_lote_linha_uq").on(
+      table.loteId,
+      table.linha,
+    ),
+    idxReview: index("importacao_legado_registros_review_idx").on(
+      table.reviewStatus,
+    ),
+    idxSeverity: index("importacao_legado_registros_severity_idx").on(
+      table.analysisSeverity,
+    ),
+    idxNumeroEdital: index("importacao_legado_registros_edital_idx").on(
+      table.numeroEdital,
+    ),
+    idxAdministrativo: index("importacao_legado_registros_adm_idx").on(
+      table.processoAdministrativo,
     ),
   }),
 );

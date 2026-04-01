@@ -16,6 +16,19 @@ export const importacaoBllConciliacaoStatusOptions = [
   "VINCULADO",
   "IGNORADO",
 ] as const;
+export const importacaoLegadoLoteStatusOptions = [
+  "EM_REVISAO",
+  "PRONTO_PARA_IMPORTACAO",
+  "ARQUIVADO",
+] as const;
+export const importacaoLegadoRowReviewStatusOptions = [
+  "PENDENTE",
+  "APROVAR_IMPORTACAO",
+  "IGNORAR",
+  "VINCULAR_INTERNO",
+  "DUPLICADO_BASE",
+  "REVISAR",
+] as const;
 
 export const importacaoBllListInputSchema = z.object({
   source: z.enum(importacaoBllSourceOptions).optional(),
@@ -125,12 +138,52 @@ export const importacaoLegadoXlsxAnalyzeInputSchema = z.object({
   records: z.array(importacaoLegadoXlsxRowSchema).min(1).max(5000),
 });
 
+export const importacaoLegadoXlsxListLotesInputSchema = z.object({
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(20).default(8),
+});
+
+export const importacaoLegadoXlsxDetailInputSchema = z.object({
+  loteId: z.number().int().positive(),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(100).default(20),
+  search: z.string().trim().optional(),
+  severity: z.enum(["CRITICO", "ATENCAO", "OK"]).optional(),
+  reviewStatus: z.enum(importacaoLegadoRowReviewStatusOptions).optional(),
+  onlyIssues: z.boolean().default(false),
+});
+
+export const importacaoLegadoXlsxUpdateRowInputSchema = z.object({
+  loteId: z.number().int().positive(),
+  rowId: z.number().int().positive(),
+  reviewStatus: z.enum(importacaoLegadoRowReviewStatusOptions),
+  reviewNotes: z.string().trim().max(4000).nullable().optional(),
+  selectedInternalProcessId: z.number().int().positive().nullable().optional(),
+  selectedImportedProcessId: z.number().int().positive().nullable().optional(),
+});
+
+export const importacaoLegadoXlsxBulkUpdateRowsInputSchema = z.object({
+  loteId: z.number().int().positive(),
+  rowIds: z.array(z.number().int().positive()).min(1).max(200),
+  reviewStatus: z.enum(importacaoLegadoRowReviewStatusOptions),
+  reviewNotes: z.string().trim().max(4000).nullable().optional(),
+});
+
+export const importacaoLegadoXlsxSetLoteStatusInputSchema = z.object({
+  loteId: z.number().int().positive(),
+  status: z.enum(importacaoLegadoLoteStatusOptions),
+});
+
 export type ImportacaoBllSource = (typeof importacaoBllSourceOptions)[number];
 export type ImportacaoBllMode = (typeof importacaoBllModeOptions)[number];
 export type ImportacaoBllExecutionStatus =
   (typeof importacaoBllExecutionStatusOptions)[number];
 export type ImportacaoBllConciliacaoStatus =
   (typeof importacaoBllConciliacaoStatusOptions)[number];
+export type ImportacaoLegadoLoteStatus =
+  (typeof importacaoLegadoLoteStatusOptions)[number];
+export type ImportacaoLegadoRowReviewStatus =
+  (typeof importacaoLegadoRowReviewStatusOptions)[number];
 export type ImportacaoBllListInput = z.infer<
   typeof importacaoBllListInputSchema
 >;
@@ -167,6 +220,21 @@ export type ImportacaoLegadoXlsxRow = z.infer<
 >;
 export type ImportacaoLegadoXlsxAnalyzeInput = z.infer<
   typeof importacaoLegadoXlsxAnalyzeInputSchema
+>;
+export type ImportacaoLegadoXlsxListLotesInput = z.infer<
+  typeof importacaoLegadoXlsxListLotesInputSchema
+>;
+export type ImportacaoLegadoXlsxDetailInput = z.infer<
+  typeof importacaoLegadoXlsxDetailInputSchema
+>;
+export type ImportacaoLegadoXlsxUpdateRowInput = z.infer<
+  typeof importacaoLegadoXlsxUpdateRowInputSchema
+>;
+export type ImportacaoLegadoXlsxBulkUpdateRowsInput = z.infer<
+  typeof importacaoLegadoXlsxBulkUpdateRowsInputSchema
+>;
+export type ImportacaoLegadoXlsxSetLoteStatusInput = z.infer<
+  typeof importacaoLegadoXlsxSetLoteStatusInputSchema
 >;
 
 // PNCP Schemas

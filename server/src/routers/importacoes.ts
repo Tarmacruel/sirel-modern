@@ -2,7 +2,12 @@
 import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 
 import {
+  importacaoLegadoXlsxBulkUpdateRowsInputSchema,
   importacaoLegadoXlsxAnalyzeInputSchema,
+  importacaoLegadoXlsxDetailInputSchema,
+  importacaoLegadoXlsxListLotesInputSchema,
+  importacaoLegadoXlsxSetLoteStatusInputSchema,
+  importacaoLegadoXlsxUpdateRowInputSchema,
   importacaoBllAutoReconcileInputSchema,
   importacaoBllCsvInputSchema,
   importacaoBllDeleteProcessoInputSchema,
@@ -23,6 +28,8 @@ import {
   importacaoBllExecucoes,
   importacaoBllItens,
   importacaoBllProcessos,
+  importacaoLegadoLotes,
+  importacaoLegadoRegistros,
   processos,
   workflowProcesso,
 } from "../db/schema.js";
@@ -53,10 +60,124 @@ import {
 } from "../lib/importacoes-bll.js";
 import { operadorProcedure, protectedProcedure, router } from "../trpc.js";
 import { modalidades, secretarias } from "../db/schema.js";
+import type { ImportacaoLegadoRowReviewStatus } from "@sirel/shared/schemas/importacoes";
 
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function legacyReviewCounters(
+  rows: Array<{ reviewStatus: ImportacaoLegadoRowReviewStatus }>,
+) {
+  return rows.reduce(
+    (acc, row) => {
+      acc.totalPendentesRevisao += Number(row.reviewStatus === "PENDENTE");
+      acc.totalAprovadosImportacao += Number(
+        row.reviewStatus === "APROVAR_IMPORTACAO",
+      );
+      acc.totalIgnorados += Number(row.reviewStatus === "IGNORAR");
+      acc.totalVinculadosInterno += Number(
+        row.reviewStatus === "VINCULAR_INTERNO",
+      );
+      acc.totalDuplicadosBase += Number(row.reviewStatus === "DUPLICADO_BASE");
+      return acc;
+    },
+    {
+      totalPendentesRevisao: 0,
+      totalAprovadosImportacao: 0,
+      totalIgnorados: 0,
+      totalVinculadosInterno: 0,
+      totalDuplicadosBase: 0,
+    },
+  );
+}
+
+async function loadLegacyAnalysisBases(db: ReturnType<typeof requireDb>) {
+  const [internalProcesses, importedProcesses, secretariasRows] =
+    await Promise.all([
+      db
+        .select({
+          processoId: processos.id,
+          numeroSirel: processos.numeroSirel,
+          numeroAdministrativo: processos.numeroAdministrativo,
+          numeroEdital: processos.numeroEdital,
+          objeto: processos.objeto,
+          valorEstimado: processos.valorEstimado,
+          modalidadeNome: modalidades.nome,
+          secretariaNome: secretarias.nome,
+          moduloAtual: workflowProcesso.moduloAtual,
+        })
+        .from(processos)
+        .leftJoin(modalidades, eq(modalidades.id, processos.modalidadeId))
+        .leftJoin(secretarias, eq(secretarias.id, processos.secretariaId))
+        .leftJoin(workflowProcesso, eq(workflowProcesso.processoId, processos.id)),
+      db
+        .select({
+          importedId: importacaoBllProcessos.id,
+          origem: importacaoBllProcessos.origem,
+          numeroAdministrativo: importacaoBllProcessos.numeroAdministrativo,
+          numeroEdital: importacaoBllProcessos.numeroEdital,
+          objeto: importacaoBllProcessos.objeto,
+          modalidade: importacaoBllProcessos.modalidade,
+          valorReferencia: importacaoBllProcessos.valorReferencia,
+          valorTotal: importacaoBllProcessos.valorTotal,
+          statusConciliacao: importacaoBllProcessos.statusConciliacao,
+        })
+        .from(importacaoBllProcessos),
+      db
+        .select({
+          id: secretarias.id,
+          nome: secretarias.nome,
+          codigo: secretarias.sigla,
+        })
+        .from(secretarias),
+    ]);
+
+  return {
+    internalProcesses: internalProcesses.map((row) => ({
+      ...row,
+      valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
+    })),
+    importedProcesses: importedProcesses.map((row) => ({
+      ...row,
+      valorReferencia: row.valorReferencia ? toNumber(row.valorReferencia) : null,
+      valorTotal: row.valorTotal ? toNumber(row.valorTotal) : null,
+    })),
+    secretariasRows,
+  };
+}
+
+async function refreshLegacyLoteReviewCounts(
+  db: ReturnType<typeof requireDb>,
+  loteId: number,
+) {
+  const rows = await db
+    .select({
+      reviewStatus: importacaoLegadoRegistros.reviewStatus,
+    })
+    .from(importacaoLegadoRegistros)
+    .where(eq(importacaoLegadoRegistros.loteId, loteId));
+
+  const counters = legacyReviewCounters(rows);
+
+  await db
+    .update(importacaoLegadoLotes)
+    .set({
+      ...counters,
+      atualizadoEm: new Date(),
+    })
+    .where(eq(importacaoLegadoLotes.id, loteId));
+
+  return counters;
 }
 
 export const importacoesRouter = router({
@@ -64,62 +185,13 @@ export const importacoesRouter = router({
     .input(importacaoLegadoXlsxAnalyzeInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
-      const [internalProcesses, importedProcesses, secretariasRows] =
-        await Promise.all([
-          db
-            .select({
-              processoId: processos.id,
-              numeroSirel: processos.numeroSirel,
-              numeroAdministrativo: processos.numeroAdministrativo,
-              numeroEdital: processos.numeroEdital,
-              objeto: processos.objeto,
-              valorEstimado: processos.valorEstimado,
-              modalidadeNome: modalidades.nome,
-              secretariaNome: secretarias.nome,
-              moduloAtual: workflowProcesso.moduloAtual,
-            })
-            .from(processos)
-            .leftJoin(modalidades, eq(modalidades.id, processos.modalidadeId))
-            .leftJoin(secretarias, eq(secretarias.id, processos.secretariaId))
-            .leftJoin(
-              workflowProcesso,
-              eq(workflowProcesso.processoId, processos.id),
-            ),
-          db
-            .select({
-              importedId: importacaoBllProcessos.id,
-              origem: importacaoBllProcessos.origem,
-              numeroAdministrativo: importacaoBllProcessos.numeroAdministrativo,
-              numeroEdital: importacaoBllProcessos.numeroEdital,
-              objeto: importacaoBllProcessos.objeto,
-              modalidade: importacaoBllProcessos.modalidade,
-              valorReferencia: importacaoBllProcessos.valorReferencia,
-              valorTotal: importacaoBllProcessos.valorTotal,
-              statusConciliacao: importacaoBllProcessos.statusConciliacao,
-            })
-            .from(importacaoBllProcessos),
-          db
-            .select({
-              id: secretarias.id,
-              nome: secretarias.nome,
-              codigo: secretarias.sigla,
-            })
-            .from(secretarias),
-        ]);
+      const { internalProcesses, importedProcesses, secretariasRows } =
+        await loadLegacyAnalysisBases(db);
 
       const result = analyzeLegacyRows({
         rows: input.records,
-        internalProcesses: internalProcesses.map((row) => ({
-          ...row,
-          valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
-        })),
-        importedProcesses: importedProcesses.map((row) => ({
-          ...row,
-          valorReferencia: row.valorReferencia
-            ? toNumber(row.valorReferencia)
-            : null,
-          valorTotal: row.valorTotal ? toNumber(row.valorTotal) : null,
-        })),
+        internalProcesses,
+        importedProcesses,
         secretarias: secretariasRows,
       });
 
@@ -137,6 +209,443 @@ export const importacoesRouter = router({
       });
 
       return result;
+    }),
+
+  createLegacyXlsxLote: operadorProcedure
+    .input(importacaoLegadoXlsxAnalyzeInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const { internalProcesses, importedProcesses, secretariasRows } =
+        await loadLegacyAnalysisBases(db);
+
+      const result = analyzeLegacyRows({
+        rows: input.records,
+        internalProcesses,
+        importedProcesses,
+        secretarias: secretariasRows,
+      });
+      const rawRecordsByLine = new Map(
+        input.records.map((record) => [record.linha, record] as const),
+      );
+
+      const lote = await db.transaction(async (tx) => {
+        const [createdLote] = await tx
+          .insert(importacaoLegadoLotes)
+          .values({
+            filename: input.filename,
+            sheetName: input.sheetName,
+            totalRegistros: result.summary.totalRows,
+            totalLimpos: result.summary.cleanRows,
+            totalPendencias: result.summary.rowsWithIssues,
+            totalCriticos: result.summary.criticalRows,
+            totalMatchInterno: result.summary.rowsWithInternalMatches,
+            totalMatchBase: result.summary.rowsWithImportedMatches,
+            totalPendentesRevisao: result.summary.totalRows,
+            issueBuckets: result.issueBuckets,
+            duplicateGroups: result.duplicateGroups,
+            criadoPor: ctx.user!.id,
+          })
+          .returning({ id: importacaoLegadoLotes.id });
+
+        for (const chunk of chunkArray(result.rows, 250)) {
+          await tx.insert(importacaoLegadoRegistros).values(
+            chunk.map((row) => ({
+              loteId: createdLote.id,
+              linha: row.linha,
+              legacyId: row.legacyId,
+              modalidade: row.modalidade,
+              processoAdministrativo: row.processoAdministrativo,
+              protocolo: row.protocolo,
+              numeroEdital: row.numeroEdital,
+              statusLegado: row.status,
+              secretaria: row.secretaria,
+              mappedSecretaria: row.mappedSecretaria,
+              objetoResumo: row.objetoResumo,
+              valorEstimado:
+                row.valorEstimado !== null
+                  ? row.valorEstimado.toFixed(2)
+                  : null,
+              valorContratado:
+                row.valorContratado !== null
+                  ? row.valorContratado.toFixed(2)
+                  : null,
+              analysisSeverity: row.severity,
+              issues: row.issues,
+              duplicateFileCount: row.duplicateFileCount,
+              duplicateGroupKey: row.duplicateGroupKey,
+              internalMatches: row.internalMatches,
+              importedMatches: row.importedMatches,
+              rawPayload: rawRecordsByLine.get(row.linha) ?? {},
+            })),
+          );
+        }
+
+        return createdLote;
+      });
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_lotes",
+        registroId: lote.id,
+        acao: "CREATE",
+        dadosNovos: {
+          arquivo: input.filename,
+          aba: input.sheetName,
+          totalRegistros: input.records.length,
+          resumo: result.summary,
+        },
+        descricao: `Lote legado XLSX criado para saneamento manual: "${input.filename}" (${input.sheetName}).`,
+      });
+
+      return {
+        loteId: lote.id,
+        summary: result.summary,
+        issueBuckets: result.issueBuckets,
+        duplicateGroups: result.duplicateGroups,
+      };
+    }),
+
+  listLegacyXlsxLotes: protectedProcedure
+    .input(importacaoLegadoXlsxListLotesInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const offset = (input.page - 1) * input.pageSize;
+      const [rows, totalRow] = await Promise.all([
+        db
+          .select({
+            id: importacaoLegadoLotes.id,
+            filename: importacaoLegadoLotes.filename,
+            sheetName: importacaoLegadoLotes.sheetName,
+            status: importacaoLegadoLotes.status,
+            totalRegistros: importacaoLegadoLotes.totalRegistros,
+            totalLimpos: importacaoLegadoLotes.totalLimpos,
+            totalPendencias: importacaoLegadoLotes.totalPendencias,
+            totalCriticos: importacaoLegadoLotes.totalCriticos,
+            totalMatchInterno: importacaoLegadoLotes.totalMatchInterno,
+            totalMatchBase: importacaoLegadoLotes.totalMatchBase,
+            totalPendentesRevisao: importacaoLegadoLotes.totalPendentesRevisao,
+            totalAprovadosImportacao:
+              importacaoLegadoLotes.totalAprovadosImportacao,
+            totalIgnorados: importacaoLegadoLotes.totalIgnorados,
+            totalVinculadosInterno:
+              importacaoLegadoLotes.totalVinculadosInterno,
+            totalDuplicadosBase: importacaoLegadoLotes.totalDuplicadosBase,
+            criadoEm: importacaoLegadoLotes.criadoEm,
+            atualizadoEm: importacaoLegadoLotes.atualizadoEm,
+          })
+          .from(importacaoLegadoLotes)
+          .orderBy(
+            desc(importacaoLegadoLotes.criadoEm),
+            desc(importacaoLegadoLotes.id),
+          )
+          .limit(input.pageSize)
+          .offset(offset),
+        db.select({ total: count() }).from(importacaoLegadoLotes),
+      ]);
+
+      const total = Number(totalRow[0]?.total ?? 0);
+      return {
+        items: rows,
+        total,
+        page: input.page,
+        totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
+      };
+    }),
+
+  getLegacyXlsxLoteDetail: protectedProcedure
+    .input(importacaoLegadoXlsxDetailInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const [lote] = await db
+        .select()
+        .from(importacaoLegadoLotes)
+        .where(eq(importacaoLegadoLotes.id, input.loteId))
+        .limit(1);
+
+      if (!lote) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lote legado não encontrado.",
+        });
+      }
+
+      const filters = [eq(importacaoLegadoRegistros.loteId, input.loteId)];
+
+      if (input.reviewStatus) {
+        filters.push(
+          eq(importacaoLegadoRegistros.reviewStatus, input.reviewStatus),
+        );
+      }
+      if (input.severity) {
+        filters.push(eq(importacaoLegadoRegistros.analysisSeverity, input.severity));
+      }
+      if (input.onlyIssues) {
+        filters.push(or(
+          eq(importacaoLegadoRegistros.analysisSeverity, "CRITICO"),
+          eq(importacaoLegadoRegistros.analysisSeverity, "ATENCAO"),
+        )!);
+      }
+      if (input.search) {
+        const pattern = `%${input.search}%`;
+        filters.push(
+          or(
+            ilike(importacaoLegadoRegistros.numeroEdital, pattern),
+            ilike(importacaoLegadoRegistros.processoAdministrativo, pattern),
+            ilike(importacaoLegadoRegistros.protocolo, pattern),
+            ilike(importacaoLegadoRegistros.secretaria, pattern),
+            ilike(importacaoLegadoRegistros.objetoResumo, pattern),
+          )!,
+        );
+      }
+
+      const whereClause = and(...filters);
+      const offset = (input.page - 1) * input.pageSize;
+
+      const [rows, totalRow] = await Promise.all([
+        db
+          .select({
+            id: importacaoLegadoRegistros.id,
+            linha: importacaoLegadoRegistros.linha,
+            legacyId: importacaoLegadoRegistros.legacyId,
+            modalidade: importacaoLegadoRegistros.modalidade,
+            processoAdministrativo: importacaoLegadoRegistros.processoAdministrativo,
+            protocolo: importacaoLegadoRegistros.protocolo,
+            numeroEdital: importacaoLegadoRegistros.numeroEdital,
+            status: importacaoLegadoRegistros.statusLegado,
+            secretaria: importacaoLegadoRegistros.secretaria,
+            mappedSecretaria: importacaoLegadoRegistros.mappedSecretaria,
+            objetoResumo: importacaoLegadoRegistros.objetoResumo,
+            valorEstimado: importacaoLegadoRegistros.valorEstimado,
+            valorContratado: importacaoLegadoRegistros.valorContratado,
+            severity: importacaoLegadoRegistros.analysisSeverity,
+            issues: importacaoLegadoRegistros.issues,
+            duplicateFileCount: importacaoLegadoRegistros.duplicateFileCount,
+            duplicateGroupKey: importacaoLegadoRegistros.duplicateGroupKey,
+            internalMatches: importacaoLegadoRegistros.internalMatches,
+            importedMatches: importacaoLegadoRegistros.importedMatches,
+            reviewStatus: importacaoLegadoRegistros.reviewStatus,
+            reviewNotes: importacaoLegadoRegistros.reviewNotes,
+            selectedInternalProcessId:
+              importacaoLegadoRegistros.selectedInternalProcessId,
+            selectedImportedProcessId:
+              importacaoLegadoRegistros.selectedImportedProcessId,
+            reviewedAt: importacaoLegadoRegistros.reviewedAt,
+          })
+          .from(importacaoLegadoRegistros)
+          .where(whereClause)
+          .orderBy(
+            desc(importacaoLegadoRegistros.analysisSeverity),
+            importacaoLegadoRegistros.linha,
+          )
+          .limit(input.pageSize)
+          .offset(offset),
+        db
+          .select({ total: count() })
+          .from(importacaoLegadoRegistros)
+          .where(whereClause),
+      ]);
+
+      const reviewCounts = {
+        PENDENTE: lote.totalPendentesRevisao,
+        APROVAR_IMPORTACAO: lote.totalAprovadosImportacao,
+        IGNORAR: lote.totalIgnorados,
+        VINCULAR_INTERNO: lote.totalVinculadosInterno,
+        DUPLICADO_BASE: lote.totalDuplicadosBase,
+        REVISAR:
+          lote.totalRegistros -
+          lote.totalPendentesRevisao -
+          lote.totalAprovadosImportacao -
+          lote.totalIgnorados -
+          lote.totalVinculadosInterno -
+          lote.totalDuplicadosBase,
+      };
+
+      return {
+        lote: {
+          ...lote,
+          issueBuckets: lote.issueBuckets as unknown[],
+          duplicateGroups: lote.duplicateGroups as unknown[],
+          reviewCounts,
+        },
+        items: rows.map((row) => ({
+          ...row,
+          valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
+          valorContratado: row.valorContratado
+            ? toNumber(row.valorContratado)
+            : null,
+        })),
+        total: Number(totalRow[0]?.total ?? 0),
+        page: input.page,
+        totalPages: Math.max(1, Math.ceil(Number(totalRow[0]?.total ?? 0) / input.pageSize)),
+      };
+    }),
+
+  updateLegacyXlsxRow: operadorProcedure
+    .input(importacaoLegadoXlsxUpdateRowInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [before] = await db
+        .select()
+        .from(importacaoLegadoRegistros)
+        .where(
+          and(
+            eq(importacaoLegadoRegistros.id, input.rowId),
+            eq(importacaoLegadoRegistros.loteId, input.loteId),
+          ),
+        )
+        .limit(1);
+
+      if (!before) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Linha do lote legado não encontrada.",
+        });
+      }
+
+      if (
+        input.reviewStatus === "VINCULAR_INTERNO" &&
+        !input.selectedInternalProcessId
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Selecione o processo interno antes de salvar a vinculação.",
+        });
+      }
+
+      if (
+        input.reviewStatus === "DUPLICADO_BASE" &&
+        !input.selectedImportedProcessId
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Selecione o registro da base importada antes de salvar.",
+        });
+      }
+
+      await db
+        .update(importacaoLegadoRegistros)
+        .set({
+          reviewStatus: input.reviewStatus,
+          reviewNotes: input.reviewNotes ?? null,
+          selectedInternalProcessId:
+            input.reviewStatus === "VINCULAR_INTERNO"
+              ? input.selectedInternalProcessId ?? null
+              : null,
+          selectedImportedProcessId:
+            input.reviewStatus === "DUPLICADO_BASE"
+              ? input.selectedImportedProcessId ?? null
+              : null,
+          reviewedBy: ctx.user!.id,
+          reviewedAt: new Date(),
+          atualizadoEm: new Date(),
+        })
+        .where(eq(importacaoLegadoRegistros.id, input.rowId));
+
+      await refreshLegacyLoteReviewCounts(db, input.loteId);
+
+      const [after] = await db
+        .select()
+        .from(importacaoLegadoRegistros)
+        .where(eq(importacaoLegadoRegistros.id, input.rowId))
+        .limit(1);
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_registros",
+        registroId: input.rowId,
+        acao: "UPDATE",
+        dadosAnteriores: before,
+        dadosNovos: after,
+        descricao: `Linha do lote legado ${input.loteId} revisada manualmente com status ${input.reviewStatus}.`,
+      });
+
+      return {
+        message: "Decisão de saneamento registrada com sucesso.",
+      };
+    }),
+
+  bulkUpdateLegacyXlsxRows: operadorProcedure
+    .input(importacaoLegadoXlsxBulkUpdateRowsInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      await db
+        .update(importacaoLegadoRegistros)
+        .set({
+          reviewStatus: input.reviewStatus,
+          reviewNotes: input.reviewNotes ?? null,
+          selectedInternalProcessId: null,
+          selectedImportedProcessId: null,
+          reviewedBy: ctx.user!.id,
+          reviewedAt: new Date(),
+          atualizadoEm: new Date(),
+        })
+        .where(
+          and(
+            eq(importacaoLegadoRegistros.loteId, input.loteId),
+            inArray(importacaoLegadoRegistros.id, input.rowIds),
+          ),
+        );
+
+      await refreshLegacyLoteReviewCounts(db, input.loteId);
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_registros",
+        registroId: 0,
+        acao: "UPDATE",
+        dadosNovos: {
+          loteId: input.loteId,
+          rowIds: input.rowIds,
+          reviewStatus: input.reviewStatus,
+        },
+        descricao: `Saneamento manual em lote aplicado a ${input.rowIds.length} linha(s) do legado.`,
+      });
+
+      return {
+        message: `${input.rowIds.length} linha(s) atualizadas no saneamento manual.`,
+      };
+    }),
+
+  setLegacyXlsxLoteStatus: operadorProcedure
+    .input(importacaoLegadoXlsxSetLoteStatusInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [before] = await db
+        .select()
+        .from(importacaoLegadoLotes)
+        .where(eq(importacaoLegadoLotes.id, input.loteId))
+        .limit(1);
+
+      if (!before) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lote legado não encontrado.",
+        });
+      }
+
+      await db
+        .update(importacaoLegadoLotes)
+        .set({
+          status: input.status,
+          atualizadoEm: new Date(),
+        })
+        .where(eq(importacaoLegadoLotes.id, input.loteId));
+
+      const [after] = await db
+        .select()
+        .from(importacaoLegadoLotes)
+        .where(eq(importacaoLegadoLotes.id, input.loteId))
+        .limit(1);
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_lotes",
+        registroId: input.loteId,
+        acao: "UPDATE",
+        dadosAnteriores: before,
+        dadosNovos: after,
+        descricao: `Status do lote legado alterado para ${input.status}.`,
+      });
+
+      return {
+        message: "Status do lote legado atualizado.",
+      };
     }),
 
   summary: protectedProcedure.query(async () => {
