@@ -69,7 +69,12 @@ export function ProcessMacroPanel({
         <div className="grid gap-3 xl:grid-cols-4">
           {macroPhaseDefinitions.map((phase) => {
             const status = phaseStatuses[phase.key];
-            const badge = status === "done" ? "Concluida" : status === "current" ? "Atual" : "Proxima";
+            const badge =
+              status === "done"
+                ? "Concluída"
+                : status === "current"
+                  ? "Atual"
+                  : "Próxima";
             return (
               <article key={phase.key} className={cn("rounded-[26px] border px-4 py-4 transition", phaseClasses[status])}>
                 <div className="flex items-center justify-between gap-3">
@@ -101,8 +106,8 @@ export function ProcessMacroPanel({
                 <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">Proximo destino: {targetLabel}</p>
                 <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
                   {blockers.length
-                    ? `Ainda existem ${blockers.length} pendencia(s) operacionais antes de liberar a proxima macrofase.`
-                    : "O processo esta apto para seguir para a proxima macrofase sem pendencias bloqueantes."}
+                    ? `Ainda existem ${blockers.length} pendência(s) operacionais antes de liberar a próxima macrofase.`
+                    : "O processo está apto para seguir para a próxima macrofase sem pendências bloqueantes."}
                 </p>
               </div>
               {footer ? <div className="shrink-0">{footer}</div> : null}

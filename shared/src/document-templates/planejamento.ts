@@ -210,7 +210,7 @@ export function buildDfdHtml(detail: any) {
         : "-"
     }</p>
 
-    <div class="footer">${escapeHtml(systemFooterText)} ? Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
+    <div class="footer">${escapeHtml(systemFooterText)} • Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
   `;
 }
 
@@ -280,7 +280,7 @@ export function buildMapaComparativoHtml(detail: any, metodologiaLabel: string) 
       </tbody>
     </table>
 
-    <div class="footer">${escapeHtml(systemFooterText)} ? Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
+    <div class="footer">${escapeHtml(systemFooterText)} • Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
   `;
 }
 
@@ -371,7 +371,7 @@ export function buildTrHtml(detail: any) {
       </tbody>
     </table>
 
-    <div class="footer">${escapeHtml(systemFooterText)} ? Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
+    <div class="footer">${escapeHtml(systemFooterText)} • Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
   `;
 }
 

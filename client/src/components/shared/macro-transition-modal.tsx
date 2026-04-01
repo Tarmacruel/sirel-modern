@@ -34,7 +34,11 @@ export function MacroTransitionModal({ open, onClose, title, targetLabel, blocke
       onClose={onClose}
       size="lg"
       title={title}
-      description={hasBlockers ? `Ha ${blockers.length} pendencia(s) antes do avanco para ${targetLabel}. Voce pode liberar com bypass auditado.` : `O processo esta pronto para seguir para ${targetLabel}.`}
+      description={
+        hasBlockers
+          ? `Há ${blockers.length} pendência(s) antes do avanço para ${targetLabel}. Você pode liberar com bypass auditado.`
+          : `O processo está pronto para seguir para ${targetLabel}.`
+      }
       actions={
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose} disabled={loading}>Cancelar</Button>
@@ -49,7 +53,7 @@ export function MacroTransitionModal({ open, onClose, title, targetLabel, blocke
             loading={loading}
             disabled={hasBlockers && !justificativaAuditoria.trim()}
           >
-            {hasBlockers ? "Liberar com pendencias" : `Encaminhar para ${targetLabel}`}
+            {hasBlockers ? "Liberar com pendências" : `Encaminhar para ${targetLabel}`}
           </Button>
         </div>
       }
@@ -60,7 +64,7 @@ export function MacroTransitionModal({ open, onClose, title, targetLabel, blocke
             Revise os itens abaixo. Se a operacao precisar seguir mesmo assim, a justificativa ficara registrada na trilha de auditoria.
           </Alert>
         ) : (
-          <Alert variant="success">Nenhuma pendencia bloqueante encontrada para a transicao.</Alert>
+          <Alert variant="success">Nenhuma pendência bloqueante encontrada para a transição.</Alert>
         )}
 
         {hasBlockers ? (
@@ -74,12 +78,22 @@ export function MacroTransitionModal({ open, onClose, title, targetLabel, blocke
           </ul>
         ) : null}
 
-        <FormField label={hasBlockers ? "Justificativa de auditoria (obrigatoria)" : "Observacao da transicao (opcional)"}>
+        <FormField
+          label={
+            hasBlockers
+              ? "Justificativa de auditoria (obrigatória)"
+              : "Observação da transição (opcional)"
+          }
+        >
           <Textarea
             rows={4}
             value={hasBlockers ? justificativaAuditoria : observacao}
             onChange={(event) => (hasBlockers ? setJustificativaAuditoria(event.target.value) : setObservacao(event.target.value))}
-            placeholder={hasBlockers ? "Explique por que a transicao precisa seguir mesmo com pendencias." : "Descreva o contexto da passagem para o proximo modulo, se necessario."}
+            placeholder={
+              hasBlockers
+                ? "Explique por que a transição precisa seguir mesmo com pendências."
+                : "Descreva o contexto da passagem para o próximo módulo, se necessário."
+            }
           />
         </FormField>
 
