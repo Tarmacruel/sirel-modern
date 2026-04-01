@@ -1,7 +1,10 @@
 ﻿import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { PlusCircle, Search } from "lucide-react";
 
-import { workflowModuleOptions } from "@sirel/shared/const";
+import {
+  processoOrigemCadastroLabels,
+  workflowModuleOptions,
+} from "@sirel/shared/const";
 import { ProcessoCreateModal } from "@/components/processos/processo-create-modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -201,6 +204,11 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                       <TableCell>
                         <div className="font-bold text-[var(--text-primary)]">{row.numeroSirel}</div>
                         <div className="text-xs text-[var(--text-muted)]">{row.numeroEdital ?? "Edital ainda não gerado"}</div>
+                        {row.origemCadastro === "LEGADO" ? (
+                          <span className="mt-2 inline-flex rounded-full bg-[var(--color-primary-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
+                            {processoOrigemCadastroLabels[row.origemCadastro]}
+                          </span>
+                        ) : null}
                         {row.foraDoFluxo ? <span className="mt-2 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-800">Fora do fluxo</span> : null}
                       </TableCell>
                       <TableCell>{cleanDisplayText(row.secretaria)}</TableCell>

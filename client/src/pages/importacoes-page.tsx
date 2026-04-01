@@ -1088,6 +1088,27 @@ export function ImportacoesPage() {
       onError: (error) =>
         setFeedback({ variant: "error", message: error.message }),
     });
+  const importApprovedLegacyRowsMutation =
+    trpc.importacoes.importLegacyApprovedRows.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({
+          variant: result.failures.length ? "warning" : "success",
+          message: result.message,
+        });
+        await Promise.all([
+          invalidateImportacoes(),
+          utils.processos.summary.invalidate(),
+          utils.processos.list.invalidate(),
+          utils.processos.overview.invalidate(),
+          utils.workflow.summary.invalidate(),
+          utils.workflow.list.invalidate(),
+          utils.dashboard.summary.invalidate(),
+          utils.consultas.search.invalidate(),
+        ]);
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
 
   const visibleRecordIds = recordsQuery.data?.items.map((row) => row.id) ?? [];
   const allVisibleSelected =
@@ -2111,6 +2132,14 @@ export function ImportacoesPage() {
     });
   }
 
+  async function handleImportApprovedLegacyRows() {
+    if (!legacySelectedLoteId) return;
+
+    await importApprovedLegacyRowsMutation.mutateAsync({
+      loteId: legacySelectedLoteId,
+    });
+  }
+
   async function handleCsvImport() {
     try {
       if (!csvState.registrosFile || !csvState.itensFile) {
@@ -2283,7 +2312,57 @@ export function ImportacoesPage() {
         </div>
       </SectionCard>
       {selectedLegacyLote ? (
-        <SectionCard title={`Lote #${selectedLegacyLote.id} em saneamento`} description="Filtre as linhas do lote, revise os matches sugeridos e registre a decisão final de cada caso diretamente no SIREL." action={<div className="flex flex-wrap items-center gap-2"><Select value={legacyLoteStatusDraft} onChange={(event) => setLegacyLoteStatusDraft(event.target.value as ImportacaoLegadoLoteStatus)} className="min-w-[220px]">{Object.entries(importacaoLegadoLoteStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><Button variant="outline" onClick={() => void handleSaveLegacyLoteStatus()} disabled={setLegacyLoteStatusMutation.isPending} icon={<CheckCircle2 className="h-4 w-4" />}>Salvar status do lote</Button></div>}>
+        <SectionCard
+          title={`Lote #${selectedLegacyLote.id} em saneamento`}
+          description="Filtre as linhas do lote, revise os matches sugeridos e registre a decisão final de cada caso diretamente no SIREL."
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={legacyLoteStatusDraft}
+                onChange={(event) =>
+                  setLegacyLoteStatusDraft(
+                    event.target.value as ImportacaoLegadoLoteStatus,
+                  )
+                }
+                className="min-w-[220px]"
+              >
+                {Object.entries(importacaoLegadoLoteStatusLabels).map(
+                  ([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ),
+                )}
+              </Select>
+              <Button
+                variant="outline"
+                onClick={() => void handleSaveLegacyLoteStatus()}
+                disabled={setLegacyLoteStatusMutation.isPending}
+                icon={<CheckCircle2 className="h-4 w-4" />}
+              >
+                Salvar status do lote
+              </Button>
+              <Button
+                onClick={() => void handleImportApprovedLegacyRows()}
+                disabled={
+                  importApprovedLegacyRowsMutation.isPending ||
+                  selectedLegacyLote.reviewCounts.APROVAR_IMPORTACAO === 0
+                }
+                icon={
+                  importApprovedLegacyRowsMutation.isPending ? (
+                    <RefreshCcw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowUpRight className="h-4 w-4" />
+                  )
+                }
+              >
+                {importApprovedLegacyRowsMutation.isPending
+                  ? "Importando aprovados..."
+                  : `Importar ${formatIntegerBR(selectedLegacyLote.reviewCounts.APROVAR_IMPORTACAO)} aprovado(s)`}
+              </Button>
+            </div>
+          }
+        >
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">{[["Registros", selectedLegacyLote.totalRegistros],["Críticos", selectedLegacyLote.totalCriticos],["Pendentes", selectedLegacyLote.reviewCounts.PENDENTE],["Aprovados", selectedLegacyLote.reviewCounts.APROVAR_IMPORTACAO],["Vínculo interno", selectedLegacyLote.reviewCounts.VINCULAR_INTERNO],["Duplicada da base", selectedLegacyLote.reviewCounts.DUPLICADO_BASE]].map(([label, value]) => <div key={String(label)} className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3 shadow-sm"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">{label}</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatIntegerBR(Number(value))}</p></div>)}</div>
             <div className="space-y-3 rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)]/40 px-4 py-4">
@@ -4907,6 +4986,11 @@ export function ImportacoesPage() {
         }}
         initialValues={createProcessInitialValues}
         externalDates={createProcessExternalDates}
+        payloadOverrides={
+          createProcessSource === "LEGADO"
+            ? { origemCadastro: "LEGADO" }
+            : undefined
+        }
         title="Criar processo interno"
         description={
           createProcessSource === "LEGADO"

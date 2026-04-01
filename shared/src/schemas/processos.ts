@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   modoDisputaOptions,
+  processoOrigemCadastroOptions,
   processoTipoObjetoOptions,
   workflowModuleOptions,
   workflowSituacaoOptions,
@@ -43,6 +44,7 @@ export const processoCreateInputSchema = z
     dataPublicacao: z.string().optional(),
     dataDisputaSessao: z.string().optional(),
     situacao: z.enum(workflowSituacaoOptions).optional(),
+    origemCadastro: z.enum(processoOrigemCadastroOptions).optional(),
     foraDoFluxo: z.boolean().default(false),
     moduloInicial: z.enum(workflowModuleOptions).optional(),
   })

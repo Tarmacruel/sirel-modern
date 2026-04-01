@@ -40,6 +40,10 @@ export const tipoContratacaoEnum = pgEnum("tipo_contratacao", [
   "REGISTRO_PRECO",
   "AQUISICAO_PARCELADA",
 ]);
+export const processoOrigemCadastroEnum = pgEnum("processo_origem_cadastro", [
+  "MANUAL",
+  "LEGADO",
+]);
 export const documentoTipoEnum = pgEnum("documento_tipo", [
   "DFD",
   "ETP",
@@ -433,6 +437,9 @@ export const processos = pgTable(
     numeroEdital: varchar("numero_edital", { length: 64 }),
     anoReferencia: integer("ano_referencia").notNull(),
     foraDoFluxo: boolean("fora_do_fluxo").notNull().default(false),
+    origemCadastro: processoOrigemCadastroEnum("origem_cadastro")
+      .notNull()
+      .default("MANUAL"),
     secretariaId: integer("secretaria_id")
       .notNull()
       .references(() => secretarias.id),

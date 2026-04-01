@@ -199,6 +199,10 @@ export const importacaoLegadoXlsxSetLoteStatusInputSchema = z.object({
   status: z.enum(importacaoLegadoLoteStatusOptions),
 });
 
+export const importacaoLegadoXlsxImportApprovedInputSchema = z.object({
+  loteId: z.number().int().positive(),
+});
+
 export type ImportacaoBllSource = (typeof importacaoBllSourceOptions)[number];
 export type ImportacaoBllMode = (typeof importacaoBllModeOptions)[number];
 export type ImportacaoBllExecutionStatus =
@@ -257,6 +261,9 @@ export type ImportacaoLegadoXlsxEditableFields = z.infer<
 >;
 export type ImportacaoLegadoXlsxUpdateRowInput = z.infer<
   typeof importacaoLegadoXlsxUpdateRowInputSchema
+>;
+export type ImportacaoLegadoXlsxImportApprovedInput = z.infer<
+  typeof importacaoLegadoXlsxImportApprovedInputSchema
 >;
 export type ImportacaoLegadoXlsxBulkUpdateRowsInput = z.infer<
   typeof importacaoLegadoXlsxBulkUpdateRowsInputSchema

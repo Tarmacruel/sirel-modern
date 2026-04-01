@@ -7,6 +7,7 @@ import {
   workflowModuleOptions,
   workflowSituacaoOptions,
 } from "@sirel/shared/const";
+import type { ProcessoCreateInput } from "@sirel/shared/schemas/processos";
 
 import { Modal } from "@/components/shared/modal";
 import { Alert } from "@/components/ui/alert";
@@ -127,6 +128,7 @@ interface ProcessoCreateModalProps {
   title?: string;
   description?: string;
   submitLabel?: string;
+  payloadOverrides?: Partial<ProcessoCreateInput>;
 }
 
 export function ProcessoCreateModal({
@@ -138,6 +140,7 @@ export function ProcessoCreateModal({
   title = "Novo processo",
   description = "Crie processos regulares do fluxo ou registros excepcionais fora do fluxo sem poluir a tela principal.",
   submitLabel = "Salvar processo",
+  payloadOverrides,
 }: ProcessoCreateModalProps) {
   const utils = trpc.useUtils();
   const [form, setForm] = useState<ProcessoFormState>(() =>
@@ -228,7 +231,10 @@ export function ProcessoCreateModal({
     }
 
     setFieldErrors({});
-    await createMutation.mutateAsync(buildProcessoPayload(form));
+    await createMutation.mutateAsync({
+      ...buildProcessoPayload(form),
+      ...payloadOverrides,
+    });
   }
 
   const datasReferencia = [

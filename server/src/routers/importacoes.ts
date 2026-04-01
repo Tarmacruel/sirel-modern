@@ -6,6 +6,7 @@ import {
   importacaoLegadoXlsxAnalyzeInputSchema,
   importacaoLegadoXlsxDetailInputSchema,
   importacaoLegadoXlsxEditableFieldsSchema,
+  importacaoLegadoXlsxImportApprovedInputSchema,
   importacaoLegadoXlsxListLotesInputSchema,
   importacaoLegadoXlsxRowSchema,
   importacaoLegadoXlsxSetLoteStatusInputSchema,
@@ -36,7 +37,10 @@ import {
   importacaoBllProcessos,
   importacaoLegadoLotes,
   importacaoLegadoRegistros,
+  movimentacoesWorkflow,
+  pessoas,
   processos,
+  statusProcesso,
   workflowProcesso,
 } from "../db/schema.js";
 import {
@@ -56,6 +60,7 @@ import {
   getPncpProcessDetails,
   searchPncpProcesses,
 } from "../lib/importacoes-pncp.js";
+import { getNextNumeroSirel } from "../lib/processo-identity.js";
 import { analyzeLegacyRows } from "../lib/importacoes-legado-xlsx.js";
 import {
   getImportSchedulerConfig,
@@ -64,7 +69,7 @@ import {
   remoteImportSources,
   syncRemoteImport,
 } from "../lib/importacoes-bll.js";
-import { operadorProcedure, protectedProcedure, router } from "../trpc.js";
+import { gestorProcedure, operadorProcedure, protectedProcedure, router } from "../trpc.js";
 import { modalidades, secretarias } from "../db/schema.js";
 import type {
   ImportacaoLegadoRowReviewStatus,
@@ -381,6 +386,214 @@ function mapLegacyAnalysisRowToDbUpdate(
     importedMatches: row.importedMatches,
     rawPayload,
   };
+}
+
+function normalizeLookupText(value?: string | null) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeLookupText(value?: string | null) {
+  return new Set(
+    normalizeLookupText(value)
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3),
+  );
+}
+
+function findBestNamedMatch<T extends { nome: string }>(
+  items: T[],
+  query?: string | null,
+) {
+  if (!items.length || !query) return undefined;
+  const normalizedQuery = normalizeLookupText(query);
+  if (!normalizedQuery) return undefined;
+
+  const exact = items.find(
+    (item) => normalizeLookupText(item.nome) === normalizedQuery,
+  );
+  if (exact) return exact;
+
+  const inclusive = items.find((item) => {
+    const normalizedName = normalizeLookupText(item.nome);
+    return (
+      normalizedName.includes(normalizedQuery) ||
+      normalizedQuery.includes(normalizedName)
+    );
+  });
+  if (inclusive) return inclusive;
+
+  const queryTokens = tokenizeLookupText(query);
+  let best: { item: T; score: number } | null = null;
+  for (const item of items) {
+    const itemTokens = tokenizeLookupText(item.nome);
+    if (!itemTokens.size || !queryTokens.size) continue;
+    let intersection = 0;
+    for (const token of queryTokens) {
+      if (itemTokens.has(token)) intersection += 1;
+    }
+    const score = intersection / Math.max(queryTokens.size, itemTokens.size);
+    if (score >= 0.4 && (!best || score > best.score)) {
+      best = { item, score };
+    }
+  }
+
+  return best?.item;
+}
+
+function findBestStatusMatch<T extends { nome: string }>(
+  items: T[],
+  rawStatus?: string | null,
+) {
+  const normalized = normalizeLookupText(rawStatus);
+  if (!normalized) return undefined;
+
+  const keywordMap: Array<[string[], string]> = [
+    [["homolog"], "HOMOLOGADO"],
+    [["adjudic"], "ADJUDICADO"],
+    [["public"], "PUBLICADO"],
+    [["recepc", "proposta"], "RECEPÇÃO DE PROPOSTAS"],
+    [["disputa"], "DISPUTA"],
+    [["habilit"], "HABILITAÇÃO"],
+    [["suspens"], "SUSPENSO"],
+    [["revog"], "REVOGADO"],
+    [["anul"], "ANULADO"],
+    [["fracass"], "FRACASSADO"],
+    [["desert"], "DESERTO"],
+    [["planej", "arquiv", "intern"], "EM PLANEJAMENTO"],
+  ];
+
+  for (const [keywords, target] of keywordMap) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      const matched = findBestNamedMatch(items, target);
+      if (matched) return matched;
+    }
+  }
+
+  return findBestNamedMatch(items, rawStatus);
+}
+
+function inferLegacyTipoObjeto(
+  modalidade?: string | null,
+  objeto?: string | null,
+): "PRODUTO" | "SERVICO_COMUM" | "SERVICO_ESPECIAL" | "SERVICO" | "OBRA" | "SERVICO_ENG" {
+  const normalized = `${modalidade ?? ""} ${objeto ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (
+    normalized.includes("engenharia") ||
+    normalized.includes("reforma") ||
+    normalized.includes("manutencao predial")
+  ) {
+    return "SERVICO_ENG";
+  }
+  if (
+    normalized.includes("obra") ||
+    normalized.includes("construcao") ||
+    normalized.includes("pavimentacao")
+  ) {
+    return "OBRA";
+  }
+  if (normalized.includes("servico especial")) return "SERVICO_ESPECIAL";
+  if (normalized.includes("servico")) return "SERVICO_COMUM";
+  return "PRODUTO";
+}
+
+function mapWorkflowSituacaoFromExternal(value?: string | null) {
+  const normalized = normalizeLookupText(value);
+
+  if (!normalized) return "RASCUNHO" as const;
+  if (normalized.includes("rascun")) return "RASCUNHO" as const;
+  if (
+    normalized.includes("conclu") ||
+    normalized.includes("homolog") ||
+    normalized.includes("finaliz")
+  ) {
+    return "CONCLUIDO" as const;
+  }
+  if (normalized.includes("suspens")) return "SUSPENSO" as const;
+  if (
+    normalized.includes("aguard") ||
+    normalized.includes("analise") ||
+    normalized.includes("analis")
+  ) {
+    return "AGUARDANDO" as const;
+  }
+  return "EM_ANDAMENTO" as const;
+}
+
+function parseLegacyDateToIso(value?: string | null) {
+  const normalized = normalizeLegacyDateString(value);
+  if (!normalized) return null;
+  const match = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+function parseLegacyDateTimeToIso(
+  dateValue?: string | null,
+  timeValue?: string | null,
+) {
+  const dateIso = parseLegacyDateToIso(dateValue);
+  if (!dateIso) return null;
+  const timeNormalized = String(timeValue ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  const hours = timeNormalized ? String(Number(timeNormalized[1])).padStart(2, "0") : "09";
+  const minutes = timeNormalized ? timeNormalized[2] : "00";
+  return `${dateIso}T${hours}:${minutes}:00`;
+}
+
+function extractLegacyYear(raw: ImportacaoLegadoXlsxRow) {
+  const dateCandidates = [
+    raw.dataPublicacaoDom,
+    raw.dataPublicacaoDou,
+    raw.dataPublicacaoJornal,
+    raw.dataAbertura,
+    raw.dataHomologacao,
+    raw.dataAdjudicacao,
+    raw.dataAutorizacao,
+  ];
+
+  for (const candidate of dateCandidates) {
+    const normalized = normalizeLegacyDateString(candidate);
+    const match = normalized?.match(/\/(\d{4})$/);
+    if (match) return Number(match[1]);
+  }
+
+  const identifierCandidates = [
+    raw.numeroEdital,
+    raw.processoAdministrativo,
+    raw.protocolo,
+    raw.legacyId,
+  ];
+  for (const candidate of identifierCandidates) {
+    const match = String(candidate ?? "").match(/(20\d{2})/);
+    if (match) return Number(match[1]);
+  }
+
+  return new Date().getFullYear();
+}
+
+function isLegacyProcessFinalized(rawStatus?: string | null) {
+  const normalized = normalizeLookupText(rawStatus);
+  return /homolog|fracass|desert|revog|anul|final|encerr/.test(normalized);
+}
+
+function isLegacyProcessPublished(raw: ImportacaoLegadoXlsxRow) {
+  if (raw.dataPublicacaoDom || raw.dataPublicacaoDou || raw.dataPublicacaoJornal) {
+    return true;
+  }
+  const normalized = normalizeLookupText(raw.status);
+  return /public|proposta|disputa|habilit|homolog|adjudic|fracass|desert|revog|anul/.test(
+    normalized,
+  );
 }
 
 export const importacoesRouter = router({
@@ -945,6 +1158,308 @@ export const importacoesRouter = router({
 
       return {
         message: "Status do lote legado atualizado.",
+      };
+    }),
+
+  importLegacyApprovedRows: gestorProcedure
+    .input(importacaoLegadoXlsxImportApprovedInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [lote] = await db
+        .select()
+        .from(importacaoLegadoLotes)
+        .where(eq(importacaoLegadoLotes.id, input.loteId))
+        .limit(1);
+
+      if (!lote) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Lote legado não encontrado.",
+        });
+      }
+
+      const rows = await db
+        .select()
+        .from(importacaoLegadoRegistros)
+        .where(
+          and(
+            eq(importacaoLegadoRegistros.loteId, input.loteId),
+            eq(importacaoLegadoRegistros.reviewStatus, "APROVAR_IMPORTACAO"),
+          ),
+        )
+        .orderBy(importacaoLegadoRegistros.linha);
+
+      if (!rows.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Este lote não possui linhas aprovadas para importação no momento.",
+        });
+      }
+
+      const [secretariaRows, modalidadeRows, statusRows, peopleRows, existingProcesses] =
+        await Promise.all([
+          db
+            .select({ id: secretarias.id, nome: secretarias.nome })
+            .from(secretarias),
+          db
+            .select({ id: modalidades.id, nome: modalidades.nome })
+            .from(modalidades),
+          db
+            .select({ id: statusProcesso.id, nome: statusProcesso.nome })
+            .from(statusProcesso),
+          db.select({ id: pessoas.id, nome: pessoas.nome }).from(pessoas),
+          db
+            .select({
+              id: processos.id,
+              numeroAdministrativo: processos.numeroAdministrativo,
+              numeroEdital: processos.numeroEdital,
+            })
+            .from(processos),
+        ]);
+
+      const existingByAdministrativo = new Map<string, number>();
+      const existingByEdital = new Map<string, number>();
+      for (const row of existingProcesses) {
+        const administrativo = normalizeLookupText(row.numeroAdministrativo);
+        const edital = normalizeLookupText(row.numeroEdital);
+        if (administrativo) existingByAdministrativo.set(administrativo, row.id);
+        if (edital) existingByEdital.set(edital, row.id);
+      }
+
+      const successes: Array<{
+        rowId: number;
+        linha: number;
+        processoId: number;
+        numeroSirel: string;
+        processSnapshot: Record<string, unknown>;
+      }> = [];
+      const failures: Array<{ rowId: number; linha: number; motivo: string }> = [];
+
+      await db.transaction(async (tx) => {
+        for (const row of rows) {
+          const raw = coerceLegacyRawPayload(row);
+          const secretariaName = row.mappedSecretaria ?? raw.secretaria ?? null;
+          const matchedSecretaria = findBestNamedMatch(
+            secretariaRows,
+            secretariaName,
+          );
+          if (!matchedSecretaria) {
+            failures.push({
+              rowId: row.id,
+              linha: row.linha,
+              motivo:
+                "A secretaria saneada não corresponde a nenhum cadastro interno.",
+            });
+            continue;
+          }
+
+          const objeto = String(
+            raw.objeto ?? raw.resumoObjeto ?? row.objetoResumo ?? "",
+          ).trim();
+          if (objeto.length < 10) {
+            failures.push({
+              rowId: row.id,
+              linha: row.linha,
+              motivo: "O objeto saneado ainda está incompleto para importação.",
+            });
+            continue;
+          }
+
+          const normalizedAdministrativo = normalizeLookupText(
+            raw.processoAdministrativo ?? row.processoAdministrativo ?? null,
+          );
+          const normalizedEdital = normalizeLookupText(
+            raw.numeroEdital ?? row.numeroEdital ?? null,
+          );
+          const duplicateInternalId =
+            (normalizedAdministrativo &&
+              existingByAdministrativo.get(normalizedAdministrativo)) ||
+            (normalizedEdital && existingByEdital.get(normalizedEdital)) ||
+            null;
+
+          if (duplicateInternalId) {
+            failures.push({
+              rowId: row.id,
+              linha: row.linha,
+              motivo:
+                "Já existe um processo interno com o mesmo administrativo ou edital. Vincule manualmente em vez de importar.",
+            });
+            continue;
+          }
+
+          const matchedModalidade = findBestNamedMatch(
+            modalidadeRows,
+            raw.modalidade ?? row.modalidade ?? null,
+          );
+          const matchedStatus = findBestStatusMatch(
+            statusRows,
+            raw.status ?? row.statusLegado ?? null,
+          );
+          const matchedCondutor = findBestNamedMatch(
+            peopleRows,
+            raw.condutorProcesso ?? null,
+          );
+
+          const anoReferencia = extractLegacyYear(raw);
+          const numeroSirel = await getNextNumeroSirel(tx, anoReferencia);
+          const dataPublicacao =
+            parseLegacyDateTimeToIso(raw.dataPublicacaoDom) ??
+            parseLegacyDateTimeToIso(raw.dataPublicacaoDou) ??
+            parseLegacyDateTimeToIso(raw.dataPublicacaoJornal);
+          const dataAbertura = parseLegacyDateToIso(raw.dataAbertura);
+          const dataDisputaSessao = parseLegacyDateTimeToIso(
+            raw.dataAbertura,
+            raw.horarioAbertura ?? raw.horarioInicio,
+          );
+          const dataEncerramento =
+            parseLegacyDateToIso(raw.dataHomologacao) ??
+            parseLegacyDateToIso(raw.dataAdjudicacao);
+          const published = isLegacyProcessPublished(raw);
+          const finalized = isLegacyProcessFinalized(raw.status);
+          const homologated =
+            normalizeLookupText(raw.status).includes("homolog") ||
+            Boolean(raw.dataHomologacao);
+          const processInsert: typeof processos.$inferInsert = {
+            numeroSirel,
+            numeroAdministrativo:
+              raw.processoAdministrativo ??
+              row.processoAdministrativo ??
+              null,
+            numeroEdital: raw.numeroEdital ?? row.numeroEdital ?? null,
+            anoReferencia,
+            foraDoFluxo: true,
+            origemCadastro: "LEGADO",
+            secretariaId: matchedSecretaria.id,
+            modalidadeId: matchedModalidade?.id ?? null,
+            statusId: matchedStatus?.id ?? null,
+            condutorProcessoId: matchedCondutor?.id ?? null,
+            objeto,
+            valorEstimado:
+              row.valorEstimado !== null && row.valorEstimado !== undefined
+                ? toNumber(row.valorEstimado).toFixed(2)
+                : null,
+            valorHomologado:
+              row.valorContratado !== null && row.valorContratado !== undefined
+                ? toNumber(row.valorContratado).toFixed(2)
+                : null,
+            modoDisputa: "NAO_SE_APLICA",
+            tipoObjeto: inferLegacyTipoObjeto(
+              raw.modalidade ?? row.modalidade,
+              objeto,
+            ),
+            tipoContratacao: "AQUISICAO",
+            dataAbertura: dataAbertura ?? null,
+            dataPublicacao: dataPublicacao ? new Date(dataPublicacao) : null,
+            dataDisputaSessao: dataDisputaSessao
+              ? new Date(dataDisputaSessao)
+              : null,
+            dataEncerramento: dataEncerramento ?? null,
+            ativo: true,
+            publicado: published,
+            homologado: homologated,
+            finalizado: finalized,
+            criadoPor: ctx.user?.id ?? null,
+          };
+
+          const [created] = await tx
+            .insert(processos)
+            .values(processInsert)
+            .returning();
+
+          const situacao = mapWorkflowSituacaoFromExternal(raw.status);
+          await tx.insert(workflowProcesso).values({
+            processoId: created.id,
+            moduloAtual: "LICITACAO",
+            situacao,
+            etapaAtual: finalized
+              ? "Importação concluída do legado"
+              : "Importação inicial do legado",
+            dataInicio: dataPublicacao?.slice(0, 10) ?? null,
+            dataConclusao:
+              situacao === "CONCLUIDO"
+                ? dataEncerramento ?? new Date().toISOString().slice(0, 10)
+                : null,
+          });
+
+          await tx.insert(movimentacoesWorkflow).values({
+            processoId: created.id,
+            moduloOrigem: "SISTEMA",
+            moduloDestino: "LICITACAO",
+            descricao: "Processo importado do lote legado",
+            observacao: `Linha ${row.linha} do lote legado #${input.loteId} incorporada ao SIREL com tag LEGADO.`,
+            usuarioId: ctx.user?.id ?? null,
+          });
+
+          const reviewNoteBase = [
+            row.reviewNotes?.trim(),
+            `Processo ${created.numeroSirel} importado para a base operacional com tag LEGADO.`,
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          await tx
+            .update(importacaoLegadoRegistros)
+            .set({
+              reviewStatus: "VINCULAR_INTERNO",
+              selectedInternalProcessId: created.id,
+              selectedImportedProcessId: null,
+              reviewNotes: reviewNoteBase,
+              reviewedBy: ctx.user?.id ?? null,
+              reviewedAt: new Date(),
+              atualizadoEm: new Date(),
+            })
+            .where(eq(importacaoLegadoRegistros.id, row.id));
+
+          successes.push({
+            rowId: row.id,
+            linha: row.linha,
+            processoId: created.id,
+            numeroSirel: created.numeroSirel,
+            processSnapshot: created as unknown as Record<string, unknown>,
+          });
+          if (normalizedAdministrativo) {
+            existingByAdministrativo.set(normalizedAdministrativo, created.id);
+          }
+          if (normalizedEdital) {
+            existingByEdital.set(normalizedEdital, created.id);
+          }
+        }
+
+        if (successes.length) {
+          await refreshLegacyLoteReviewCounts(tx, input.loteId);
+        }
+      });
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_legado_lotes",
+        registroId: input.loteId,
+        acao: "UPDATE",
+        dadosNovos: {
+          loteId: input.loteId,
+          importedRows: successes,
+          failedRows: failures,
+        },
+        descricao: `Importação final do lote legado #${input.loteId}: ${successes.length} processo(s) criado(s) e ${failures.length} pendência(s) bloqueadas.`,
+      });
+
+      for (const created of successes) {
+        await logAuditoria(ctx, {
+          tabela: "processos",
+          registroId: created.processoId,
+          acao: "CREATE",
+          dadosNovos: created.processSnapshot,
+          descricao: `Processo ${created.numeroSirel} importado do lote legado #${input.loteId}.`,
+        });
+      }
+
+      return {
+        message:
+          failures.length > 0
+            ? `Importação concluída com ressalvas: ${successes.length} processo(s) criado(s) e ${failures.length} linha(s) permaneceram pendentes.`
+            : `Importação concluída com sucesso: ${successes.length} processo(s) legado(s) criado(s) no SIREL.`,
+        created: successes.map(({ processSnapshot, ...item }) => item),
+        failures,
       };
     }),
 

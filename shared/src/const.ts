@@ -43,6 +43,11 @@ export const processoTipoObjetoOptions = [
   "SERVICO_ENG",
 ] as const;
 
+export const processoOrigemCadastroOptions = [
+  "MANUAL",
+  "LEGADO",
+] as const;
+
 export const processoTipoObjetoLabels: Record<
   (typeof processoTipoObjetoOptions)[number],
   string
@@ -53,6 +58,14 @@ export const processoTipoObjetoLabels: Record<
   SERVICO: "Serviço (legado)",
   OBRA: "Obra",
   SERVICO_ENG: "Serviço de engenharia",
+};
+
+export const processoOrigemCadastroLabels: Record<
+  (typeof processoOrigemCadastroOptions)[number],
+  string
+> = {
+  MANUAL: "Manual",
+  LEGADO: "Legado",
 };
 
 export const grauPrioridadeOptions = [
