@@ -53,6 +53,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -155,6 +156,27 @@ type LegacyLoteDetailRow = LegacyAnalysisRow & {
   selectedInternalProcessId: number | null;
   selectedImportedProcessId: number | null;
   reviewedAt: string | null;
+  rawData: ImportacaoLegadoXlsxRow;
+};
+type LegacyRowSanitizedDraft = {
+  legacyId: string;
+  modalidade: string;
+  processoAdministrativo: string;
+  protocolo: string;
+  numeroEdital: string;
+  status: string;
+  condutorProcesso: string;
+  resumoObjeto: string;
+  objeto: string;
+  secretaria: string;
+  dataPublicacaoDom: string;
+  dataPublicacaoDou: string;
+  dataPublicacaoJornal: string;
+  dataAbertura: string;
+  dataHomologacao: string;
+  valorEstimado: string;
+  valorContratado: string;
+  cnpj: string;
 };
 type LegacyLoteDetail = {
   lote: LegacyLoteListItem & {
@@ -193,7 +215,19 @@ type LegacyReviewModalState = {
   reviewNotes: string;
   selectedInternalProcessId: string;
   selectedImportedProcessId: string;
+  sanitized: LegacyRowSanitizedDraft;
 } | null;
+type LegacyCreateProcessDraft = {
+  loteId: number;
+  rowId: number;
+  data: ImportacaoLegadoXlsxRow;
+  fallbackNumeroEdital: string | null;
+  fallbackProcessoAdministrativo: string | null;
+  fallbackObjetoResumo: string | null;
+  fallbackSecretaria: string | null;
+  fallbackValorEstimado: number | null;
+  fallbackStatus: string | null;
+};
 type LegacyAnalysisResult = {
   summary: {
     totalRows: number;
@@ -257,14 +291,40 @@ function readFileAsText(file: File) {
 
 function formatDateForInput(value: Date | string | null | undefined) {
   if (!value) return "";
-  const date = value instanceof Date ? value : new Date(value);
+  const date =
+    value instanceof Date
+      ? value
+      : (() => {
+          const normalized = String(value).trim();
+          const brMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+          if (brMatch) {
+            return new Date(
+              `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}T00:00:00`,
+            );
+          }
+          return new Date(normalized);
+        })();
   if (Number.isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
 }
 
 function formatDateTimeForInput(value: Date | string | null | undefined) {
   if (!value) return "";
-  const date = value instanceof Date ? value : new Date(value);
+  const date =
+    value instanceof Date
+      ? value
+      : (() => {
+          const normalized = String(value).trim();
+          const brDateTime = normalized.match(
+            /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?$/,
+          );
+          if (brDateTime) {
+            const [, day, month, year, hours = "00", minutes = "00"] =
+              brDateTime;
+            return new Date(`${year}-${month}-${day}T${hours}:${minutes}:00`);
+          }
+          return new Date(normalized);
+        })();
   if (Number.isNaN(date.getTime())) return "";
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -316,6 +376,96 @@ function parseLegacyNumber(value: unknown) {
   if (!normalized) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toLegacyDraftString(value: string | null | undefined) {
+  return String(value ?? "");
+}
+
+function buildLegacySanitizedDraft(row: LegacyLoteDetailRow): LegacyRowSanitizedDraft {
+  const raw = row.rawData;
+  return {
+    legacyId: toLegacyDraftString(raw.legacyId ?? row.legacyId),
+    modalidade: toLegacyDraftString(raw.modalidade ?? row.modalidade),
+    processoAdministrativo: toLegacyDraftString(
+      raw.processoAdministrativo ?? row.processoAdministrativo,
+    ),
+    protocolo: toLegacyDraftString(raw.protocolo ?? row.protocolo),
+    numeroEdital: toLegacyDraftString(raw.numeroEdital ?? row.numeroEdital),
+    status: toLegacyDraftString(raw.status ?? row.status),
+    condutorProcesso: toLegacyDraftString(raw.condutorProcesso),
+    resumoObjeto: toLegacyDraftString(raw.resumoObjeto ?? row.objetoResumo),
+    objeto: toLegacyDraftString(raw.objeto),
+    secretaria: toLegacyDraftString(raw.secretaria ?? row.secretaria),
+    dataPublicacaoDom: toLegacyDraftString(raw.dataPublicacaoDom),
+    dataPublicacaoDou: toLegacyDraftString(raw.dataPublicacaoDou),
+    dataPublicacaoJornal: toLegacyDraftString(raw.dataPublicacaoJornal),
+    dataAbertura: toLegacyDraftString(raw.dataAbertura),
+    dataHomologacao: toLegacyDraftString(raw.dataHomologacao),
+    valorEstimado: formatCurrencyForForm(raw.valorEstimado ?? row.valorEstimado),
+    valorContratado: formatCurrencyForForm(
+      raw.valorContratado ?? row.valorContratado,
+    ),
+    cnpj: toLegacyDraftString(raw.cnpj),
+  };
+}
+
+function buildLegacySanitizedPayload(
+  draft: LegacyRowSanitizedDraft,
+): Partial<ImportacaoLegadoXlsxRow> {
+  const textOrNull = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  };
+
+  return {
+    legacyId: textOrNull(draft.legacyId),
+    modalidade: textOrNull(draft.modalidade),
+    processoAdministrativo: textOrNull(draft.processoAdministrativo),
+    protocolo: textOrNull(draft.protocolo),
+    numeroEdital: textOrNull(draft.numeroEdital),
+    status: textOrNull(draft.status),
+    condutorProcesso: textOrNull(draft.condutorProcesso),
+    resumoObjeto: textOrNull(draft.resumoObjeto),
+    objeto: textOrNull(draft.objeto),
+    secretaria: textOrNull(draft.secretaria),
+    dataPublicacaoDom: textOrNull(draft.dataPublicacaoDom),
+    dataPublicacaoDou: textOrNull(draft.dataPublicacaoDou),
+    dataPublicacaoJornal: textOrNull(draft.dataPublicacaoJornal),
+    dataAbertura: textOrNull(draft.dataAbertura),
+    dataHomologacao: textOrNull(draft.dataHomologacao),
+    valorEstimado: parseLegacyNumber(draft.valorEstimado),
+    valorContratado: parseLegacyNumber(draft.valorContratado),
+    cnpj: textOrNull(draft.cnpj),
+  };
+}
+
+function inferLegacyTipoObjeto(
+  modalidade?: string | null,
+  objeto?: string | null,
+): "PRODUTO" | "SERVICO_COMUM" | "SERVICO_ESPECIAL" | "SERVICO" | "OBRA" | "SERVICO_ENG" {
+  const normalized = `${modalidade ?? ""} ${objeto ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (
+    normalized.includes("engenharia") ||
+    normalized.includes("reforma") ||
+    normalized.includes("manutencao predial")
+  ) {
+    return "SERVICO_ENG";
+  }
+  if (
+    normalized.includes("obra") ||
+    normalized.includes("construcao") ||
+    normalized.includes("pavimentacao")
+  ) {
+    return "OBRA";
+  }
+  if (normalized.includes("servico especial")) return "SERVICO_ESPECIAL";
+  if (normalized.includes("servico")) return "SERVICO_COMUM";
+  return "PRODUTO";
 }
 
 function parseLegacyCell(value: unknown) {
@@ -489,8 +639,10 @@ export function ImportacoesPage() {
   const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([]);
   const [createProcessModalOpen, setCreateProcessModalOpen] = useState(false);
   const [createProcessSource, setCreateProcessSource] = useState<
-    "BLL" | "PNCP" | null
+    "BLL" | "PNCP" | "LEGADO" | null
   >(null);
+  const [legacyCreateProcessDraft, setLegacyCreateProcessDraft] =
+    useState<LegacyCreateProcessDraft | null>(null);
   const [manualProcessSearch, setManualProcessSearch] = useState("");
   const [detailTab, setDetailTab] = useState<ConciliationDetailTab>("GERAL");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -720,7 +872,6 @@ export function ImportacoesPage() {
     trpc.importacoes.updateLegacyXlsxRow.useMutation({
       onSuccess: async (result) => {
         setFeedback({ variant: "success", message: result.message });
-        setLegacyReviewModal(null);
         await Promise.all([
           utils.importacoes.listLegacyXlsxLotes.invalidate(),
           utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
@@ -1422,13 +1573,85 @@ export function ImportacoesPage() {
       };
     }
 
+    if (createProcessSource === "LEGADO" && legacyCreateProcessDraft) {
+      const raw = legacyCreateProcessDraft.data;
+      const modalidadeRaw = raw.modalidade ?? "";
+      const statusRaw = raw.status ?? legacyCreateProcessDraft.fallbackStatus ?? "";
+      const secretariaRaw =
+        raw.secretaria ?? legacyCreateProcessDraft.fallbackSecretaria ?? "";
+      const matchedModalidade = catalogQuery.data?.modalidades.find(
+        (item) => normalize(item.nome) === normalize(modalidadeRaw),
+      );
+      const matchedStatus = catalogQuery.data?.statusProcesso.find(
+        (item) => normalize(item.nome) === normalize(statusRaw),
+      );
+      const matchedSecretaria = catalogQuery.data?.secretarias.find(
+        (item) => normalize(item.nome) === normalize(secretariaRaw),
+      );
+
+      const dataBase =
+        raw.dataPublicacaoDom ??
+        raw.dataPublicacaoDou ??
+        raw.dataPublicacaoJornal ??
+        raw.dataAbertura ??
+        raw.dataHomologacao ??
+        null;
+      const anoReferencia = (() => {
+        const parsed = dataBase ? new Date(String(dataBase)) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) {
+          return String(new Date().getFullYear());
+        }
+        return String(parsed.getFullYear());
+      })();
+
+      const objeto = String(
+        raw.objeto ??
+          raw.resumoObjeto ??
+          legacyCreateProcessDraft.fallbackObjetoResumo ??
+          "",
+      );
+
+      return {
+        numeroAdministrativo:
+          raw.processoAdministrativo ??
+          legacyCreateProcessDraft.fallbackProcessoAdministrativo ??
+          "",
+        numeroEdital:
+          raw.numeroEdital ?? legacyCreateProcessDraft.fallbackNumeroEdital ?? "",
+        anoReferencia,
+        objeto,
+        valorEstimado: formatCurrencyForForm(
+          raw.valorEstimado ?? legacyCreateProcessDraft.fallbackValorEstimado,
+        ),
+        dataAbertura:
+          formatDateForInput(raw.dataAbertura) ||
+          formatDateForInput(raw.dataPublicacaoDom) ||
+          formatDateForInput(raw.dataPublicacaoDou) ||
+          formatDateForInput(raw.dataPublicacaoJornal),
+        dataPublicacao:
+          formatDateForInput(raw.dataPublicacaoDom) ||
+          formatDateForInput(raw.dataPublicacaoDou) ||
+          formatDateForInput(raw.dataPublicacaoJornal),
+        dataDisputaSessao: formatDateTimeForInput(raw.dataAbertura),
+        situacao: mapWorkflowSituacaoFromExternal(statusRaw),
+        secretariaId: matchedSecretaria ? String(matchedSecretaria.id) : "",
+        modalidadeId: matchedModalidade ? String(matchedModalidade.id) : "",
+        statusId: matchedStatus ? String(matchedStatus.id) : "",
+        tipoObjeto: inferLegacyTipoObjeto(raw.modalidade, objeto),
+        foraDoFluxo: true,
+        moduloInicial: "LICITACAO",
+      };
+    }
+
     return undefined;
   }, [
     catalogQuery.data?.modalidades,
     catalogQuery.data?.pessoas,
+    catalogQuery.data?.secretarias,
     catalogQuery.data?.statusProcesso,
     createProcessSource,
     detailData,
+    legacyCreateProcessDraft,
     pncpDetailData,
     pncpStoredDetail?.tipo,
   ]);
@@ -1458,8 +1681,22 @@ export function ImportacoesPage() {
       };
     }
 
+    if (createProcessSource === "LEGADO" && legacyCreateProcessDraft) {
+      return {
+        sourceLabel: "Legado XLSX",
+        publicacaoEm:
+          legacyCreateProcessDraft.data.dataPublicacaoDom ??
+          legacyCreateProcessDraft.data.dataPublicacaoDou ??
+          legacyCreateProcessDraft.data.dataPublicacaoJornal ??
+          null,
+        disputaEm: legacyCreateProcessDraft.data.dataAbertura ?? null,
+        recebimentoInicialEm: legacyCreateProcessDraft.data.dataAbertura ?? null,
+        recebimentoFinalEm: legacyCreateProcessDraft.data.dataHomologacao ?? null,
+      };
+    }
+
     return undefined;
-  }, [createProcessSource, detailData, pncpDetailData]);
+  }, [createProcessSource, detailData, legacyCreateProcessDraft, pncpDetailData]);
 
   const selectedLegacySheet = useMemo(() => {
     if (!legacyWorkbook) return null;
@@ -1606,25 +1843,76 @@ export function ImportacoesPage() {
     });
   }
 
-  async function handleSaveLegacyRowReview() {
+  function buildLegacyRowUpdateInput(
+    modal: NonNullable<LegacyReviewModalState>,
+    overrides?: Partial<{
+      reviewStatus: ImportacaoLegadoRowReviewStatus;
+      selectedInternalProcessId: number | null;
+      selectedImportedProcessId: number | null;
+      reviewNotes: string | null;
+    }>,
+  ) {
+    return {
+      loteId: legacySelectedLoteId!,
+      rowId: modal.row.id,
+      reviewStatus: overrides?.reviewStatus ?? modal.reviewStatus,
+      reviewNotes:
+        overrides?.reviewNotes !== undefined
+          ? overrides.reviewNotes
+          : modal.reviewNotes.trim() || null,
+      selectedInternalProcessId:
+        overrides?.selectedInternalProcessId !== undefined
+          ? overrides.selectedInternalProcessId
+          : modal.reviewStatus === "VINCULAR_INTERNO" &&
+              modal.selectedInternalProcessId
+            ? Number(modal.selectedInternalProcessId)
+            : null,
+      selectedImportedProcessId:
+        overrides?.selectedImportedProcessId !== undefined
+          ? overrides.selectedImportedProcessId
+          : modal.reviewStatus === "DUPLICADO_BASE" &&
+              modal.selectedImportedProcessId
+            ? Number(modal.selectedImportedProcessId)
+            : null,
+      sanitizedData: buildLegacySanitizedPayload(modal.sanitized),
+    };
+  }
+
+  async function handleSaveLegacyRowReview(closeAfterSave = true) {
     if (!legacyReviewModal || !legacySelectedLoteId) return;
 
-    await updateLegacyRowMutation.mutateAsync({
+    await updateLegacyRowMutation.mutateAsync(
+      buildLegacyRowUpdateInput(legacyReviewModal),
+    );
+
+    if (closeAfterSave) {
+      setLegacyReviewModal(null);
+    }
+  }
+
+  async function handleCreateProcessFromLegacyReview() {
+    if (!legacyReviewModal || !legacySelectedLoteId) return;
+
+    await handleSaveLegacyRowReview(false);
+
+    setLegacyCreateProcessDraft({
       loteId: legacySelectedLoteId,
       rowId: legacyReviewModal.row.id,
-      reviewStatus: legacyReviewModal.reviewStatus,
-      reviewNotes: legacyReviewModal.reviewNotes.trim() || null,
-      selectedInternalProcessId:
-        legacyReviewModal.reviewStatus === "VINCULAR_INTERNO" &&
-        legacyReviewModal.selectedInternalProcessId
-          ? Number(legacyReviewModal.selectedInternalProcessId)
-          : null,
-      selectedImportedProcessId:
-        legacyReviewModal.reviewStatus === "DUPLICADO_BASE" &&
-        legacyReviewModal.selectedImportedProcessId
-          ? Number(legacyReviewModal.selectedImportedProcessId)
-          : null,
+      data: {
+        ...legacyReviewModal.row.rawData,
+        ...buildLegacySanitizedPayload(legacyReviewModal.sanitized),
+        linha: legacyReviewModal.row.rawData.linha ?? legacyReviewModal.row.linha,
+      },
+      fallbackNumeroEdital: legacyReviewModal.row.numeroEdital,
+      fallbackProcessoAdministrativo:
+        legacyReviewModal.row.processoAdministrativo,
+      fallbackObjetoResumo: legacyReviewModal.row.objetoResumo,
+      fallbackSecretaria: legacyReviewModal.row.secretaria,
+      fallbackValorEstimado: legacyReviewModal.row.valorEstimado,
+      fallbackStatus: legacyReviewModal.row.status,
     });
+    setCreateProcessSource("LEGADO");
+    setCreateProcessModalOpen(true);
   }
 
   async function handleSaveLegacyLoteStatus() {
@@ -1827,7 +2115,7 @@ export function ImportacoesPage() {
               </div>
             </div>
           </div>
-          <div className="mt-4 overflow-x-auto"><Table><TableHead><tr><TableHeaderCell><Checkbox checked={allVisibleLegacyRowsSelected} onChange={(event) => handleToggleAllLegacyRows(event.target.checked)} /></TableHeaderCell><TableHeaderCell>Linha</TableHeaderCell><TableHeaderCell>Identifica??o</TableHeaderCell><TableHeaderCell>Pend?ncias</TableHeaderCell><TableHeaderCell>Matches</TableHeaderCell><TableHeaderCell>Decis?o</TableHeaderCell><TableHeaderCell>A??es</TableHeaderCell></tr></TableHead><TableBody>{legacyLoteDetailQuery.isLoading ? Array.from({ length: 6 }).map((_, index) => <TableRow key={index}><TableCell colSpan={7}><Skeleton className="h-16 w-full rounded-[18px]" /></TableCell></TableRow>) : visibleLegacyRows.length ? visibleLegacyRows.map((row) => <TableRow key={row.id}><TableCell><Checkbox checked={legacySelectedRowIds.includes(row.id)} onChange={(event) => handleToggleLegacyRow(row.id, event.target.checked)} /></TableCell><TableCell><div className="space-y-1"><p className="font-semibold text-[var(--color-neutral-900)]">#{row.linha}</p><span className={["inline-flex rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em]", row.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : row.severity === "ATENCAO" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"].join(" ")}>{row.severity}</span></div></TableCell><TableCell><div className="max-w-[280px]"><p className="font-semibold text-[var(--color-neutral-900)]">{row.numeroEdital || row.processoAdministrativo || row.protocolo || "Sem identificador"}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.modalidade || "Modalidade ausente"}{row.secretaria ? ` ? ${row.secretaria}` : ""}</p><p className="mt-1 line-clamp-2 text-xs text-[var(--color-neutral-600)]">{row.objetoResumo || "Objeto n?o informado."}</p></div></TableCell><TableCell><div className="flex max-w-[260px] flex-wrap gap-2">{row.issues.length ? row.issues.map((issue) => <span key={`${row.id}-${issue.code}`} className={["inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]", issue.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"].join(" ")}>{issue.label}</span>) : <span className="text-sm text-[var(--color-neutral-500)]">Sem pend?ncias.</span>}</div></TableCell><TableCell><div className="space-y-2">{row.internalMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Interno</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.internalMatches[0].numeroSirel}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.internalMatches[0].motivos.join(" ? ")}</p></div> : null}{row.importedMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Base p?blica</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.importedMatches[0].origem}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.importedMatches[0].motivos.join(" ? ")}</p></div> : null}{!row.internalMatches.length && !row.importedMatches.length ? <span className="text-sm text-[var(--color-neutral-500)]">Sem colis?es relevantes.</span> : null}</div></TableCell><TableCell><div className="space-y-1"><span className="inline-flex rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">{importacaoLegadoRowReviewStatusLabels[row.reviewStatus]}</span>{row.reviewNotes ? <p className="max-w-[220px] line-clamp-3 text-xs text-[var(--color-neutral-500)]">{row.reviewNotes}</p> : null}</div></TableCell><TableCell><Button variant="outline" size="sm" onClick={() => setLegacyReviewModal({ row, reviewStatus: row.reviewStatus, reviewNotes: row.reviewNotes ?? "", selectedInternalProcessId: row.selectedInternalProcessId ? String(row.selectedInternalProcessId) : row.internalMatches[0] ? String(row.internalMatches[0].processoId) : "", selectedImportedProcessId: row.selectedImportedProcessId ? String(row.selectedImportedProcessId) : row.importedMatches[0] ? String(row.importedMatches[0].importedId) : "" })} icon={<Eye className="h-4 w-4" />}>Revisar</Button></TableCell></TableRow>) : <TableRow><TableCell colSpan={7}>Nenhuma linha encontrada com os filtros atuais.</TableCell></TableRow>}</TableBody></Table></div>
+          <div className="mt-4 overflow-x-auto"><Table><TableHead><tr><TableHeaderCell><Checkbox checked={allVisibleLegacyRowsSelected} onChange={(event) => handleToggleAllLegacyRows(event.target.checked)} /></TableHeaderCell><TableHeaderCell>Linha</TableHeaderCell><TableHeaderCell>Identifica??o</TableHeaderCell><TableHeaderCell>Pend?ncias</TableHeaderCell><TableHeaderCell>Matches</TableHeaderCell><TableHeaderCell>Decis?o</TableHeaderCell><TableHeaderCell>A??es</TableHeaderCell></tr></TableHead><TableBody>{legacyLoteDetailQuery.isLoading ? Array.from({ length: 6 }).map((_, index) => <TableRow key={index}><TableCell colSpan={7}><Skeleton className="h-16 w-full rounded-[18px]" /></TableCell></TableRow>) : visibleLegacyRows.length ? visibleLegacyRows.map((row) => <TableRow key={row.id}><TableCell><Checkbox checked={legacySelectedRowIds.includes(row.id)} onChange={(event) => handleToggleLegacyRow(row.id, event.target.checked)} /></TableCell><TableCell><div className="space-y-1"><p className="font-semibold text-[var(--color-neutral-900)]">#{row.linha}</p><span className={["inline-flex rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em]", row.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : row.severity === "ATENCAO" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"].join(" ")}>{row.severity}</span></div></TableCell><TableCell><div className="max-w-[280px]"><p className="font-semibold text-[var(--color-neutral-900)]">{row.numeroEdital || row.processoAdministrativo || row.protocolo || "Sem identificador"}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.modalidade || "Modalidade ausente"}{row.secretaria ? ` ? ${row.secretaria}` : ""}</p><p className="mt-1 line-clamp-2 text-xs text-[var(--color-neutral-600)]">{row.objetoResumo || "Objeto n?o informado."}</p></div></TableCell><TableCell><div className="flex max-w-[260px] flex-wrap gap-2">{row.issues.length ? row.issues.map((issue) => <span key={`${row.id}-${issue.code}`} className={["inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]", issue.severity === "CRITICO" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"].join(" ")}>{issue.label}</span>) : <span className="text-sm text-[var(--color-neutral-500)]">Sem pend?ncias.</span>}</div></TableCell><TableCell><div className="space-y-2">{row.internalMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Interno</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.internalMatches[0].numeroSirel}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.internalMatches[0].motivos.join(" ? ")}</p></div> : null}{row.importedMatches[0] ? <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Base p?blica</p><p className="mt-1 text-sm font-semibold text-[var(--color-neutral-900)]">{row.importedMatches[0].origem}</p><p className="text-xs text-[var(--color-neutral-500)]">{row.importedMatches[0].motivos.join(" ? ")}</p></div> : null}{!row.internalMatches.length && !row.importedMatches.length ? <span className="text-sm text-[var(--color-neutral-500)]">Sem colis?es relevantes.</span> : null}</div></TableCell><TableCell><div className="space-y-1"><span className="inline-flex rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">{importacaoLegadoRowReviewStatusLabels[row.reviewStatus]}</span>{row.reviewNotes ? <p className="max-w-[220px] line-clamp-3 text-xs text-[var(--color-neutral-500)]">{row.reviewNotes}</p> : null}</div></TableCell><TableCell><Button variant="outline" size="sm" onClick={() => setLegacyReviewModal({ row, reviewStatus: row.reviewStatus, reviewNotes: row.reviewNotes ?? "", selectedInternalProcessId: row.selectedInternalProcessId ? String(row.selectedInternalProcessId) : row.internalMatches[0] ? String(row.internalMatches[0].processoId) : "", selectedImportedProcessId: row.selectedImportedProcessId ? String(row.selectedImportedProcessId) : row.importedMatches[0] ? String(row.importedMatches[0].importedId) : "", sanitized: buildLegacySanitizedDraft(row) })} icon={<Eye className="h-4 w-4" />}>Revisar</Button></TableCell></TableRow>) : <TableRow><TableCell colSpan={7}>Nenhuma linha encontrada com os filtros atuais.</TableCell></TableRow>}</TableBody></Table></div>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-[var(--color-neutral-500)]">{legacyLoteDetailData ? `Exibindo ${formatIntegerBR(legacyLoteDetailData.items.length)} de ${formatIntegerBR(legacyLoteDetailData.total)} linha(s) filtradas.` : ""}</p><Pagination page={legacyRowsPage} totalPages={legacyLoteDetailData?.totalPages ?? 1} onPageChange={setLegacyRowsPage} /></div>
         </SectionCard>
       ) : <Alert variant="info">Assim que um lote for criado, ele aparece aqui com status persistente para a equipe iniciar o saneamento manual no pr?prio SIREL.</Alert>}
@@ -3045,7 +3333,7 @@ export function ImportacoesPage() {
             ? `Linha #${legacyReviewModal.row.linha} • saneamento manual`
             : "Saneamento manual"
         }
-        description="Registre a decisão da equipe para esta linha do legado antes da importação total."
+        description="Saneie os dados críticos desta linha, registre a decisão da equipe e, se fizer sentido, já crie o processo interno sem sair da importação."
         size="lg"
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -3054,6 +3342,14 @@ export function ImportacoesPage() {
               onClick={() => setLegacyReviewModal(null)}
             >
               Cancelar
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void handleCreateProcessFromLegacyReview()}
+              disabled={updateLegacyRowMutation.isPending || !legacyReviewModal}
+              icon={<Link2 className="h-4 w-4" />}
+            >
+              Criar processo no SIREL
             </Button>
             <Button
               onClick={() => void handleSaveLegacyRowReview()}
@@ -3118,6 +3414,340 @@ export function ImportacoesPage() {
                 />
               </FormField>
             </div>
+
+            <SectionCard
+              title="Saneamento da linha"
+              description="Ajuste os campos com inconsistência antes de aprovar, vincular ou criar o processo interno."
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField label="Modalidade">
+                  <Input
+                    value={legacyReviewModal.sanitized.modalidade}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                modalidade: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="Ex.: Pregão Eletrônico"
+                  />
+                </FormField>
+                <FormField label="Secretaria">
+                  <Input
+                    value={legacyReviewModal.sanitized.secretaria}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                secretaria: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="Nome da secretaria responsável"
+                  />
+                </FormField>
+                <FormField label="Processo administrativo">
+                  <Input
+                    value={legacyReviewModal.sanitized.processoAdministrativo}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                processoAdministrativo: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Número do edital">
+                  <Input
+                    value={legacyReviewModal.sanitized.numeroEdital}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                numeroEdital: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Protocolo">
+                  <Input
+                    value={legacyReviewModal.sanitized.protocolo}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                protocolo: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Status legado">
+                  <Input
+                    value={legacyReviewModal.sanitized.status}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                status: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Valor estimado">
+                  <Input
+                    value={legacyReviewModal.sanitized.valorEstimado}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                valorEstimado: maskCurrencyInputBR(
+                                  event.target.value,
+                                ),
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Valor contratado">
+                  <Input
+                    value={legacyReviewModal.sanitized.valorContratado}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                valorContratado: maskCurrencyInputBR(
+                                  event.target.value,
+                                ),
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Condutor do processo">
+                  <Input
+                    value={legacyReviewModal.sanitized.condutorProcesso}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                condutorProcesso: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="CNPJ do vencedor">
+                  <Input
+                    value={legacyReviewModal.sanitized.cnpj}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                cnpj: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </FormField>
+                <FormField label="Publicação DOM">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataPublicacaoDom}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataPublicacaoDom: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Publicação DOU">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataPublicacaoDou}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataPublicacaoDou: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Publicação jornal">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataPublicacaoJornal}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataPublicacaoJornal: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Data de abertura">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataAbertura}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataAbertura: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Data de homologação">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataHomologacao}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataHomologacao: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+              </div>
+
+              <div className="mt-4 grid gap-4">
+                <FormField label="Resumo do objeto">
+                  <Textarea
+                    rows={3}
+                    value={legacyReviewModal.sanitized.resumoObjeto}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                resumoObjeto: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="Resumo curto usado na triagem do lote"
+                  />
+                </FormField>
+                <FormField label="Objeto completo">
+                  <Textarea
+                    rows={5}
+                    value={legacyReviewModal.sanitized.objeto}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                objeto: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="Cole ou ajuste o objeto completo antes de criar o processo"
+                  />
+                </FormField>
+              </div>
+            </SectionCard>
 
             {legacyReviewModal.reviewStatus === "VINCULAR_INTERNO" ? (
               <FormField label="Processo interno correspondente">
@@ -4085,12 +4715,17 @@ export function ImportacoesPage() {
         open={createProcessModalOpen}
         onClose={() => {
           setCreateProcessModalOpen(false);
+          setLegacyCreateProcessDraft(null);
           setCreateProcessSource(null);
         }}
         initialValues={createProcessInitialValues}
         externalDates={createProcessExternalDates}
         title="Criar processo interno"
-        description="Crie o processo no SIREL com base nos dados importados e vincule-o automaticamente ao registro público atual."
+        description={
+          createProcessSource === "LEGADO"
+            ? "Crie o processo no SIREL usando os dados saneados do legado e devolva a linha já vinculada para a equipe seguir o lote."
+            : "Crie o processo no SIREL com base nos dados importados e vincule-o automaticamente ao registro público atual."
+        }
         submitLabel="Criar e vincular"
         onCreated={(created) => {
           void (async () => {
@@ -4101,6 +4736,19 @@ export function ImportacoesPage() {
                 id: pncpStoredDetail.id,
                 processoId: created.id,
               });
+            } else if (createProcessSource === "LEGADO") {
+              if (!legacyReviewModal || !legacySelectedLoteId) return;
+              await updateLegacyRowMutation.mutateAsync(
+                buildLegacyRowUpdateInput(legacyReviewModal, {
+                  reviewStatus: "VINCULAR_INTERNO",
+                  selectedInternalProcessId: created.id,
+                  selectedImportedProcessId: null,
+                  reviewNotes:
+                    legacyReviewModal.reviewNotes.trim() ||
+                    `Processo ${created.numeroSirel} criado diretamente a partir do lote legado.`,
+                }),
+              );
+              setLegacyReviewModal(null);
             } else {
               if (!selectedRecordId) return;
               await linkProcessoMutation.mutateAsync({
@@ -4109,6 +4757,7 @@ export function ImportacoesPage() {
               });
             }
             setCreateProcessModalOpen(false);
+            setLegacyCreateProcessDraft(null);
             setCreateProcessSource(null);
           })();
         }}

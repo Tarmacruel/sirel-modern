@@ -5,7 +5,9 @@ import {
   importacaoLegadoXlsxBulkUpdateRowsInputSchema,
   importacaoLegadoXlsxAnalyzeInputSchema,
   importacaoLegadoXlsxDetailInputSchema,
+  importacaoLegadoXlsxEditableFieldsSchema,
   importacaoLegadoXlsxListLotesInputSchema,
+  importacaoLegadoXlsxRowSchema,
   importacaoLegadoXlsxSetLoteStatusInputSchema,
   importacaoLegadoXlsxUpdateRowInputSchema,
   importacaoBllAutoReconcileInputSchema,
@@ -60,7 +62,11 @@ import {
 } from "../lib/importacoes-bll.js";
 import { operadorProcedure, protectedProcedure, router } from "../trpc.js";
 import { modalidades, secretarias } from "../db/schema.js";
-import type { ImportacaoLegadoRowReviewStatus } from "@sirel/shared/schemas/importacoes";
+import type {
+  ImportacaoLegadoRowReviewStatus,
+  ImportacaoLegadoXlsxEditableFields,
+  ImportacaoLegadoXlsxRow,
+} from "@sirel/shared/schemas/importacoes";
 
 function toNumber(value: unknown) {
   const parsed = Number(value);
@@ -157,7 +163,7 @@ async function loadLegacyAnalysisBases(db: ReturnType<typeof requireDb>) {
 }
 
 async function refreshLegacyLoteReviewCounts(
-  db: ReturnType<typeof requireDb>,
+  db: Pick<ReturnType<typeof requireDb>, "select" | "update">,
   loteId: number,
 ) {
   const rows = await db
@@ -178,6 +184,94 @@ async function refreshLegacyLoteReviewCounts(
     .where(eq(importacaoLegadoLotes.id, loteId));
 
   return counters;
+}
+
+function coerceLegacyRawPayload(
+  row: Pick<
+    typeof importacaoLegadoRegistros.$inferSelect,
+    | "linha"
+    | "legacyId"
+    | "modalidade"
+    | "processoAdministrativo"
+    | "protocolo"
+    | "numeroEdital"
+    | "statusLegado"
+    | "secretaria"
+    | "objetoResumo"
+    | "valorEstimado"
+    | "valorContratado"
+    | "rawPayload"
+  >,
+): ImportacaoLegadoXlsxRow {
+  const parsed = importacaoLegadoXlsxRowSchema.safeParse(row.rawPayload ?? {});
+  const raw = parsed.success ? parsed.data : ({ linha: row.linha } as ImportacaoLegadoXlsxRow);
+
+  return importacaoLegadoXlsxRowSchema.parse({
+    ...raw,
+    linha: row.linha,
+    legacyId: row.legacyId ?? raw.legacyId ?? null,
+    modalidade: row.modalidade ?? raw.modalidade ?? null,
+    processoAdministrativo:
+      row.processoAdministrativo ?? raw.processoAdministrativo ?? null,
+    protocolo: row.protocolo ?? raw.protocolo ?? null,
+    numeroEdital: row.numeroEdital ?? raw.numeroEdital ?? null,
+    status: row.statusLegado ?? raw.status ?? null,
+    secretaria: row.secretaria ?? raw.secretaria ?? null,
+    resumoObjeto: row.objetoResumo ?? raw.resumoObjeto ?? null,
+    valorEstimado:
+      row.valorEstimado !== null && row.valorEstimado !== undefined
+        ? toNumber(row.valorEstimado)
+        : raw.valorEstimado ?? null,
+    valorContratado:
+      row.valorContratado !== null && row.valorContratado !== undefined
+        ? toNumber(row.valorContratado)
+        : raw.valorContratado ?? null,
+  });
+}
+
+function mergeLegacySanitizedData(
+  base: ImportacaoLegadoXlsxRow,
+  sanitizedData?: ImportacaoLegadoXlsxEditableFields,
+) {
+  if (!sanitizedData) return base;
+
+  return importacaoLegadoXlsxRowSchema.parse({
+    ...base,
+    ...importacaoLegadoXlsxEditableFieldsSchema.parse(sanitizedData),
+    linha: base.linha,
+  });
+}
+
+function mapLegacyAnalysisRowToDbUpdate(
+  row: ReturnType<typeof analyzeLegacyRows>["rows"][number],
+  rawPayload: ImportacaoLegadoXlsxRow,
+) {
+  return {
+    legacyId: row.legacyId,
+    modalidade: row.modalidade,
+    processoAdministrativo: row.processoAdministrativo,
+    protocolo: row.protocolo,
+    numeroEdital: row.numeroEdital,
+    statusLegado: row.status,
+    secretaria: row.secretaria,
+    mappedSecretaria: row.mappedSecretaria,
+    objetoResumo: row.objetoResumo,
+    valorEstimado:
+      row.valorEstimado !== null && row.valorEstimado !== undefined
+        ? row.valorEstimado.toFixed(2)
+        : null,
+    valorContratado:
+      row.valorContratado !== null && row.valorContratado !== undefined
+        ? row.valorContratado.toFixed(2)
+        : null,
+    analysisSeverity: row.severity,
+    issues: row.issues,
+    duplicateFileCount: row.duplicateFileCount,
+    duplicateGroupKey: row.duplicateGroupKey,
+    internalMatches: row.internalMatches,
+    importedMatches: row.importedMatches,
+    rawPayload,
+  };
 }
 
 export const importacoesRouter = router({
@@ -429,6 +523,7 @@ export const importacoesRouter = router({
             selectedImportedProcessId:
               importacaoLegadoRegistros.selectedImportedProcessId,
             reviewedAt: importacaoLegadoRegistros.reviewedAt,
+            rawPayload: importacaoLegadoRegistros.rawPayload,
           })
           .from(importacaoLegadoRegistros)
           .where(whereClause)
@@ -466,13 +561,30 @@ export const importacoesRouter = router({
           duplicateGroups: lote.duplicateGroups as unknown[],
           reviewCounts,
         },
-        items: rows.map((row) => ({
-          ...row,
-          valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
-          valorContratado: row.valorContratado
-            ? toNumber(row.valorContratado)
-            : null,
-        })),
+        items: rows.map((row) => {
+          const { rawPayload, ...baseRow } = row;
+          return {
+            ...baseRow,
+            valorEstimado: row.valorEstimado ? toNumber(row.valorEstimado) : null,
+            valorContratado: row.valorContratado
+              ? toNumber(row.valorContratado)
+              : null,
+            rawData: coerceLegacyRawPayload({
+              linha: row.linha,
+              legacyId: row.legacyId,
+              modalidade: row.modalidade,
+              processoAdministrativo: row.processoAdministrativo,
+              protocolo: row.protocolo,
+              numeroEdital: row.numeroEdital,
+              statusLegado: row.status,
+              secretaria: row.secretaria,
+              objetoResumo: row.objetoResumo,
+              valorEstimado: row.valorEstimado,
+              valorContratado: row.valorContratado,
+              rawPayload,
+            }),
+          };
+        }),
         total: Number(totalRow[0]?.total ?? 0),
         page: input.page,
         totalPages: Math.max(1, Math.ceil(Number(totalRow[0]?.total ?? 0) / input.pageSize)),
@@ -483,16 +595,13 @@ export const importacoesRouter = router({
     .input(importacaoLegadoXlsxUpdateRowInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
-      const [before] = await db
+      const loteRows = await db
         .select()
         .from(importacaoLegadoRegistros)
-        .where(
-          and(
-            eq(importacaoLegadoRegistros.id, input.rowId),
-            eq(importacaoLegadoRegistros.loteId, input.loteId),
-          ),
-        )
-        .limit(1);
+        .where(eq(importacaoLegadoRegistros.loteId, input.loteId))
+        .orderBy(importacaoLegadoRegistros.linha);
+
+      const before = loteRows.find((row) => row.id === input.rowId);
 
       if (!before) {
         throw new TRPCError({
@@ -521,26 +630,101 @@ export const importacoesRouter = router({
         });
       }
 
-      await db
-        .update(importacaoLegadoRegistros)
-        .set({
-          reviewStatus: input.reviewStatus,
-          reviewNotes: input.reviewNotes ?? null,
-          selectedInternalProcessId:
-            input.reviewStatus === "VINCULAR_INTERNO"
-              ? input.selectedInternalProcessId ?? null
-              : null,
-          selectedImportedProcessId:
-            input.reviewStatus === "DUPLICADO_BASE"
-              ? input.selectedImportedProcessId ?? null
-              : null,
-          reviewedBy: ctx.user!.id,
-          reviewedAt: new Date(),
-          atualizadoEm: new Date(),
-        })
-        .where(eq(importacaoLegadoRegistros.id, input.rowId));
+      const mergedTargetRaw = mergeLegacySanitizedData(
+        coerceLegacyRawPayload(before),
+        input.sanitizedData,
+      );
 
-      await refreshLegacyLoteReviewCounts(db, input.loteId);
+      const { internalProcesses, importedProcesses, secretariasRows } =
+        await loadLegacyAnalysisBases(db);
+      const result = analyzeLegacyRows({
+        rows: loteRows.map((row) =>
+          row.id === input.rowId ? mergedTargetRaw : coerceLegacyRawPayload(row),
+        ),
+        internalProcesses,
+        importedProcesses,
+        secretarias: secretariasRows,
+      });
+
+      const analyzedRowsByLine = new Map(
+        result.rows.map((row) => [row.linha, row] as const),
+      );
+      const rawRowsByLine = new Map<number, ImportacaoLegadoXlsxRow>(
+        loteRows.map((row) => [
+          row.linha,
+          row.id === input.rowId ? mergedTargetRaw : coerceLegacyRawPayload(row),
+        ]),
+      );
+      const rowsByLine = new Map(loteRows.map((row) => [row.linha, row] as const));
+      const affectedLines = new Set<number>([before.linha]);
+
+      if (before.duplicateGroupKey) {
+        for (const row of loteRows) {
+          if (row.duplicateGroupKey === before.duplicateGroupKey) {
+            affectedLines.add(row.linha);
+          }
+        }
+      }
+
+      const targetAnalysis = analyzedRowsByLine.get(before.linha);
+      if (targetAnalysis?.duplicateGroupKey) {
+        const duplicateGroup = result.duplicateGroups.find(
+          (group) => group.key === targetAnalysis.duplicateGroupKey,
+        );
+        for (const linha of duplicateGroup?.linhas ?? []) {
+          affectedLines.add(linha);
+        }
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(importacaoLegadoLotes)
+          .set({
+            totalRegistros: result.summary.totalRows,
+            totalLimpos: result.summary.cleanRows,
+            totalPendencias: result.summary.rowsWithIssues,
+            totalCriticos: result.summary.criticalRows,
+            totalMatchInterno: result.summary.rowsWithInternalMatches,
+            totalMatchBase: result.summary.rowsWithImportedMatches,
+            issueBuckets: result.issueBuckets,
+            duplicateGroups: result.duplicateGroups,
+            atualizadoEm: new Date(),
+          })
+          .where(eq(importacaoLegadoLotes.id, input.loteId));
+
+        for (const linha of affectedLines) {
+          const currentRow = rowsByLine.get(linha);
+          const analyzedRow = analyzedRowsByLine.get(linha);
+          const rawPayload = rawRowsByLine.get(linha);
+          if (!currentRow || !analyzedRow || !rawPayload) continue;
+
+          await tx
+            .update(importacaoLegadoRegistros)
+            .set({
+              ...mapLegacyAnalysisRowToDbUpdate(analyzedRow, rawPayload),
+              ...(currentRow.id === input.rowId
+                ? {
+                    reviewStatus: input.reviewStatus,
+                    reviewNotes: input.reviewNotes ?? null,
+                    selectedInternalProcessId:
+                      input.reviewStatus === "VINCULAR_INTERNO"
+                        ? input.selectedInternalProcessId ?? null
+                        : null,
+                    selectedImportedProcessId:
+                      input.reviewStatus === "DUPLICADO_BASE"
+                        ? input.selectedImportedProcessId ?? null
+                        : null,
+                    reviewedBy: ctx.user!.id,
+                    reviewedAt: new Date(),
+                  }
+                : {}),
+              atualizadoEm: new Date(),
+            })
+            .where(eq(importacaoLegadoRegistros.id, currentRow.id));
+        }
+
+        await refreshLegacyLoteReviewCounts(tx, input.loteId);
+      });
 
       const [after] = await db
         .select()
@@ -558,7 +742,10 @@ export const importacoesRouter = router({
       });
 
       return {
-        message: "Decisão de saneamento registrada com sucesso.",
+        message:
+          input.sanitizedData && Object.keys(input.sanitizedData).length
+            ? "Linha saneada, reanalisada e salva com sucesso."
+            : "Decisão de saneamento registrada com sucesso.",
       };
     }),
 

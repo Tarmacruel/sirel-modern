@@ -153,6 +153,30 @@ export const importacaoLegadoXlsxDetailInputSchema = z.object({
   onlyIssues: z.boolean().default(false),
 });
 
+export const importacaoLegadoXlsxEditableFieldsSchema =
+  importacaoLegadoXlsxRowSchema
+    .pick({
+      legacyId: true,
+      modalidade: true,
+      processoAdministrativo: true,
+      protocolo: true,
+      numeroEdital: true,
+      status: true,
+      condutorProcesso: true,
+      resumoObjeto: true,
+      objeto: true,
+      secretaria: true,
+      dataPublicacaoDom: true,
+      dataPublicacaoDou: true,
+      dataPublicacaoJornal: true,
+      dataAbertura: true,
+      dataHomologacao: true,
+      valorEstimado: true,
+      valorContratado: true,
+      cnpj: true,
+    })
+    .partial();
+
 export const importacaoLegadoXlsxUpdateRowInputSchema = z.object({
   loteId: z.number().int().positive(),
   rowId: z.number().int().positive(),
@@ -160,6 +184,7 @@ export const importacaoLegadoXlsxUpdateRowInputSchema = z.object({
   reviewNotes: z.string().trim().max(4000).nullable().optional(),
   selectedInternalProcessId: z.number().int().positive().nullable().optional(),
   selectedImportedProcessId: z.number().int().positive().nullable().optional(),
+  sanitizedData: importacaoLegadoXlsxEditableFieldsSchema.optional(),
 });
 
 export const importacaoLegadoXlsxBulkUpdateRowsInputSchema = z.object({
@@ -226,6 +251,9 @@ export type ImportacaoLegadoXlsxListLotesInput = z.infer<
 >;
 export type ImportacaoLegadoXlsxDetailInput = z.infer<
   typeof importacaoLegadoXlsxDetailInputSchema
+>;
+export type ImportacaoLegadoXlsxEditableFields = z.infer<
+  typeof importacaoLegadoXlsxEditableFieldsSchema
 >;
 export type ImportacaoLegadoXlsxUpdateRowInput = z.infer<
   typeof importacaoLegadoXlsxUpdateRowInputSchema
