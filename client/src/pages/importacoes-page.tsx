@@ -468,6 +468,95 @@ function inferLegacyTipoObjeto(
   return "PRODUTO";
 }
 
+function normalizeLookupText(value?: string | null) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function tokenizeLookupText(value?: string | null) {
+  return new Set(
+    normalizeLookupText(value)
+      .split(/[^a-z0-9]+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3),
+  );
+}
+
+function findBestNamedMatch<T extends { nome: string }>(
+  items: T[] | undefined,
+  query?: string | null,
+) {
+  if (!items?.length || !query) return undefined;
+  const normalizedQuery = normalizeLookupText(query);
+  if (!normalizedQuery) return undefined;
+
+  const exact = items.find(
+    (item) => normalizeLookupText(item.nome) === normalizedQuery,
+  );
+  if (exact) return exact;
+
+  const inclusive = items.find((item) => {
+    const normalizedName = normalizeLookupText(item.nome);
+    return (
+      normalizedName.includes(normalizedQuery) ||
+      normalizedQuery.includes(normalizedName)
+    );
+  });
+  if (inclusive) return inclusive;
+
+  const queryTokens = tokenizeLookupText(query);
+  let best: { item: T; score: number } | null = null;
+  for (const item of items) {
+    const itemTokens = tokenizeLookupText(item.nome);
+    if (!itemTokens.size || !queryTokens.size) continue;
+    let intersection = 0;
+    for (const token of queryTokens) {
+      if (itemTokens.has(token)) intersection += 1;
+    }
+    const score = intersection / Math.max(queryTokens.size, itemTokens.size);
+    if (score >= 0.4 && (!best || score > best.score)) {
+      best = { item, score };
+    }
+  }
+
+  return best?.item;
+}
+
+function findBestStatusMatch<T extends { nome: string }>(
+  items: T[] | undefined,
+  rawStatus?: string | null,
+) {
+  const normalized = normalizeLookupText(rawStatus);
+  if (!normalized) return undefined;
+
+  const keywordMap: Array<[string[], string]> = [
+    [["homolog"], "HOMOLOGADO"],
+    [["adjudic"], "ADJUDICADO"],
+    [["public"], "PUBLICADO"],
+    [["recepc", "proposta"], "RECEPÇÃO DE PROPOSTAS"],
+    [["disputa"], "DISPUTA"],
+    [["habilit"], "HABILITAÇÃO"],
+    [["suspens"], "SUSPENSO"],
+    [["revog"], "REVOGADO"],
+    [["anul"], "ANULADO"],
+    [["fracass"], "FRACASSADO"],
+    [["desert"], "DESERTO"],
+    [["planej", "arquiv", "intern"], "EM PLANEJAMENTO"],
+  ];
+
+  for (const [keywords, target] of keywordMap) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      const matched = findBestNamedMatch(items, target);
+      if (matched) return matched;
+    }
+  }
+
+  return findBestNamedMatch(items, rawStatus);
+}
+
 function parseLegacyCell(value: unknown) {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -1444,11 +1533,13 @@ export function ImportacoesPage() {
             : modoDisputaNorm.includes("fechado")
               ? "FECHADO"
               : "NAO_SE_APLICA";
-      const matchedModalidade = catalogQuery.data?.modalidades.find(
-        (item) => normalize(item.nome) === normalize(String(modalidadeRaw)),
+      const matchedModalidade = findBestNamedMatch(
+        catalogQuery.data?.modalidades,
+        String(modalidadeRaw),
       );
-      const matchedStatus = catalogQuery.data?.statusProcesso.find(
-        (item) => normalize(item.nome) === normalize(String(situacaoRaw)),
+      const matchedStatus = findBestStatusMatch(
+        catalogQuery.data?.statusProcesso,
+        String(situacaoRaw),
       );
 
       const dataBase =
@@ -1507,9 +1598,9 @@ export function ImportacoesPage() {
     }
 
     if (createProcessSource === "BLL" && detailData?.record) {
-      const importedModalidade = normalize(detailData.record.modalidade);
-      const matchedModalidade = catalogQuery.data?.modalidades.find(
-        (item) => normalize(item.nome) === importedModalidade,
+      const matchedModalidade = findBestNamedMatch(
+        catalogQuery.data?.modalidades,
+        detailData.record.modalidade,
       );
 
       const modoDisputaFromBll = (() => {
@@ -1535,9 +1626,9 @@ export function ImportacoesPage() {
           normalize(item.nome) === normalize(detailData.record.condutorNome),
       );
 
-      const matchedStatus = catalogQuery.data?.statusProcesso.find(
-        (item) =>
-          normalize(item.nome) === normalize(detailData.record.situacaoExterna),
+      const matchedStatus = findBestStatusMatch(
+        catalogQuery.data?.statusProcesso,
+        detailData.record.situacaoExterna,
       );
 
       return {
@@ -1579,14 +1670,17 @@ export function ImportacoesPage() {
       const statusRaw = raw.status ?? legacyCreateProcessDraft.fallbackStatus ?? "";
       const secretariaRaw =
         raw.secretaria ?? legacyCreateProcessDraft.fallbackSecretaria ?? "";
-      const matchedModalidade = catalogQuery.data?.modalidades.find(
-        (item) => normalize(item.nome) === normalize(modalidadeRaw),
+      const matchedModalidade = findBestNamedMatch(
+        catalogQuery.data?.modalidades,
+        modalidadeRaw,
       );
-      const matchedStatus = catalogQuery.data?.statusProcesso.find(
-        (item) => normalize(item.nome) === normalize(statusRaw),
+      const matchedStatus = findBestStatusMatch(
+        catalogQuery.data?.statusProcesso,
+        statusRaw,
       );
-      const matchedSecretaria = catalogQuery.data?.secretarias.find(
-        (item) => normalize(item.nome) === normalize(secretariaRaw),
+      const matchedSecretaria = findBestNamedMatch(
+        catalogQuery.data?.secretarias,
+        secretariaRaw,
       );
 
       const dataBase =
