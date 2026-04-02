@@ -78,6 +78,7 @@ export function WorkflowPage() {
   const [openEditDataModal, setOpenEditDataModal] = useState(false);
   const [editDataForm, setEditDataForm] = useState({
     protocolo: "",
+    dataEntradaLicitacao: "",
     numeroAdministrativo: "",
     numeroEdital: "",
     dataAbertura: "",
@@ -203,6 +204,7 @@ export function WorkflowPage() {
     setEditDataForm((current) => ({
       ...current,
       protocolo: detail.processo?.protocolo ?? "",
+      dataEntradaLicitacao: detail.processo?.dataEntradaLicitacao ?? "",
       numeroAdministrativo: detail.processo?.numeroAdministrativo ?? "",
       numeroEdital: detail.processo?.numeroEdital ?? "",
       dataAbertura: detail.processo?.dataAbertura ?? "",
@@ -336,6 +338,8 @@ export function WorkflowPage() {
 
     if (editDataForm.protocolo?.trim())
       updatePayload.protocolo = editDataForm.protocolo.trim();
+    if (editDataForm.dataEntradaLicitacao)
+      updatePayload.dataEntradaLicitacao = editDataForm.dataEntradaLicitacao;
     if (editDataForm.numeroAdministrativo?.trim())
       updatePayload.numeroAdministrativo =
         editDataForm.numeroAdministrativo.trim();
@@ -855,11 +859,15 @@ export function WorkflowPage() {
                       {detailQuery.data?.processo?.protocolo ?? "Sem protocolo"}
                     </p>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      {detailQuery.data?.processo?.numeroAdministrativo
-                        ? `Administrativo ${detailQuery.data.processo.numeroAdministrativo}`
-                        : detailQuery.data?.processo?.numeroEdital
-                          ? `Edital ${detailQuery.data.processo.numeroEdital}`
-                          : "Sem administrativo ou edital"}
+                      {detailQuery.data?.processo?.dataEntradaLicitacao
+                        ? `Entrada na licitação em ${formatShortDateBR(
+                            detailQuery.data.processo.dataEntradaLicitacao,
+                          )}`
+                        : detailQuery.data?.processo?.numeroAdministrativo
+                          ? `Administrativo ${detailQuery.data.processo.numeroAdministrativo}`
+                          : detailQuery.data?.processo?.numeroEdital
+                            ? `Edital ${detailQuery.data.processo.numeroEdital}`
+                            : "Sem administrativo, edital ou data de entrada"}
                     </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]">
@@ -1315,6 +1323,19 @@ export function WorkflowPage() {
                     protocolo: event.target.value,
                   }))
                 }
+              />
+            </FormField>
+            <FormField label="Entrada na licitação">
+              <input
+                type="date"
+                value={editDataForm.dataEntradaLicitacao}
+                onChange={(event) =>
+                  setEditDataForm((current) => ({
+                    ...current,
+                    dataEntradaLicitacao: event.target.value,
+                  }))
+                }
+                className="w-full rounded-[10px] border border-[rgba(209,213,219,0.92)] bg-white px-3 py-2 text-sm outline-none"
               />
             </FormField>
             <FormField label="Número administrativo">

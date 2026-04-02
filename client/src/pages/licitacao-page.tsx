@@ -359,6 +359,11 @@ export function LicitacaoPage() {
               </div>
 
               <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-2)] p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">Entrada na licitação</p>
+                <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">{formatShortDateBR(selectedRow.dataEntradaLicitacao)}</p>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface-2)] p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">Objeto completo</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--text-primary)]">{cleanDisplayText(selectedRow.objeto || "Sem objeto informado.")}</p>
               </div>

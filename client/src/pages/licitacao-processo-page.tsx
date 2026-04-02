@@ -2290,6 +2290,14 @@ export function LicitacaoProcessoPage({
                     </div>
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
                       <span className="font-semibold text-[var(--color-primary-900)]">
+                        {formatShortDateBR(detalhe.processo.dataEntradaLicitacao)}
+                      </span>
+                      <div className="text-[var(--color-neutral-500)]">
+                        Entrada na licitação
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
+                      <span className="font-semibold text-[var(--color-primary-900)]">
                         {documentos.length}
                       </span>
                       <div className="text-[var(--color-neutral-500)]">

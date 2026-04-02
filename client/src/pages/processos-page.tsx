@@ -227,6 +227,9 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                             .filter(Boolean)
                             .join(" • ") || "Sem protocolo, administrativo ou edital"}
                         </div>
+                        <div className="text-xs text-[var(--text-muted)]">
+                          Entrada na licitação: {formatShortDateBR(row.dataEntradaLicitacao)}
+                        </div>
                         {row.origemCadastro === "LEGADO" ? (
                           <span className="mt-2 inline-flex rounded-full bg-[var(--color-primary-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
                             {processoOrigemCadastroLabels[row.origemCadastro]}
@@ -336,6 +339,7 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
               <div className="grid gap-3 md:grid-cols-3">
                 <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Documentos</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{overviewQuery.data.gerencial.documentos}</p></article>
                 <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Contratos</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{overviewQuery.data.gerencial.contratosAtivos}/{overviewQuery.data.gerencial.contratos}</p></article>
+                <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Entrada na licitação</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatShortDateBR(overviewQuery.data.processo.dataEntradaLicitacao)}</p></article>
                 <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Abertura prevista</p><p className="mt-2 text-2xl font-black text-[var(--color-primary-900)]">{formatShortDateBR(overviewQuery.data.processo.dataAbertura)}</p></article>
               </div>
 
@@ -343,6 +347,7 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Parâmetros executivos</p>
                 <dl className="mt-3 grid gap-3 text-sm text-[var(--color-neutral-700)] md:grid-cols-2">
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Protocolo</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.protocolo ?? "Não informado")}</dd></div>
+                  <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Entrada na licitação</dt><dd className="font-semibold text-[var(--color-primary-900)]">{formatShortDateBR(overviewQuery.data.processo.dataEntradaLicitacao)}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Secretaria</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.secretaria.nome)}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Modalidade</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.modalidade?.nome ?? "Não informada")}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Status atual</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.statusAtual?.nome ?? "Sem status")}</dd></div>

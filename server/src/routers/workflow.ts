@@ -21,6 +21,10 @@ import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import { getNextNumeroEdital } from "../lib/processo-identity.js";
 import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 
+function todayDateOnly() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export const workflowRouter = router({
   summary: publicProcedure.query(async () => {
     const db = requireDb();
@@ -93,6 +97,7 @@ export const workflowRouter = router({
         processoId: processos.id,
         numeroSirel: processos.numeroSirel,
         protocolo: processos.protocolo,
+        dataEntradaLicitacao: processos.dataEntradaLicitacao,
         numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
         tipoObjeto: processos.tipoObjeto,
@@ -176,6 +181,7 @@ export const workflowRouter = router({
         id: processos.id,
         numeroSirel: processos.numeroSirel,
         protocolo: processos.protocolo,
+        dataEntradaLicitacao: processos.dataEntradaLicitacao,
         numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
         objeto: processos.objeto,
@@ -268,6 +274,9 @@ export const workflowRouter = router({
     }
 
     if (input.moduloDestino === "LICITACAO") {
+      if (!currentProcess.dataEntradaLicitacao) {
+        processPatch.dataEntradaLicitacao = todayDateOnly();
+      }
       const [licitacaoAtual] = await db.select().from(licitacoes).where(eq(licitacoes.processoId, input.processoId)).limit(1);
       if (!licitacaoAtual) {
         await db.insert(licitacoes).values({
@@ -330,6 +339,8 @@ export const workflowRouter = router({
       .set({
         numeroEdital,
         condutorProcessoId: input.condutorProcessoId,
+        dataEntradaLicitacao:
+          currentProcess.dataEntradaLicitacao ?? todayDateOnly(),
         publicado: true,
         statusId: input.statusId ?? currentProcess.statusId,
         atualizadoEm: new Date(),

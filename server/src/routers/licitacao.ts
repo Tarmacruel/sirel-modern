@@ -669,6 +669,7 @@ async function getBaseProcesso(db: DbClient, processoId: number) {
     .select({
       id: processos.id,
       numeroSirel: processos.numeroSirel,
+      dataEntradaLicitacao: processos.dataEntradaLicitacao,
       numeroEdital: processos.numeroEdital,
       numeroAdministrativo: processos.numeroAdministrativo,
       objeto: processos.objeto,
@@ -816,6 +817,7 @@ export const licitacaoRouter = router({
         .select({
           processoId: processos.id,
           numeroSirel: processos.numeroSirel,
+          dataEntradaLicitacao: processos.dataEntradaLicitacao,
           numeroEdital: processos.numeroEdital,
           objeto: processos.objeto,
           secretaria: secretarias.nome,

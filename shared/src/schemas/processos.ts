@@ -27,6 +27,7 @@ export const processoListInputSchema = z.object({
 export const processoCreateInputSchema = z
   .object({
     protocolo: z.string().max(160).optional(),
+    dataEntradaLicitacao: z.string().optional(),
     numeroAdministrativo: z.string().max(64).optional(),
     numeroEdital: z.string().max(64).optional(),
     anoReferencia: z.number().int().gte(2020).lte(2100),
@@ -82,6 +83,7 @@ export const processoUpdateDataInputSchema = z.object({
   processoId: z.number().int().positive(),
   foraDoFluxo: z.boolean().optional(),
   protocolo: z.string().max(160).optional(),
+  dataEntradaLicitacao: z.string().optional(),
   numeroAdministrativo: z.string().max(64).optional(),
   numeroEdital: z.string().max(64).optional(),
   dataAbertura: z.string().optional(),

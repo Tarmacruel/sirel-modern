@@ -169,6 +169,8 @@ export const importacaoLegadoXlsxEditableFieldsSchema =
       dataPublicacaoDom: true,
       dataPublicacaoDou: true,
       dataPublicacaoJornal: true,
+      dataInicio: true,
+      dataEntrada: true,
       dataAbertura: true,
       dataHomologacao: true,
       valorEstimado: true,

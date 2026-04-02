@@ -4,6 +4,7 @@ import { buildProcessoPayload, validateProcessoForm } from "@/features/processos
 
 const baseForm = {
   protocolo: "PROTOCOLO-2026-0001",
+  dataEntradaLicitacao: "2026-03-22",
   numeroAdministrativo: "123/2026",
   anoReferencia: "2026",
   secretariaId: "1",

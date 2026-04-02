@@ -185,11 +185,27 @@ function parseArgs(argv: string[]): ImportArgs {
 async function main() {
   const db = requireDb();
   const cliArgs = parseArgs(process.argv.slice(2));
-  const defaultPassword = process.env.BETA_DEFAULT_PASSWORD || "SirelBeta@2026";
+  const defaultPassword =
+    process.env.SIREL_DEFAULT_PASSWORD ??
+    process.env.BETA_DEFAULT_PASSWORD ??
+    "Sirel@2026";
   const defaultPasswordHash = hashPassword(defaultPassword);
-  const betaAdminUsername = normalizeUsername(process.env.BETA_ADMIN_USERNAME || "jonatas.sousa", "jonatas.sousa");
-  const betaAdminName = toCleanString(process.env.BETA_ADMIN_NAME || "Jonatas Sousa");
-  const betaAdminEmail = toCleanString(process.env.BETA_ADMIN_EMAIL || "jonatassousa@outlook.com").toLowerCase();
+  const betaAdminUsername = normalizeUsername(
+    process.env.SIREL_ADMIN_USERNAME ??
+      process.env.BETA_ADMIN_USERNAME ??
+      "jonatas.sousa",
+    "jonatas.sousa",
+  );
+  const betaAdminName = toCleanString(
+    process.env.SIREL_ADMIN_NAME ??
+      process.env.BETA_ADMIN_NAME ??
+      "Jonatas Sousa",
+  );
+  const betaAdminEmail = toCleanString(
+    process.env.SIREL_ADMIN_EMAIL ??
+      process.env.BETA_ADMIN_EMAIL ??
+      "jonatassousa@outlook.com",
+  ).toLowerCase();
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const defaultSnapshotPath = resolve(currentDir, "../../../storage/migration/legacy_snapshot.json");
   const snapshotPath = resolve(process.cwd(), cliArgs.snapshotPath ?? defaultSnapshotPath);
@@ -360,7 +376,7 @@ async function main() {
       username: betaAdminUsername,
       name: betaAdminName,
       email: betaAdminEmail || null,
-      loginMethod: "local_beta_admin",
+      loginMethod: "local_sirel_admin",
       passwordHash: defaultPasswordHash,
       role: "admin",
       secretariaId: Array.from(secretariaMap.values())[0] ?? null,
@@ -483,6 +499,7 @@ async function main() {
       .values({
         numeroSirel: toCleanString(row.numero_sirel),
         protocolo: toNullableString(row.protocolo),
+        dataEntradaLicitacao: toDateOnly(row.criado_em),
         numeroAdministrativo: toNullableString(row.numero_administrativo),
         numeroEdital: toNullableString(row.numero_edital),
         anoReferencia: Number(row.ano_referencia),
@@ -512,6 +529,7 @@ async function main() {
         target: processos.numeroSirel,
         set: {
           protocolo: toNullableString(row.protocolo),
+          dataEntradaLicitacao: toDateOnly(row.criado_em),
           numeroAdministrativo: toNullableString(row.numero_administrativo),
           numeroEdital: toNullableString(row.numero_edital),
           secretariaId: resolveSecretariaId(Number(row.secretaria_legacy_id ?? 0)),

@@ -28,6 +28,7 @@ import { mapZodFieldErrors } from "@/lib/zod-errors";
 
 const initialProcessoForm: ProcessoFormState = {
   protocolo: "",
+  dataEntradaLicitacao: "",
   numeroAdministrativo: "",
   numeroEdital: "",
   anoReferencia: String(new Date().getFullYear()),
@@ -312,6 +313,22 @@ export function ProcessoCreateModal({
                 setForm((current) => ({
                   ...current,
                   protocolo: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField
+            label="Entrada na licitação"
+            error={fieldErrors.dataEntradaLicitacao}
+          >
+            <Input
+              type="date"
+              value={form.dataEntradaLicitacao}
+              error={Boolean(fieldErrors.dataEntradaLicitacao)}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  dataEntradaLicitacao: event.target.value,
                 }))
               }
             />

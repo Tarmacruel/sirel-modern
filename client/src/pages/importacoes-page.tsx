@@ -176,6 +176,8 @@ type LegacyRowSanitizedDraft = {
   dataPublicacaoDom: string;
   dataPublicacaoDou: string;
   dataPublicacaoJornal: string;
+  dataInicio: string;
+  dataEntrada: string;
   dataAbertura: string;
   dataHomologacao: string;
   valorEstimado: string;
@@ -425,6 +427,8 @@ function buildLegacySanitizedDraft(row: LegacyLoteDetailRow): LegacyRowSanitized
     dataPublicacaoDom: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoDom)),
     dataPublicacaoDou: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoDou)),
     dataPublicacaoJornal: toLegacyDraftString(normalizeLegacyDateCell(raw.dataPublicacaoJornal)),
+    dataInicio: toLegacyDraftString(normalizeLegacyDateCell(raw.dataInicio)),
+    dataEntrada: toLegacyDraftString(normalizeLegacyDateCell(raw.dataEntrada)),
     dataAbertura: toLegacyDraftString(normalizeLegacyDateCell(raw.dataAbertura)),
     dataHomologacao: toLegacyDraftString(normalizeLegacyDateCell(raw.dataHomologacao)),
     valorEstimado: formatCurrencyForForm(raw.valorEstimado ?? row.valorEstimado),
@@ -457,6 +461,8 @@ function buildLegacySanitizedPayload(
     dataPublicacaoDom: textOrNull(draft.dataPublicacaoDom),
     dataPublicacaoDou: textOrNull(draft.dataPublicacaoDou),
     dataPublicacaoJornal: textOrNull(draft.dataPublicacaoJornal),
+    dataInicio: textOrNull(draft.dataInicio),
+    dataEntrada: textOrNull(draft.dataEntrada),
     dataAbertura: textOrNull(draft.dataAbertura),
     dataHomologacao: textOrNull(draft.dataHomologacao),
     valorEstimado: parseLegacyNumber(draft.valorEstimado),
@@ -1823,6 +1829,9 @@ export function ImportacoesPage() {
 
       return {
         protocolo: raw.protocolo ?? "",
+        dataEntradaLicitacao:
+          formatDateForInput(raw.dataEntrada) ||
+          formatDateForInput(raw.dataInicio),
         numeroAdministrativo:
           raw.processoAdministrativo ??
           legacyCreateProcessDraft.fallbackProcessoAdministrativo ??
@@ -3926,6 +3935,44 @@ export function ImportacoesPage() {
                               sanitized: {
                                 ...current.sanitized,
                                 dataPublicacaoJornal: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Data de início">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataInicio}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataInicio: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                    placeholder="dd/mm/aaaa"
+                  />
+                </FormField>
+                <FormField label="Entrada na licitação">
+                  <Input
+                    value={legacyReviewModal.sanitized.dataEntrada}
+                    onChange={(event) =>
+                      setLegacyReviewModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              sanitized: {
+                                ...current.sanitized,
+                                dataEntrada: event.target.value,
                               },
                             }
                           : current,

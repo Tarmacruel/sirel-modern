@@ -69,6 +69,10 @@ function parseOptionalTimestamp(value?: string) {
   return parsed;
 }
 
+function todayDateOnly() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 type MacroModuleTarget = "COMPRAS" | "LICITACAO" | "CONTRATOS";
 
 interface MacroTransitionBlocker {
@@ -462,6 +466,7 @@ export const processosRouter = router({
         id: processos.id,
         numeroSirel: processos.numeroSirel,
         protocolo: processos.protocolo,
+        dataEntradaLicitacao: processos.dataEntradaLicitacao,
         numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
         origemCadastro: processos.origemCadastro,
@@ -547,6 +552,9 @@ export const processosRouter = router({
       .values({
         numeroSirel,
         protocolo: input.protocolo ?? null,
+        dataEntradaLicitacao:
+          input.dataEntradaLicitacao ??
+          (moduloInicial === "LICITACAO" ? todayDateOnly() : null),
         numeroAdministrativo: input.numeroAdministrativo,
         numeroEdital: input.numeroEdital ?? null,
         anoReferencia: input.anoReferencia,
@@ -660,6 +668,8 @@ export const processosRouter = router({
 
     if (input.foraDoFluxo !== undefined) updateData.foraDoFluxo = input.foraDoFluxo;
     if (input.protocolo !== undefined) updateData.protocolo = input.protocolo;
+    if (input.dataEntradaLicitacao !== undefined)
+      updateData.dataEntradaLicitacao = input.dataEntradaLicitacao;
     if (input.numeroAdministrativo !== undefined) updateData.numeroAdministrativo = input.numeroAdministrativo;
     if (input.numeroEdital !== undefined) updateData.numeroEdital = input.numeroEdital;
     if (input.dataAbertura !== undefined) updateData.dataAbertura = input.dataAbertura;

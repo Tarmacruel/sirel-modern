@@ -316,6 +316,13 @@
             "when": 1775088000000,
             "tag": "0044_processos_legado_backfill_protocolo",
             "breakpoints": true
+        },
+        {
+            "idx": 45,
+            "version": "7",
+            "when": 1775091600000,
+            "tag": "0045_processos_data_entrada_licitacao",
+            "breakpoints": true
         }
     ]
 }

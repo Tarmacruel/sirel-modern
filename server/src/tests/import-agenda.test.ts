@@ -67,6 +67,11 @@ async function createProcess(db: any, secretariaId: number) {
       'ALTER TABLE "processos" ADD COLUMN IF NOT EXISTS "protocolo" varchar(160)',
     ),
   );
+  await db.execute(
+    sql.raw(
+      'ALTER TABLE "processos" ADD COLUMN IF NOT EXISTS "data_entrada_licitacao" date',
+    ),
+  );
   const numeroSirel = `TEST-${Date.now()}`;
   const [row] = await db
     .insert(processos)

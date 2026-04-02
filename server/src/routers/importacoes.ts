@@ -1308,6 +1308,9 @@ export const importacoesRouter = router({
             parseLegacyDateTimeToIso(raw.dataPublicacaoDou) ??
             parseLegacyDateTimeToIso(raw.dataPublicacaoJornal);
           const dataAbertura = parseLegacyDateToIso(raw.dataAbertura);
+          const dataEntradaLicitacao =
+            parseLegacyDateToIso(raw.dataEntrada) ??
+            parseLegacyDateToIso(raw.dataInicio);
           const dataDisputaSessao = parseLegacyDateTimeToIso(
             raw.dataAbertura,
             raw.horarioAbertura ?? raw.horarioInicio,
@@ -1323,6 +1326,7 @@ export const importacoesRouter = router({
           const processInsert: typeof processos.$inferInsert = {
             numeroSirel,
             protocolo: raw.protocolo ?? row.protocolo ?? null,
+            dataEntradaLicitacao: dataEntradaLicitacao ?? null,
             numeroAdministrativo:
               raw.processoAdministrativo ??
               row.processoAdministrativo ??
