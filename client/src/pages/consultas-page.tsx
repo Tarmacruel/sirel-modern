@@ -78,7 +78,7 @@ export function ConsultasPage() {
       >
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_repeat(4,minmax(0,0.8fr))]">
           <FormField label="Busca global">
-            <Input value={termo} onChange={(event) => { setPagina(1); setTermo(event.target.value); }} placeholder="Número SIREL, objeto, secretaria ou documento" />
+            <Input value={termo} onChange={(event) => { setPagina(1); setTermo(event.target.value); }} placeholder="SIREL, protocolo, administrativo, edital, objeto ou documento" />
           </FormField>
           <FormField label="Secretaria">
             <Select value={secretariaId} onChange={(event) => { setPagina(1); setSecretariaId(event.target.value); }}>
@@ -152,6 +152,15 @@ export function ConsultasPage() {
                       <div>
                         <h3 className="text-lg font-black text-[var(--color-primary-900)]">{row.objetoResumo}</h3>
                         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">{row.secretariaNome} · módulo atual: <span className="font-semibold text-[var(--color-neutral-800)]">{row.moduloAtual}</span></p>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                          {[
+                            row.protocolo ? `Protocolo ${row.protocolo}` : null,
+                            row.numeroAdministrativo ? `Adm ${row.numeroAdministrativo}` : null,
+                            row.numeroEdital ? `Edital ${row.numeroEdital}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ") || "Sem identificadores complementares"}
+                        </p>
                       </div>
                       <div className="grid gap-3 md:grid-cols-3">
                         <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">

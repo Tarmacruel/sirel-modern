@@ -175,6 +175,46 @@ export const cadastroSaveInputSchema = z.discriminatedUnion("entity", [
   z.object({ entity: z.literal("parametros"), data: parametroCadastroSchema }),
 ]);
 
+export const fornecedorMergeInputSchema = z.object({
+  sourceId: z.number().int().positive(),
+  targetId: z.number().int().positive(),
+}).superRefine((value, ctx) => {
+  if (value.sourceId === value.targetId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["targetId"],
+      message: "Selecione um fornecedor de destino diferente do cadastro duplicado.",
+    });
+  }
+});
+
+export const pessoaMergeInputSchema = z.object({
+  sourceId: z.number().int().positive(),
+  targetId: z.number().int().positive(),
+}).superRefine((value, ctx) => {
+  if (value.sourceId === value.targetId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["targetId"],
+      message: "Selecione uma pessoa de destino diferente do cadastro duplicado.",
+    });
+  }
+});
+
+export const cadastroBulkMergeInputSchema = z.object({
+  entity: z.enum(["fornecedores", "pessoas", "servidores"]),
+  targetId: z.number().int().positive(),
+  sourceIds: z.array(z.number().int().positive()).min(1).max(200),
+}).superRefine((value, ctx) => {
+  if (value.sourceIds.includes(value.targetId)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["sourceIds"],
+      message: "O cadastro mantido não pode estar na lista de registros a unificar.",
+    });
+  }
+});
+
 export const cadastroDeleteInputSchema = z.object({
   entity: z.enum(cadastroEntityOptions),
   id: z.number().int().positive(),
@@ -205,6 +245,9 @@ export type CadastroEntity = (typeof cadastroEntityOptions)[number];
 export type CadastroStatus = (typeof cadastroStatusOptions)[number];
 export type CadastrosListInput = z.infer<typeof cadastrosListInputSchema>;
 export type CadastroSaveInput = z.infer<typeof cadastroSaveInputSchema>;
+export type FornecedorMergeInput = z.infer<typeof fornecedorMergeInputSchema>;
+export type PessoaMergeInput = z.infer<typeof pessoaMergeInputSchema>;
+export type CadastroBulkMergeInput = z.infer<typeof cadastroBulkMergeInputSchema>;
 export type CadastroDeleteInput = z.infer<typeof cadastroDeleteInputSchema>;
 export type CadastroHistoryInput = z.infer<typeof cadastroHistoryInputSchema>;
 export type CadastroBulkStatusInput = z.infer<typeof cadastroBulkStatusInputSchema>;

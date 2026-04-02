@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   modoDisputaOptions,
+  modalidadeGrupoOptions,
   processoOrigemCadastroOptions,
   processoTipoObjetoOptions,
   workflowModuleOptions,
@@ -16,6 +17,8 @@ export const processoListInputSchema = z.object({
   statusId: z.number().int().positive().optional(),
   moduloAtual: z.string().optional(),
   situacao: z.string().optional(),
+  modalidadeGrupo: z.enum(modalidadeGrupoOptions).optional(),
+  somenteObrasServicosEngenharia: z.boolean().optional(),
   foraDoFluxo: z.boolean().optional(),
   paradosHaMaisDeSeteDias: z.boolean().optional(),
   ativo: z.boolean().optional(),
@@ -23,6 +26,7 @@ export const processoListInputSchema = z.object({
 
 export const processoCreateInputSchema = z
   .object({
+    protocolo: z.string().max(160).optional(),
     numeroAdministrativo: z.string().max(64).optional(),
     numeroEdital: z.string().max(64).optional(),
     anoReferencia: z.number().int().gte(2020).lte(2100),
@@ -77,6 +81,7 @@ export const processoSetAtivoInputSchema = z.object({
 export const processoUpdateDataInputSchema = z.object({
   processoId: z.number().int().positive(),
   foraDoFluxo: z.boolean().optional(),
+  protocolo: z.string().max(160).optional(),
   numeroAdministrativo: z.string().max(64).optional(),
   numeroEdital: z.string().max(64).optional(),
   dataAbertura: z.string().optional(),

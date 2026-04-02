@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { appRouter } from "../routers/index.js";
 import { requireDb, databaseEnabled } from "../db/client.js";
@@ -62,6 +62,11 @@ async function ensureUserId(db: any) {
 }
 
 async function createProcess(db: any, secretariaId: number) {
+  await db.execute(
+    sql.raw(
+      'ALTER TABLE "processos" ADD COLUMN IF NOT EXISTS "protocolo" varchar(160)',
+    ),
+  );
   const numeroSirel = `TEST-${Date.now()}`;
   const [row] = await db
     .insert(processos)

@@ -3,6 +3,7 @@ import { processoTipoObjetoOptions } from "@sirel/shared/const";
 import { normalizeCurrencyInputBR } from "@/lib/formatters";
 
 export interface ProcessoFormState {
+  protocolo: string;
   numeroAdministrativo: string;
   numeroEdital: string;
   anoReferencia: string;
@@ -39,6 +40,7 @@ function toOptionalNumber(value: string) {
 
 export function buildProcessoPayload(form: ProcessoFormState) {
   return {
+    protocolo: form.protocolo.trim() || undefined,
     numeroAdministrativo: form.numeroAdministrativo.trim() || undefined,
     numeroEdital: form.numeroEdital.trim() || undefined,
     anoReferencia: Number(form.anoReferencia),

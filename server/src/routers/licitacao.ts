@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 
 import {
   getLicitacaoChecklistCategories,
@@ -31,6 +31,7 @@ import {
 import type { AppContext } from "../_core/context.js";
 import { logAuditoria } from "../db/auditoria.js";
 import { requireDb } from "../db/client.js";
+import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import {
   documentos,
   fornecedores,
@@ -171,6 +172,10 @@ function formatCnpj(value: string) {
     /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
     "$1.$2.$3/$4-$5",
   );
+}
+
+function findFornecedorByNormalizedCnpj(normalizedCnpj: string) {
+  return sql<boolean>`regexp_replace(coalesce(${fornecedores.cnpj}, ''), '[^0-9]', '', 'g') = ${normalizedCnpj}`;
 }
 
 function buildDocumentoUrl(documentoId: number) {
@@ -781,6 +786,16 @@ export const licitacaoRouter = router({
       if (input.statusLicitacao) {
         filters.push(eq(licitacoes.statusLicitacao, input.statusLicitacao));
       }
+      if (input.modalidadeGrupo) {
+        const modalidadeGrupoFilter = buildModalidadeGrupoFilter(
+          modalidades.codigo,
+          input.modalidadeGrupo,
+        );
+        if (modalidadeGrupoFilter) filters.push(modalidadeGrupoFilter);
+      }
+      if (input.somenteObrasServicosEngenharia) {
+        filters.push(inArray(processos.tipoObjeto, ["OBRA", "SERVICO_ENG"] as const));
+      }
       if (typeof input.publicado === "boolean") {
         filters.push(eq(processos.publicado, input.publicado));
       }
@@ -807,6 +822,7 @@ export const licitacaoRouter = router({
           secretariaId: secretarias.id,
           modalidade: modalidades.nome,
           modalidadeCodigo: modalidades.codigo,
+          tipoObjeto: processos.tipoObjeto,
           etapaAtual: workflowProcesso.etapaAtual,
           situacaoWorkflow: workflowProcesso.situacao,
           atualizadoEm: workflowProcesso.atualizadoEm,
@@ -1861,13 +1877,11 @@ export const licitacaoRouter = router({
         });
       }
 
-      const cnpj = formatCnpj(cnpjDigits);
+      const cnpj = cnpjDigits;
       const [existing] = await db
         .select()
         .from(fornecedores)
-        .where(
-          or(eq(fornecedores.cnpj, cnpj), eq(fornecedores.cnpj, cnpjDigits)),
-        )
+        .where(findFornecedorByNormalizedCnpj(cnpjDigits))
         .limit(1);
 
       const patch = {

@@ -2,6 +2,8 @@
 import { PlusCircle, Search } from "lucide-react";
 
 import {
+  modalidadeGrupoLabels,
+  modalidadeGrupoOptions,
   processoOrigemCadastroLabels,
   workflowModuleOptions,
 } from "@sirel/shared/const";
@@ -43,9 +45,11 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
   const [secretariaId, setSecretariaId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [moduloAtual, setModuloAtual] = useState("");
+  const [modalidadeGrupo, setModalidadeGrupo] = useState<"" | (typeof modalidadeGrupoOptions)[number]>("");
   const [origemFluxo, setOrigemFluxo] = useState<"" | "fluxo" | "fora">("");
   const [ativoFilter, setAtivoFilter] = useState<"ativos" | "inativos" | "todos">("ativos");
   const [somenteParados, setSomenteParados] = useState(false);
+  const [somenteObrasServicosEngenharia, setSomenteObrasServicosEngenharia] = useState(false);
   const [selectedProcessId, setSelectedProcessId] = useState<number | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [pageFeedback, setPageFeedback] = useState<{ variant: "success" | "error"; message: string } | null>(null);
@@ -59,23 +63,26 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
       secretariaId: toOptionalId(secretariaId),
       statusId: toOptionalId(statusId),
       moduloAtual: moduloAtual || undefined,
+      modalidadeGrupo: modalidadeGrupo || undefined,
+      somenteObrasServicosEngenharia: somenteObrasServicosEngenharia || undefined,
       foraDoFluxo: origemFluxo === "" ? undefined : origemFluxo === "fora",
       paradosHaMaisDeSeteDias: somenteParados || undefined,
       ativo: ativoFilter === "todos" ? undefined : ativoFilter === "ativos",
     }),
-    [ativoFilter, deferredSearch, moduloAtual, origemFluxo, page, pageSize, secretariaId, somenteParados, statusId],
+    [ativoFilter, deferredSearch, modalidadeGrupo, moduloAtual, origemFluxo, page, pageSize, secretariaId, somenteObrasServicosEngenharia, somenteParados, statusId],
   );
 
   const catalogQuery = trpc.cadastros.formOptions.useQuery(undefined, { retry: false });
   const summaryQuery = trpc.processos.summary.useQuery(undefined, { retry: false });
   const listQuery = trpc.processos.list.useQuery(filters, { retry: false, placeholderData: (previous) => previous });
   const rows = listQuery.data?.items ?? [];
+  const displayedRows = selectedProcessId ? rows.filter((row) => row.id === selectedProcessId) : rows;
   const total = listQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     setPage(1);
-  }, [ativoFilter, deferredSearch, moduloAtual, origemFluxo, pageSize, secretariaId, somenteParados, statusId]);
+  }, [ativoFilter, deferredSearch, modalidadeGrupo, moduloAtual, origemFluxo, pageSize, secretariaId, somenteObrasServicosEngenharia, somenteParados, statusId]);
 
   useEffect(() => {
     if (processoId && processoId > 0) {
@@ -86,8 +93,8 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
       setSelectedProcessId(null);
       return;
     }
-    if (!selectedProcessId || !rows.some((row) => row.id === selectedProcessId)) {
-      setSelectedProcessId(rows[0].id);
+    if (selectedProcessId && !rows.some((row) => row.id === selectedProcessId)) {
+      setSelectedProcessId(null);
     }
   }, [processoId, rows, selectedProcessId]);
 
@@ -147,7 +154,7 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[220px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-neutral-400)]" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar processo" className="pl-9" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por SIREL, protocolo, administrativo, edital ou objeto" className="pl-9" />
             </div>
             <Select value={secretariaId} onChange={(event) => setSecretariaId(event.target.value)} className="max-w-[220px]">
               <option value="">Todas as secretarias</option>
@@ -160,6 +167,10 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
             <Select value={moduloAtual} onChange={(event) => setModuloAtual(event.target.value)} className="max-w-[180px]">
               <option value="">Todos os módulos</option>
               {workflowModuleOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </Select>
+            <Select value={modalidadeGrupo} onChange={(event) => setModalidadeGrupo(event.target.value as typeof modalidadeGrupo)} className="max-w-[220px]">
+              <option value="">Todos os tipos de modalidade</option>
+              {modalidadeGrupoOptions.map((item) => <option key={item} value={item}>{modalidadeGrupoLabels[item]}</option>)}
             </Select>
             <Select value={origemFluxo} onChange={(event) => setOrigemFluxo(event.target.value as typeof origemFluxo)} className="max-w-[180px]">
               <option value="">Qualquer origem</option>
@@ -174,6 +185,10 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
             <label className="flex items-center gap-2 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-secondary)]">
               <Checkbox checked={somenteParados} onChange={(event) => setSomenteParados(event.target.checked)} />
               Somente parados há mais de 7 dias
+            </label>
+            <label className="flex items-center gap-2 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+              <Checkbox checked={somenteObrasServicosEngenharia} onChange={(event) => setSomenteObrasServicosEngenharia(event.target.checked)} />
+              Obras e serviços de engenharia
             </label>
           </div>
         }
@@ -199,11 +214,19 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                       <TableCell colSpan={8}><Skeleton className="h-12 w-full" /></TableCell>
                     </TableRow>
                   ))
-                : rows.map((row) => (
-                    <TableRow key={row.id} onClick={() => setSelectedProcessId(row.id)} className={row.id === selectedProcessId ? "cursor-pointer bg-[var(--surface-highlight)]" : "cursor-pointer transition hover:bg-[var(--surface-soft)]"}>
+                : displayedRows.map((row) => (
+                    <TableRow key={row.id} onClick={() => setSelectedProcessId((current) => current === row.id ? null : row.id)} className={row.id === selectedProcessId ? "cursor-pointer bg-[var(--surface-highlight)]" : "cursor-pointer transition hover:bg-[var(--surface-soft)]"}>
                       <TableCell>
                         <div className="font-bold text-[var(--text-primary)]">{row.numeroSirel}</div>
-                        <div className="text-xs text-[var(--text-muted)]">{row.numeroEdital ?? "Edital ainda não gerado"}</div>
+                        <div className="text-xs text-[var(--text-muted)]">
+                          {[
+                            row.protocolo ? `Protocolo ${row.protocolo}` : null,
+                            row.numeroAdministrativo ? `Adm ${row.numeroAdministrativo}` : null,
+                            row.numeroEdital ? `Edital ${row.numeroEdital}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ") || "Sem protocolo, administrativo ou edital"}
+                        </div>
                         {row.origemCadastro === "LEGADO" ? (
                           <span className="mt-2 inline-flex rounded-full bg-[var(--color-primary-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
                             {processoOrigemCadastroLabels[row.origemCadastro]}
@@ -227,14 +250,21 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                       <TableCell>{row.contratosAtivos}/{row.contratos}</TableCell>
                     </TableRow>
                   ))}
-              {!listQuery.isLoading && !rows.length ? <TableRow><TableCell colSpan={8} className="text-center text-[var(--text-muted)]">Nenhum processo encontrado para os filtros aplicados.</TableCell></TableRow> : null}
+              {!listQuery.isLoading && !displayedRows.length ? <TableRow><TableCell colSpan={8} className="text-center text-[var(--text-muted)]">Nenhum processo encontrado para os filtros aplicados.</TableCell></TableRow> : null}
             </TableBody>
           </Table>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--text-secondary)]">Exibindo <span className="font-bold text-[var(--text-primary)]">{rows.length}</span> de <span className="font-bold text-[var(--text-primary)]">{total}</span> processos.</p>
+          <p className="text-sm text-[var(--text-secondary)]">
+            {selectedProcessId ? (
+              <>Exibindo <span className="font-bold text-[var(--text-primary)]">1</span> processo selecionado de <span className="font-bold text-[var(--text-primary)]">{total}</span>.</>
+            ) : (
+              <>Exibindo <span className="font-bold text-[var(--text-primary)]">{displayedRows.length}</span> de <span className="font-bold text-[var(--text-primary)]">{total}</span> processos.</>
+            )}
+          </p>
           <div className="flex items-center gap-3">
+            {selectedProcessId ? <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedProcessId(null)}>Limpar seleção</Button> : null}
             <Select value={String(pageSize)} onChange={(event) => setPageSize(Number(event.target.value))} className="max-w-[140px]">
               {[12, 24, 48].map((option) => <option key={option} value={option}>{option} por página</option>)}
             </Select>
@@ -249,18 +279,23 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
           description="Resumo executivo da situação atual do processo selecionado, agora em largura total para facilitar a leitura."
           action={
             overviewQuery.data?.processo ? (
-              <Button
-                variant={overviewQuery.data.processo.ativo ? "destructive" : "outline"}
-                onClick={() =>
-                  void setAtivoMutation.mutateAsync({
-                    processoId: overviewQuery.data!.processo.id,
-                    ativo: !overviewQuery.data!.processo.ativo,
-                  })
-                }
-                disabled={setAtivoMutation.isPending}
-              >
-                {overviewQuery.data.processo.ativo ? "Inativar processo" : "Reativar processo"}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedProcessId(null)}>
+                  Mostrar todos
+                </Button>
+                <Button
+                  variant={overviewQuery.data.processo.ativo ? "destructive" : "outline"}
+                  onClick={() =>
+                    void setAtivoMutation.mutateAsync({
+                      processoId: overviewQuery.data!.processo.id,
+                      ativo: !overviewQuery.data!.processo.ativo,
+                    })
+                  }
+                  disabled={setAtivoMutation.isPending}
+                >
+                  {overviewQuery.data.processo.ativo ? "Inativar processo" : "Reativar processo"}
+                </Button>
+              </div>
             ) : null
           }
         >
@@ -280,6 +315,15 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
                     {overviewQuery.data.processo.ativo ? "Ativo" : "Inativo"}
                   </span>
                 </div>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                  {[
+                    overviewQuery.data.processo.protocolo ? `Protocolo ${overviewQuery.data.processo.protocolo}` : null,
+                    overviewQuery.data.processo.numeroAdministrativo ? `Adm ${overviewQuery.data.processo.numeroAdministrativo}` : null,
+                    overviewQuery.data.processo.numeroEdital ? `Edital ${overviewQuery.data.processo.numeroEdital}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ") || "Identificadores complementares ainda não informados"}
+                </p>
                 <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-700)]">{cleanDisplayText(overviewQuery.data.processo.objeto)}</p>
               </article>
 
@@ -298,6 +342,7 @@ export function ProcessosPage({ processoId }: ProcessosPageProps = {}) {
               <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Parâmetros executivos</p>
                 <dl className="mt-3 grid gap-3 text-sm text-[var(--color-neutral-700)] md:grid-cols-2">
+                  <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Protocolo</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.protocolo ?? "Não informado")}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Secretaria</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.secretaria.nome)}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Modalidade</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.modalidade?.nome ?? "Não informada")}</dd></div>
                   <div className="flex items-center justify-between gap-4 border-b border-[var(--color-neutral-100)] pb-2"><dt className="text-[var(--color-neutral-500)]">Status atual</dt><dd className="font-semibold text-[var(--color-primary-900)]">{cleanDisplayText(overviewQuery.data.processo.statusAtual?.nome ?? "Sem status")}</dd></div>

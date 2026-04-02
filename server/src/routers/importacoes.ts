@@ -1322,6 +1322,7 @@ export const importacoesRouter = router({
             Boolean(raw.dataHomologacao);
           const processInsert: typeof processos.$inferInsert = {
             numeroSirel,
+            protocolo: raw.protocolo ?? row.protocolo ?? null,
             numeroAdministrativo:
               raw.processoAdministrativo ??
               row.processoAdministrativo ??

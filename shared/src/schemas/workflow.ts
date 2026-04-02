@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { workflowModuleOptions, workflowSituacaoOptions } from "../const.js";
+import {
+  modalidadeGrupoOptions,
+  workflowModuleOptions,
+  workflowSituacaoOptions,
+} from "../const.js";
 
 export const workflowListInputSchema = z.object({
   page: z.number().int().positive().default(1),
@@ -8,6 +12,8 @@ export const workflowListInputSchema = z.object({
   search: z.string().trim().optional(),
   moduloAtual: z.string().trim().optional(),
   situacao: z.string().trim().optional(),
+  modalidadeGrupo: z.enum(modalidadeGrupoOptions).optional(),
+  somenteObrasServicosEngenharia: z.boolean().optional(),
 });
 
 export const workflowMoveInputSchema = z.object({

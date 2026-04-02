@@ -302,6 +302,20 @@
             "when": 1775038800000,
             "tag": "0042_processos_origem_cadastro_legado",
             "breakpoints": true
+        },
+        {
+            "idx": 43,
+            "version": "7",
+            "when": 1775084400000,
+            "tag": "0043_processos_protocolo",
+            "breakpoints": true
+        },
+        {
+            "idx": 44,
+            "version": "7",
+            "when": 1775088000000,
+            "tag": "0044_processos_legado_backfill_protocolo",
+            "breakpoints": true
         }
     ]
 }

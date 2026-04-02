@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildProcessoPayload, validateProcessoForm } from "@/features/processos/form";
 
 const baseForm = {
+  protocolo: "PROTOCOLO-2026-0001",
   numeroAdministrativo: "123/2026",
   anoReferencia: "2026",
   secretariaId: "1",
@@ -28,6 +29,7 @@ const baseForm = {
 describe("processo form", () => {
   it("normalizes numeric values before validation", () => {
     const payload = buildProcessoPayload({ ...baseForm });
+    expect(payload.protocolo).toBe("PROTOCOLO-2026-0001");
     expect(payload.valorEstimado).toBe(10000.5);
     expect(payload.secretariaId).toBe(1);
   });

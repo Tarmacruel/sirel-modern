@@ -482,6 +482,7 @@ async function main() {
       .insert(processos)
       .values({
         numeroSirel: toCleanString(row.numero_sirel),
+        protocolo: toNullableString(row.protocolo),
         numeroAdministrativo: toNullableString(row.numero_administrativo),
         numeroEdital: toNullableString(row.numero_edital),
         anoReferencia: Number(row.ano_referencia),
@@ -510,6 +511,7 @@ async function main() {
       .onConflictDoUpdate({
         target: processos.numeroSirel,
         set: {
+          protocolo: toNullableString(row.protocolo),
           numeroAdministrativo: toNullableString(row.numero_administrativo),
           numeroEdital: toNullableString(row.numero_edital),
           secretariaId: resolveSecretariaId(Number(row.secretaria_legacy_id ?? 0)),

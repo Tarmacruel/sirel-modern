@@ -68,7 +68,9 @@ export const consultasRouter = router({
 
       const termFilters: any[] = [
         ilike(processos.numeroSirel, pattern),
+        ilike(processos.protocolo, pattern),
         ilike(processos.numeroAdministrativo, pattern),
+        ilike(processos.numeroEdital, pattern),
         ilike(processos.objeto, pattern),
         ilike(secretarias.nome, pattern),
         ilike(modalidades.nome, pattern),
@@ -87,7 +89,9 @@ export const consultasRouter = router({
       .select({
         id: processos.id,
         numeroSirel: processos.numeroSirel,
+        protocolo: processos.protocolo,
         numeroAdministrativo: processos.numeroAdministrativo,
+        numeroEdital: processos.numeroEdital,
         objeto: processos.objeto,
         valorEstimado: processos.valorEstimado,
         foraDoFluxo: processos.foraDoFluxo,
@@ -140,7 +144,9 @@ export const consultasRouter = router({
     let items = rows.map((row) => ({
       id: row.id,
       numeroSirel: row.numeroSirel,
+      protocolo: row.protocolo,
       numeroAdministrativo: row.numeroAdministrativo,
+      numeroEdital: row.numeroEdital,
       objetoResumo: row.objeto.length > 180 ? `${row.objeto.slice(0, 177)}...` : row.objeto,
       modalidade: row.modalidadeNome ?? "Sem modalidade",
       status: row.statusNome ?? "Sem status",

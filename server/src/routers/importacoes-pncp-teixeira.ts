@@ -86,6 +86,7 @@ async function loadLinkedProcess(
     .select({
       id: processos.id,
       numeroSirel: processos.numeroSirel,
+      protocolo: processos.protocolo,
       numeroAdministrativo: processos.numeroAdministrativo,
       numeroEdital: processos.numeroEdital,
       objeto: processos.objeto,
@@ -1064,6 +1065,7 @@ export const pncpTeixeiraRouter = router({
         filters.push(
           or(
             ilike(processos.numeroSirel, pattern),
+            ilike(processos.protocolo, pattern),
             ilike(processos.numeroAdministrativo, pattern),
             ilike(processos.numeroEdital, pattern),
             ilike(processos.objeto, pattern),
@@ -1076,6 +1078,7 @@ export const pncpTeixeiraRouter = router({
         .select({
           processoId: processos.id,
           numeroSirel: processos.numeroSirel,
+          protocolo: processos.protocolo,
           numeroAdministrativo: processos.numeroAdministrativo,
           numeroEdital: processos.numeroEdital,
           objeto: processos.objeto,
@@ -1134,6 +1137,7 @@ export const pncpTeixeiraRouter = router({
           return {
             processoId: row.processoId,
             numeroSirel: row.numeroSirel,
+            protocolo: row.protocolo,
             numeroAdministrativo: row.numeroAdministrativo,
             numeroEdital: row.numeroEdital,
             objeto: row.objeto,

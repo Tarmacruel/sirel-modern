@@ -48,6 +48,16 @@ export const processoOrigemCadastroOptions = [
   "LEGADO",
 ] as const;
 
+export const modalidadeGrupoOptions = [
+  "PREGAO",
+  "CONCORRENCIA",
+  "DISPENSA",
+  "INEXIGIBILIDADE",
+  "CREDENCIAMENTO",
+  "LEILAO",
+  "OUTROS",
+] as const;
+
 export const processoTipoObjetoLabels: Record<
   (typeof processoTipoObjetoOptions)[number],
   string
@@ -66,6 +76,19 @@ export const processoOrigemCadastroLabels: Record<
 > = {
   MANUAL: "Manual",
   LEGADO: "Legado",
+};
+
+export const modalidadeGrupoLabels: Record<
+  (typeof modalidadeGrupoOptions)[number],
+  string
+> = {
+  PREGAO: "Pregão",
+  CONCORRENCIA: "Concorrência",
+  DISPENSA: "Dispensa",
+  INEXIGIBILIDADE: "Inexigibilidade",
+  CREDENCIAMENTO: "Credenciamento",
+  LEILAO: "Leilão",
+  OUTROS: "Outros",
 };
 
 export const grauPrioridadeOptions = [

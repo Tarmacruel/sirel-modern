@@ -26,6 +26,7 @@ type ConciliacaoStatus = "PENDENTE" | "SUGERIDO" | "VINCULADO" | "IGNORADO";
 interface ProcessoInternoBase {
   id: number;
   numeroSirel: string;
+  protocolo: string | null;
   numeroAdministrativo: string | null;
   numeroEdital: string | null;
   anoReferencia: number;
@@ -57,6 +58,7 @@ interface RegistroImportadoBase {
 export interface SugestaoConciliacao {
   processoId: number;
   numeroSirel: string;
+  protocolo: string | null;
   numeroAdministrativo: string | null;
   numeroEdital: string | null;
   objeto: string;
@@ -255,6 +257,7 @@ function buildSuggestion(
   return {
     processoId: process.id,
     numeroSirel: process.numeroSirel,
+    protocolo: process.protocolo,
     numeroAdministrativo: process.numeroAdministrativo,
     numeroEdital: process.numeroEdital,
     objeto: process.objeto,
@@ -275,6 +278,7 @@ async function loadInternalProcesses(search?: string) {
         eq(processos.ativo, true),
         or(
           ilike(processos.numeroSirel, `%${search}%`),
+          ilike(processos.protocolo, `%${search}%`),
           ilike(processos.numeroAdministrativo, `%${search}%`),
           ilike(processos.numeroEdital, `%${search}%`),
           ilike(processos.objeto, `%${search}%`),
@@ -286,6 +290,7 @@ async function loadInternalProcesses(search?: string) {
     .select({
       id: processos.id,
       numeroSirel: processos.numeroSirel,
+      protocolo: processos.protocolo,
       numeroAdministrativo: processos.numeroAdministrativo,
       numeroEdital: processos.numeroEdital,
       anoReferencia: processos.anoReferencia,
@@ -1219,6 +1224,7 @@ export async function getLinkedInternalProcess(importedId: number) {
     .select({
       id: processos.id,
       numeroSirel: processos.numeroSirel,
+      protocolo: processos.protocolo,
       numeroAdministrativo: processos.numeroAdministrativo,
       numeroEdital: processos.numeroEdital,
       objeto: processos.objeto,

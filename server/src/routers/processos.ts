@@ -30,6 +30,7 @@ import {
   tr,
   workflowProcesso,
 } from "../db/schema.js";
+import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import { getNextNumeroSirel } from "../lib/processo-identity.js";
 import { getSystemParamNumber } from "../lib/system-params.js";
 import { gestorProcedure, publicProcedure, router } from "../trpc.js";
@@ -431,13 +432,22 @@ export const processosRouter = router({
     if (input.statusId) filters.push(eq(processos.statusId, input.statusId));
     if (input.moduloAtual) filters.push(eq(workflowProcesso.moduloAtual, input.moduloAtual as never));
     if (input.situacao) filters.push(eq(workflowProcesso.situacao, input.situacao as never));
+    if (input.modalidadeGrupo) {
+      const modalidadeGrupoFilter = buildModalidadeGrupoFilter(modalidades.codigo, input.modalidadeGrupo);
+      if (modalidadeGrupoFilter) filters.push(modalidadeGrupoFilter);
+    }
+    if (input.somenteObrasServicosEngenharia) {
+      filters.push(inArray(processos.tipoObjeto, ["OBRA", "SERVICO_ENG"] as const));
+    }
     if (typeof input.foraDoFluxo === "boolean") filters.push(eq(processos.foraDoFluxo, input.foraDoFluxo));
     if (typeof input.ativo === "boolean") filters.push(eq(processos.ativo, input.ativo));
     if (input.search) {
       filters.push(
         or(
           ilike(processos.numeroSirel, `%${input.search}%`),
+          ilike(processos.protocolo, `%${input.search}%`),
           ilike(processos.numeroAdministrativo, `%${input.search}%`),
+          ilike(processos.numeroEdital, `%${input.search}%`),
           ilike(processos.objeto, `%${input.search}%`),
           ilike(secretarias.nome, `%${input.search}%`),
           ilike(modalidades.nome, `%${input.search}%`),
@@ -451,6 +461,7 @@ export const processosRouter = router({
       .select({
         id: processos.id,
         numeroSirel: processos.numeroSirel,
+        protocolo: processos.protocolo,
         numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
         origemCadastro: processos.origemCadastro,
@@ -535,6 +546,7 @@ export const processosRouter = router({
       .insert(processos)
       .values({
         numeroSirel,
+        protocolo: input.protocolo ?? null,
         numeroAdministrativo: input.numeroAdministrativo,
         numeroEdital: input.numeroEdital ?? null,
         anoReferencia: input.anoReferencia,
@@ -647,6 +659,7 @@ export const processosRouter = router({
     };
 
     if (input.foraDoFluxo !== undefined) updateData.foraDoFluxo = input.foraDoFluxo;
+    if (input.protocolo !== undefined) updateData.protocolo = input.protocolo;
     if (input.numeroAdministrativo !== undefined) updateData.numeroAdministrativo = input.numeroAdministrativo;
     if (input.numeroEdital !== undefined) updateData.numeroEdital = input.numeroEdital;
     if (input.dataAbertura !== undefined) updateData.dataAbertura = input.dataAbertura;

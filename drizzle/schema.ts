@@ -433,6 +433,7 @@ export const processos = pgTable(
   {
     id: serial("id").primaryKey(),
     numeroSirel: varchar("numero_sirel", { length: 64 }).notNull().unique(),
+    protocolo: varchar("protocolo", { length: 160 }),
     numeroAdministrativo: varchar("numero_administrativo", { length: 64 }),
     numeroEdital: varchar("numero_edital", { length: 64 }),
     anoReferencia: integer("ano_referencia").notNull(),

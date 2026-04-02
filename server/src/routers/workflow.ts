@@ -17,6 +17,7 @@ import {
   statusProcesso,
   workflowProcesso,
 } from "../db/schema.js";
+import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import { getNextNumeroEdital } from "../lib/processo-identity.js";
 import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 
@@ -63,10 +64,20 @@ export const workflowRouter = router({
 
     if (input.moduloAtual) filters.push(eq(workflowProcesso.moduloAtual, input.moduloAtual as never));
     if (input.situacao) filters.push(eq(workflowProcesso.situacao, input.situacao as never));
+    if (input.modalidadeGrupo) {
+      const modalidadeGrupoFilter = buildModalidadeGrupoFilter(modalidades.codigo, input.modalidadeGrupo);
+      if (modalidadeGrupoFilter) filters.push(modalidadeGrupoFilter);
+    }
+    if (input.somenteObrasServicosEngenharia) {
+      filters.push(inArray(processos.tipoObjeto, ["OBRA", "SERVICO_ENG"] as const));
+    }
     if (input.search) {
       filters.push(
         or(
           ilike(processos.numeroSirel, `%${input.search}%`),
+          ilike(processos.protocolo, `%${input.search}%`),
+          ilike(processos.numeroAdministrativo, `%${input.search}%`),
+          ilike(processos.numeroEdital, `%${input.search}%`),
           ilike(processos.objeto, `%${input.search}%`),
           ilike(secretarias.nome, `%${input.search}%`),
           ilike(workflowProcesso.etapaAtual, `%${input.search}%`),
@@ -81,7 +92,10 @@ export const workflowRouter = router({
       .select({
         processoId: processos.id,
         numeroSirel: processos.numeroSirel,
+        protocolo: processos.protocolo,
+        numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
+        tipoObjeto: processos.tipoObjeto,
         secretaria: secretarias.nome,
         modalidade: modalidades.nome,
         statusProcesso: statusProcesso.nome,
@@ -161,6 +175,7 @@ export const workflowRouter = router({
       .select({
         id: processos.id,
         numeroSirel: processos.numeroSirel,
+        protocolo: processos.protocolo,
         numeroAdministrativo: processos.numeroAdministrativo,
         numeroEdital: processos.numeroEdital,
         objeto: processos.objeto,

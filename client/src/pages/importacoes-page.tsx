@@ -1671,6 +1671,7 @@ export function ImportacoesPage() {
       })();
 
       return {
+        protocolo: "",
         numeroAdministrativo:
           String(
             dadosOriginais.processo ??
@@ -1746,6 +1747,7 @@ export function ImportacoesPage() {
       );
 
       return {
+        protocolo: "",
         numeroAdministrativo: detailData.record.numeroAdministrativo ?? "",
         numeroEdital: detailData.record.numeroEdital ?? "",
         anoReferencia: String(
@@ -1820,6 +1822,7 @@ export function ImportacoesPage() {
       );
 
       return {
+        protocolo: raw.protocolo ?? "",
         numeroAdministrativo:
           raw.processoAdministrativo ??
           legacyCreateProcessDraft.fallbackProcessoAdministrativo ??

@@ -27,6 +27,7 @@ import { trpc } from "@/lib/trpc";
 import { mapZodFieldErrors } from "@/lib/zod-errors";
 
 const initialProcessoForm: ProcessoFormState = {
+  protocolo: "",
   numeroAdministrativo: "",
   numeroEdital: "",
   anoReferencia: String(new Date().getFullYear()),
@@ -299,6 +300,18 @@ export function ProcessoCreateModal({
                 setForm((current) => ({
                   ...current,
                   anoReferencia: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Protocolo" error={fieldErrors.protocolo}>
+            <Input
+              value={form.protocolo}
+              error={Boolean(fieldErrors.protocolo)}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  protocolo: event.target.value,
                 }))
               }
             />

@@ -228,7 +228,7 @@ export function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard
           title="Busca global inteligente"
-          description="Localize processos por número SIREL, objeto, fornecedor e filtros rápidos de status ou modalidade."
+          description="Localize processos por SIREL, protocolo, número administrativo, edital, objeto, fornecedor e filtros rápidos."
           action={
             <Link href="/consultas">
               <Button variant="outline" size="sm">
@@ -240,7 +240,7 @@ export function DashboardPage() {
         >
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_repeat(2,minmax(0,0.7fr))]">
             <FormField label="Busca textual">
-              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Número SIREL, objeto ou fornecedor" />
+              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="SIREL, protocolo, administrativo, edital, objeto ou fornecedor" />
             </FormField>
             <FormField label="Status">
               <Select value={searchStatusId} onChange={(event) => setSearchStatusId(event.target.value)}>
@@ -268,6 +268,15 @@ export function DashboardPage() {
                         <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-bold text-[var(--color-neutral-700)]">{row.status}</span>
                       </div>
                       <p className="mt-3 text-sm font-bold text-[var(--color-primary-900)]">{cleanDisplayText(row.objetoResumo)}</p>
+                      <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                        {[
+                          row.protocolo ? `Protocolo ${row.protocolo}` : null,
+                          row.numeroAdministrativo ? `Adm ${row.numeroAdministrativo}` : null,
+                          row.numeroEdital ? `Edital ${row.numeroEdital}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ") || "Sem identificadores complementares"}
+                      </p>
                       <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{cleanDisplayText(row.secretariaNome)} · módulo: {cleanDisplayText(row.moduloAtual)} · documentos: {row.documentos}</p>
                     </button>
                   </Link>

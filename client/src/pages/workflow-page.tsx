@@ -15,6 +15,8 @@ import {
 import { Link } from "wouter";
 
 import {
+  modalidadeGrupoLabels,
+  modalidadeGrupoOptions,
   processoTipoObjetoLabels,
   processoTipoObjetoOptions,
   workflowModuleOptions,
@@ -64,12 +66,18 @@ export function WorkflowPage() {
   const [search, setSearch] = useState("");
   const [moduloAtual, setModuloAtual] = useState("");
   const [situacao, setSituacao] = useState("");
+  const [modalidadeGrupo, setModalidadeGrupo] = useState<
+    "" | (typeof modalidadeGrupoOptions)[number]
+  >("");
+  const [somenteObrasServicosEngenharia, setSomenteObrasServicosEngenharia] =
+    useState(false);
   const [selectedProcessId, setSelectedProcessId] = useState<number | null>(
     null,
   );
   const [openDocumentsModal, setOpenDocumentsModal] = useState(false);
   const [openEditDataModal, setOpenEditDataModal] = useState(false);
   const [editDataForm, setEditDataForm] = useState({
+    protocolo: "",
     numeroAdministrativo: "",
     numeroEdital: "",
     dataAbertura: "",
@@ -110,8 +118,19 @@ export function WorkflowPage() {
       search: deferredSearch || undefined,
       moduloAtual: moduloAtual || undefined,
       situacao: situacao || undefined,
+      modalidadeGrupo: modalidadeGrupo || undefined,
+      somenteObrasServicosEngenharia:
+        somenteObrasServicosEngenharia || undefined,
     }),
-    [deferredSearch, moduloAtual, page, pageSize, situacao],
+    [
+      deferredSearch,
+      modalidadeGrupo,
+      moduloAtual,
+      page,
+      pageSize,
+      situacao,
+      somenteObrasServicosEngenharia,
+    ],
   );
 
   const summaryQuery = trpc.workflow.summary.useQuery(undefined, {
@@ -133,7 +152,14 @@ export function WorkflowPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch, moduloAtual, pageSize, situacao]);
+  }, [
+    deferredSearch,
+    modalidadeGrupo,
+    moduloAtual,
+    pageSize,
+    situacao,
+    somenteObrasServicosEngenharia,
+  ]);
 
   useEffect(() => {
     if (!rows.length) {
@@ -176,6 +202,7 @@ export function WorkflowPage() {
     // @ts-ignore - tipo será atualizado após compilação do servidor
     setEditDataForm((current) => ({
       ...current,
+      protocolo: detail.processo?.protocolo ?? "",
       numeroAdministrativo: detail.processo?.numeroAdministrativo ?? "",
       numeroEdital: detail.processo?.numeroEdital ?? "",
       dataAbertura: detail.processo?.dataAbertura ?? "",
@@ -307,6 +334,8 @@ export function WorkflowPage() {
       foraDoFluxo: Boolean(editDataForm.foraDoFluxo),
     };
 
+    if (editDataForm.protocolo?.trim())
+      updatePayload.protocolo = editDataForm.protocolo.trim();
     if (editDataForm.numeroAdministrativo?.trim())
       updatePayload.numeroAdministrativo =
         editDataForm.numeroAdministrativo.trim();
@@ -418,14 +447,14 @@ export function WorkflowPage() {
         title="Workflow operacional"
         description="Fila consolidada com filtros, linha do tempo e movimentação manual entre módulos."
       >
-        <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_220px_220px_150px]">
+        <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_220px_220px_220px_150px]">
           <FormField label="Buscar" className="w-full">
             <div className="flex items-center gap-2 rounded-[18px] border border-[rgba(209,213,219,0.92)] bg-white px-3 py-2">
               <Search className="h-4 w-4 text-[var(--color-neutral-400)]" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Processo, objeto, etapa ou secretaria"
+                placeholder="SIREL, protocolo, administrativo, edital, objeto ou etapa"
                 className="w-full border-none bg-transparent text-sm text-[var(--color-neutral-700)] outline-none placeholder:text-[var(--color-neutral-400)]"
               />
             </div>
@@ -456,6 +485,21 @@ export function WorkflowPage() {
               ))}
             </Select>
           </FormField>
+          <FormField label="Tipo de modalidade">
+            <Select
+              value={modalidadeGrupo}
+              onChange={(event) =>
+                setModalidadeGrupo(event.target.value as typeof modalidadeGrupo)
+              }
+            >
+              <option value="">Todos</option>
+              {modalidadeGrupoOptions.map((item) => (
+                <option key={item} value={item}>
+                  {modalidadeGrupoLabels[item]}
+                </option>
+              ))}
+            </Select>
+          </FormField>
           <FormField label="Por página">
             <Select
               value={String(pageSize)}
@@ -468,6 +512,17 @@ export function WorkflowPage() {
               ))}
             </Select>
           </FormField>
+        </div>
+        <div className="mb-4">
+          <label className="inline-flex items-center gap-2 rounded-[18px] border border-[rgba(209,213,219,0.92)] bg-white px-3 py-2 text-sm text-[var(--color-neutral-700)]">
+            <Checkbox
+              checked={somenteObrasServicosEngenharia}
+              onChange={(event) =>
+                setSomenteObrasServicosEngenharia(event.target.checked)
+              }
+            />
+            Obras e serviços de engenharia
+          </label>
         </div>
 
         <div className="space-y-4">
@@ -517,6 +572,17 @@ export function WorkflowPage() {
                         </div>
                         <div className="text-xs text-[var(--color-neutral-500)]">
                           {cleanDisplayText(row.secretaria)}
+                        </div>
+                        <div className="text-xs text-[var(--color-neutral-500)]">
+                          {[
+                            row.protocolo ? `Protocolo ${row.protocolo}` : null,
+                            row.numeroAdministrativo
+                              ? `Adm ${row.numeroAdministrativo}`
+                              : null,
+                            row.numeroEdital ? `Edital ${row.numeroEdital}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ") || "Sem identificadores complementares"}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
@@ -779,6 +845,21 @@ export function WorkflowPage() {
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
                       {detailQuery.data?.processo?.condutorProcesso?.nome ??
                         "Condutor definido apenas na publicação"}
+                    </p>
+                  </article>
+                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                      Identificação
+                    </p>
+                    <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
+                      {detailQuery.data?.processo?.protocolo ?? "Sem protocolo"}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      {detailQuery.data?.processo?.numeroAdministrativo
+                        ? `Administrativo ${detailQuery.data.processo.numeroAdministrativo}`
+                        : detailQuery.data?.processo?.numeroEdital
+                          ? `Edital ${detailQuery.data.processo.numeroEdital}`
+                          : "Sem administrativo ou edital"}
                     </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_12px_24px_-26px_rgba(15,26,109,0.22)]">
@@ -1225,6 +1306,17 @@ export function WorkflowPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
+            <FormField label="Protocolo">
+              <Input
+                value={editDataForm.protocolo}
+                onChange={(event) =>
+                  setEditDataForm((current) => ({
+                    ...current,
+                    protocolo: event.target.value,
+                  }))
+                }
+              />
+            </FormField>
             <FormField label="Número administrativo">
               <Input
                 value={editDataForm.numeroAdministrativo}

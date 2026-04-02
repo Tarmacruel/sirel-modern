@@ -239,6 +239,20 @@ function formatCnpj(value: string | null | undefined) {
   return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 }
 
+function formatCpf(value: string | null | undefined) {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (digits.length !== 11) return value ?? "-";
+  return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+}
+
+function normalizeLookupText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function CadastroStatusBadge({ status }: { status: string }) {
   const active = status === "ativo";
   return (
@@ -351,6 +365,7 @@ function CadastroMobileCard({
   onSelect,
   onEdit,
   onDuplicate,
+  onMerge,
   onDelete,
   onOpenAudit,
 }: {
@@ -361,6 +376,7 @@ function CadastroMobileCard({
   onSelect: () => void;
   onEdit: () => void;
   onDuplicate?: () => void;
+  onMerge?: () => void;
   onDelete: () => void;
   onOpenAudit: () => void;
 }) {
@@ -417,13 +433,18 @@ function CadastroMobileCard({
         </div>
         <CadastroStatusBadge status={row.status} />
       </div>
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" className="flex-1" onClick={onOpenAudit} icon={<History className="h-4 w-4" />}>
           Auditoria
         </Button>
         {onDuplicate ? (
           <Button variant="secondary" size="sm" className="flex-1" onClick={onDuplicate} icon={<Copy className="h-4 w-4" />}>
             Duplicar
+          </Button>
+        ) : null}
+        {onMerge ? (
+          <Button variant="secondary" size="sm" className="flex-1" onClick={onMerge} icon={<RefreshCcw className="h-4 w-4" />}>
+            Unificar
           </Button>
         ) : null}
         <Button variant="outline" size="sm" className="flex-1" onClick={onEdit} icon={<Pencil className="h-4 w-4" />}>
@@ -466,6 +487,14 @@ export function CadastrosPage() {
   const [assetCrop, setAssetCrop] = useState<CropState>(cropDefaults);
   const [assetProcessing, setAssetProcessing] = useState(false);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [mergeSourceRow, setMergeSourceRow] = useState<Record<string, any> | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [mergeSearch, setMergeSearch] = useState("");
+  const [mergePessoaSourceRow, setMergePessoaSourceRow] = useState<Record<string, any> | null>(null);
+  const [mergePessoaTargetId, setMergePessoaTargetId] = useState("");
+  const [mergePessoaSearch, setMergePessoaSearch] = useState("");
+  const [bulkMergeTargetId, setBulkMergeTargetId] = useState("");
+  const [bulkMergeModalOpen, setBulkMergeModalOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search.trim());
@@ -491,12 +520,133 @@ export function CadastrosPage() {
   const rows = (listQuery.data?.items ?? []) as Array<Record<string, any>>;
   const totalPages = listQuery.data?.totalPages ?? 1;
   const meta = getEntityMeta(entity);
+  const supportsMergeEntity = entity === "fornecedores" || entity === "pessoas" || entity === "servidores";
   const selectedRows = useMemo(() => Object.values(selectedRowsById), [selectedRowsById]);
   const selectedIds = useMemo(() => selectedRows.map((row) => Number(row.id)), [selectedRows]);
   const allVisibleSelected = rows.length > 0 && rows.every((row) => Boolean(selectedRowsById[row.id]));
   const selectedRecord = useMemo(
     () => rows.find((row) => row.id === selectedRecordId) ?? selectedRowsById[selectedRecordId ?? -1] ?? null,
     [rows, selectedRecordId, selectedRowsById],
+  );
+  const mergeCandidates = useMemo(() => {
+    if (!mergeSourceRow) {
+      return [];
+    }
+
+    const sourceName = normalizeLookupText(mergeSourceRow.razaoSocial);
+    const sourceDigits = String(mergeSourceRow.cnpj ?? "").replace(/\D/g, "");
+    const queryText = normalizeLookupText(mergeSearch);
+    const queryDigits = mergeSearch.replace(/\D/g, "");
+
+    return (optionsQuery.data?.fornecedores ?? [])
+      .filter((item) => item.id !== mergeSourceRow.id)
+      .map((item) => {
+        const candidateName = normalizeLookupText(item.razaoSocial);
+        const candidateDigits = String(item.cnpj ?? "").replace(/\D/g, "");
+        const matchesQuery =
+          !queryText ||
+          candidateName.includes(queryText) ||
+          (queryDigits ? candidateDigits.includes(queryDigits) : false);
+
+        if (!matchesQuery) {
+          return null;
+        }
+
+        let score = 0;
+        if (sourceDigits && candidateDigits === sourceDigits) score += 100;
+        if (sourceName && candidateName === sourceName) score += 50;
+        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 20;
+        if (queryText && candidateName.includes(queryText)) score += 10;
+        if (queryDigits && candidateDigits.includes(queryDigits)) score += 10;
+
+        return {
+          ...item,
+          score,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.score - left.score || left.razaoSocial.localeCompare(right.razaoSocial, "pt-BR"))
+      .slice(0, 80);
+  }, [mergeSearch, mergeSourceRow, optionsQuery.data?.fornecedores]);
+  const selectedMergeTarget = useMemo(
+    () =>
+      (optionsQuery.data?.fornecedores ?? []).find(
+        (item) => item.id === Number(mergeTargetId),
+      ) ?? null,
+    [mergeTargetId, optionsQuery.data?.fornecedores],
+  );
+  const mergePessoaCandidates = useMemo(() => {
+    if (!mergePessoaSourceRow) {
+      return [];
+    }
+
+    const sourceName = normalizeLookupText(mergePessoaSourceRow.nome);
+    const sourceDigits = String(mergePessoaSourceRow.cpf ?? "").replace(/\D/g, "");
+    const queryText = normalizeLookupText(mergePessoaSearch);
+    const queryDigits = mergePessoaSearch.replace(/\D/g, "");
+
+    return (optionsQuery.data?.pessoas ?? [])
+      .filter((item) => item.id !== mergePessoaSourceRow.id)
+      .filter((item) => entity !== "servidores" || Boolean(item.secretariaId))
+      .map((item) => {
+        const candidateName = normalizeLookupText(item.nome);
+        const candidateCargo = normalizeLookupText(item.cargo);
+        const candidateDigits = String(item.cpf ?? "").replace(/\D/g, "");
+        const matchesQuery =
+          !queryText ||
+          candidateName.includes(queryText) ||
+          candidateCargo.includes(queryText) ||
+          (queryDigits ? candidateDigits.includes(queryDigits) : false);
+
+        if (!matchesQuery) {
+          return null;
+        }
+
+        let score = 0;
+        if (sourceDigits && candidateDigits === sourceDigits) score += 100;
+        if (sourceName && candidateName === sourceName) score += 50;
+        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 20;
+        if (
+          mergePessoaSourceRow.secretariaId &&
+          item.secretariaId &&
+          mergePessoaSourceRow.secretariaId === item.secretariaId
+        ) {
+          score += 10;
+        }
+        if (queryText && (candidateName.includes(queryText) || candidateCargo.includes(queryText))) score += 10;
+        if (queryDigits && candidateDigits.includes(queryDigits)) score += 10;
+
+        return {
+          ...item,
+          score,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.score - left.score || left.nome.localeCompare(right.nome, "pt-BR"))
+      .slice(0, 80);
+  }, [entity, mergePessoaSearch, mergePessoaSourceRow, optionsQuery.data?.pessoas]);
+  const selectedMergePessoaTarget = useMemo(
+    () =>
+      (optionsQuery.data?.pessoas ?? []).find(
+        (item) => item.id === Number(mergePessoaTargetId),
+      ) ?? null,
+    [mergePessoaTargetId, optionsQuery.data?.pessoas],
+  );
+  const bulkMergeCandidates = useMemo(
+    () =>
+      selectedRows
+        .filter((row) =>
+          entity === "servidores" ? Boolean(row.secretariaId) : true,
+        )
+        .sort((left, right) =>
+          getRowLabel(entity, left).localeCompare(getRowLabel(entity, right), "pt-BR"),
+        ),
+    [entity, selectedRows],
+  );
+  const selectedBulkMergeTarget = useMemo(
+    () =>
+      bulkMergeCandidates.find((row) => row.id === Number(bulkMergeTargetId)) ?? null,
+    [bulkMergeCandidates, bulkMergeTargetId],
   );
 
   const historyQuery = trpc.cadastros.history.useQuery(
@@ -559,6 +709,25 @@ export function CadastrosPage() {
     },
   });
 
+  const mergeFornecedoresMutation = trpc.cadastros.mergeFornecedores.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
+  const mergePessoasMutation = trpc.cadastros.mergePessoas.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
+  const bulkMergeCadastrosMutation = trpc.cadastros.bulkMergeCadastros.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
+
   useEffect(() => {
     setPage(1);
     setSearch("");
@@ -581,6 +750,14 @@ export function CadastrosPage() {
     setAssetCrop(cropDefaults);
     setAssetProcessing(false);
     setAssetError(null);
+    setMergeSourceRow(null);
+    setMergeTargetId("");
+    setMergeSearch("");
+    setMergePessoaSourceRow(null);
+    setMergePessoaTargetId("");
+    setMergePessoaSearch("");
+    setBulkMergeTargetId("");
+    setBulkMergeModalOpen(false);
     setFeedback(null);
     setError(null);
   }, [entity]);
@@ -705,11 +882,216 @@ export function CadastrosPage() {
     setError(null);
   }
 
+  function closeMergeModal() {
+    setMergeSourceRow(null);
+    setMergeTargetId("");
+    setMergeSearch("");
+  }
+
+  function openMergeModal(row: Record<string, any>) {
+    if (entity !== "fornecedores") {
+      return;
+    }
+
+    setMergeSourceRow(row);
+    setMergeTargetId("");
+    setMergeSearch(row.razaoSocial ?? "");
+    setFeedback(null);
+    setError(null);
+  }
+
+  function closeMergePessoaModal() {
+    setMergePessoaSourceRow(null);
+    setMergePessoaTargetId("");
+    setMergePessoaSearch("");
+  }
+
+  function openMergePessoaModal(row: Record<string, any>) {
+    if (entity !== "pessoas" && entity !== "servidores") {
+      return;
+    }
+
+    setMergePessoaSourceRow(row);
+    setMergePessoaTargetId("");
+    setMergePessoaSearch(row.nome ?? "");
+    setFeedback(null);
+    setError(null);
+  }
+
+  function closeBulkMergeModal() {
+    setBulkMergeModalOpen(false);
+    setBulkMergeTargetId("");
+  }
+
+  function openBulkMergeModal() {
+    if (!supportsMergeEntity || selectedIds.length < 2) {
+      return;
+    }
+
+    setBulkMergeTargetId("");
+    setBulkMergeModalOpen(true);
+    setFeedback(null);
+    setError(null);
+  }
+
   async function handleDelete(row: Record<string, any>) {
     const label = getRowLabel(entity, row);
 
     if (!window.confirm(`Deseja inativar este registro?\n\n${label}`)) return;
     await removeMutation.mutateAsync({ entity, id: row.id });
+  }
+
+  async function handleMergeFornecedores() {
+    if (!mergeSourceRow || !mergeTargetId) {
+      setError("Selecione o fornecedor que deve permanecer no cadastro.");
+      return;
+    }
+
+    const sourceLabel = mergeSourceRow.razaoSocial ?? `Fornecedor ${mergeSourceRow.id}`;
+    const targetLabel = selectedMergeTarget?.razaoSocial ?? `Fornecedor ${mergeTargetId}`;
+
+    if (!window.confirm(
+      `Unificar os cadastros abaixo?\n\nDuplicado: ${sourceLabel}\nManter: ${targetLabel}\n\nTodos os vínculos do cadastro duplicado serão transferidos para o fornecedor mantido.`,
+    )) {
+      return;
+    }
+
+    const result = await mergeFornecedoresMutation.mutateAsync({
+      sourceId: Number(mergeSourceRow.id),
+      targetId: Number(mergeTargetId),
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+    ]);
+
+    setSelectedRowsById((current) => {
+      const next = { ...current };
+      delete next[Number(mergeSourceRow.id)];
+      return next;
+    });
+    setSelectedRecordId(result.fornecedorMantido.id);
+    closeMergeModal();
+    setError(null);
+    setFeedback(
+      `Fornecedores unificados. ${result.summary.contratosAtualizados} contrato(s), ${result.summary.cotacoesAtualizadas} cotação(ões) e ${result.summary.licitantesRemapeados + result.summary.licitantesMesclados} vínculo(s) em licitações foram preservados.`,
+    );
+  }
+
+  async function handleMergePessoas() {
+    if (!mergePessoaSourceRow || !mergePessoaTargetId) {
+      setError(entity === "servidores"
+        ? "Selecione o servidor que deve permanecer no cadastro."
+        : "Selecione a pessoa que deve permanecer no cadastro.");
+      return;
+    }
+
+    const sourceLabel = mergePessoaSourceRow.nome ?? `Pessoa ${mergePessoaSourceRow.id}`;
+    const targetLabel = selectedMergePessoaTarget?.nome ?? `Pessoa ${mergePessoaTargetId}`;
+
+    if (!window.confirm(
+      `Unificar os cadastros abaixo?\n\nDuplicado: ${sourceLabel}\nManter: ${targetLabel}\n\nTodos os vínculos do cadastro duplicado serão transferidos para o registro mantido.`,
+    )) {
+      return;
+    }
+
+    const result = await mergePessoasMutation.mutateAsync({
+      sourceId: Number(mergePessoaSourceRow.id),
+      targetId: Number(mergePessoaTargetId),
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+    ]);
+
+    setSelectedRowsById((current) => {
+      const next = { ...current };
+      delete next[Number(mergePessoaSourceRow.id)];
+      return next;
+    });
+    setSelectedRecordId(result.pessoaMantida.id);
+    closeMergePessoaModal();
+    setError(null);
+    setFeedback(
+      `${entity === "servidores" ? "Servidores" : "Pessoas"} unificados. ${result.summary.departamentosAtualizados} departamento(s), ${result.summary.processosAutoridadeAtualizados + result.summary.processosCondutorAtualizados} vínculo(s) em processos e ${result.summary.dfdResponsaveisRemapeados + result.summary.dfdResponsaveisMesclados} vínculo(s) em DFD foram preservados.`,
+    );
+  }
+
+  async function handleBulkMergeCadastros() {
+    if (!supportsMergeEntity || !bulkMergeTargetId) {
+      setError(
+        entity === "fornecedores"
+          ? "Selecione o fornecedor que deve permanecer no cadastro."
+          : entity === "servidores"
+            ? "Selecione o servidor que deve permanecer no cadastro."
+            : "Selecione a pessoa que deve permanecer no cadastro.",
+      );
+      return;
+    }
+
+    const sourceIds = selectedIds.filter((id) => id !== Number(bulkMergeTargetId));
+    if (!sourceIds.length) {
+      setError("Selecione ao menos um cadastro duplicado além do registro mantido.");
+      return;
+    }
+
+    const targetLabel = selectedBulkMergeTarget
+      ? getRowLabel(entity, selectedBulkMergeTarget)
+      : `${meta.singular} ${bulkMergeTargetId}`;
+
+    if (!window.confirm(
+      `Unificar ${sourceIds.length + 1} cadastros selecionados?\n\nRegistro mantido: ${targetLabel}\nCadastros absorvidos: ${sourceIds.length}\n\nTodos os vínculos dos registros absorvidos serão transferidos para o cadastro mantido.`,
+    )) {
+      return;
+    }
+
+    const result = await bulkMergeCadastrosMutation.mutateAsync({
+      entity: entity as "fornecedores" | "pessoas" | "servidores",
+      targetId: Number(bulkMergeTargetId),
+      sourceIds,
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+    ]);
+
+    setSelectedRowsById({});
+    setSelectedRecordId(Number(result.registroMantido?.id ?? bulkMergeTargetId));
+    closeBulkMergeModal();
+    setError(null);
+
+    if (entity === "fornecedores") {
+      const fornecedorSummary = result.summary as {
+        contratosAtualizados: number;
+        cotacoesAtualizadas: number;
+        licitantesRemapeados: number;
+        licitantesMesclados: number;
+      };
+      setFeedback(
+        `${result.registrosUnificados} fornecedor(es) unificados em lote. ${fornecedorSummary.contratosAtualizados} contrato(s), ${fornecedorSummary.cotacoesAtualizadas} cotação(ões) e ${fornecedorSummary.licitantesRemapeados + fornecedorSummary.licitantesMesclados} vínculo(s) em licitações foram preservados.`,
+      );
+      return;
+    }
+
+    const pessoaSummary = result.summary as {
+      departamentosAtualizados: number;
+      processosAutoridadeAtualizados: number;
+      processosCondutorAtualizados: number;
+      dfdResponsaveisRemapeados: number;
+      dfdResponsaveisMesclados: number;
+    };
+    setFeedback(
+      `${result.registrosUnificados} ${entity === "servidores" ? "servidor(es)" : "pessoa(s)"} unificados em lote. ${pessoaSummary.departamentosAtualizados} departamento(s), ${pessoaSummary.processosAutoridadeAtualizados + pessoaSummary.processosCondutorAtualizados} vínculo(s) em processos e ${pessoaSummary.dfdResponsaveisRemapeados + pessoaSummary.dfdResponsaveisMesclados} vínculo(s) em DFD foram preservados.`,
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1019,6 +1401,16 @@ export function CadastrosPage() {
                 Duplicar
               </Button>
             ) : null}
+            {entity === "fornecedores" ? (
+              <Button variant="secondary" size="sm" onClick={() => openMergeModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
+                Unificar
+              </Button>
+            ) : null}
+            {entity === "pessoas" || entity === "servidores" ? (
+              <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
+                Unificar
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => openEditModal(row)} icon={<Pencil className="h-4 w-4" />}>
               Editar
             </Button>
@@ -1140,6 +1532,17 @@ export function CadastrosPage() {
           <Button variant="outline" size="sm" onClick={() => setSelectedRowsById({})} disabled={!selectedIds.length}>
             Limpar seleção
           </Button>
+          {supportsMergeEntity ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={openBulkMergeModal}
+              disabled={selectedIds.length < 2}
+              icon={<RefreshCcw className="h-4 w-4" />}
+            >
+              Unificar selecionados
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => void handleBulkStatus(true)} disabled={!selectedIds.length || bulkStatusMutation.isPending} icon={<RefreshCcw className="h-4 w-4" />}>
             Reativar selecionados
           </Button>
@@ -1168,6 +1571,13 @@ export function CadastrosPage() {
                   onSelect={() => toggleRowSelection(row)}
                   onOpenAudit={() => setSelectedRecordId(row.id)}
                   onDuplicate={entity === "itens" || entity === "fornecedores" ? () => openDuplicateModal(row) : undefined}
+                  onMerge={
+                    entity === "fornecedores"
+                      ? () => openMergeModal(row)
+                      : entity === "pessoas" || entity === "servidores"
+                        ? () => openMergePessoaModal(row)
+                        : undefined
+                  }
                   onEdit={() => openEditModal(row)}
                   onDelete={() => void handleDelete(row)}
                 />
@@ -1242,6 +1652,16 @@ export function CadastrosPage() {
                     Duplicar
                   </Button>
                 ) : null}
+                {entity === "fornecedores" ? (
+                  <Button variant="secondary" size="sm" onClick={() => openMergeModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                    Unificar cadastro
+                  </Button>
+                ) : null}
+                {entity === "pessoas" || entity === "servidores" ? (
+                  <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                    Unificar cadastro
+                  </Button>
+                ) : null}
                 <Button variant="ghost" size="sm" onClick={() => void historyQuery.refetch()} icon={<RefreshCcw className="h-4 w-4" />}>
                   Atualizar trilha
                 </Button>
@@ -1306,6 +1726,248 @@ export function CadastrosPage() {
           </div>
         </SectionCard>
       ) : null}
+
+      <Modal
+        open={bulkMergeModalOpen}
+        onClose={closeBulkMergeModal}
+        size="md"
+        title={`Unificar ${meta.label.toLowerCase()} selecionados`}
+        description="Escolha qual cadastro deve permanecer. Todos os demais registros selecionados serão absorvidos por ele com preservação dos vínculos já existentes."
+      >
+        <div className="space-y-4">
+          <Alert variant="info">
+            {selectedIds.length} cadastro(s) selecionado(s). O registro mantido continuará ativo e os demais serão incorporados a ele.
+          </Alert>
+
+          <FormField label="Cadastro mantido">
+            <Select value={bulkMergeTargetId} onChange={(event) => setBulkMergeTargetId(event.target.value)}>
+              <option value="">
+                {entity === "fornecedores"
+                  ? "Selecione o fornecedor mantido"
+                  : entity === "servidores"
+                    ? "Selecione o servidor mantido"
+                    : "Selecione a pessoa mantida"}
+              </option>
+              {bulkMergeCandidates.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {getRowLabel(entity, row)}
+                  {entity === "fornecedores"
+                    ? ` • ${formatCnpj(row.cnpj)}`
+                    : entity === "pessoas" || entity === "servidores"
+                      ? ` • ${formatCpf(row.cpf)}`
+                      : ""}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+
+          {selectedBulkMergeTarget ? (
+            <Card className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Resumo da operação</p>
+              <p className="text-sm text-[var(--color-neutral-700)]">
+                Mantido: <span className="font-semibold text-[var(--color-primary-900)]">{getRowLabel(entity, selectedBulkMergeTarget)}</span>
+              </p>
+              <p className="text-sm text-[var(--color-neutral-700)]">
+                Absorvidos: <span className="font-semibold text-[var(--color-primary-900)]">{selectedIds.filter((id) => id !== Number(bulkMergeTargetId)).length}</span>
+              </p>
+            </Card>
+          ) : null}
+
+          <div className="max-h-56 space-y-2 overflow-auto rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white/90 p-3">
+            {bulkMergeCandidates.map((row) => (
+              <div key={row.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--color-neutral-50)] px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--color-primary-900)]">{getRowLabel(entity, row)}</p>
+                  <p className="text-xs text-[var(--color-neutral-500)]">
+                    {entity === "fornecedores"
+                      ? formatCnpj(row.cnpj)
+                      : entity === "pessoas" || entity === "servidores"
+                        ? formatCpf(row.cpf)
+                        : `ID ${row.id}`}
+                  </p>
+                </div>
+                <span className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
+                  {Number(bulkMergeTargetId) === row.id ? "Mantido" : "Absorvido"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={closeBulkMergeModal}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void handleBulkMergeCadastros()}
+              loading={bulkMergeCadastrosMutation.isPending}
+              disabled={!bulkMergeTargetId || selectedIds.length < 2}
+              icon={<RefreshCcw className="h-4 w-4" />}
+            >
+              Unificar em lote
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(mergeSourceRow)}
+        onClose={closeMergeModal}
+        size="md"
+        title="Unificar fornecedores duplicados"
+        description="Escolha qual cadastro deve permanecer. O sistema vai transferir contratos, cotações e vínculos em licitações para o fornecedor mantido."
+      >
+        {mergeSourceRow ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro duplicado</p>
+                <p className="text-base font-black text-[var(--color-primary-900)]">{mergeSourceRow.razaoSocial}</p>
+                <p className="text-sm text-[var(--color-neutral-600)]">{formatCnpj(mergeSourceRow.cnpj)}</p>
+                <p className="text-sm text-[var(--color-neutral-500)]">
+                  {mergeSourceRow.cidade ?? "Sem cidade"}{mergeSourceRow.estado ? `/${mergeSourceRow.estado}` : ""}
+                </p>
+              </Card>
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro que será mantido</p>
+                {selectedMergeTarget ? (
+                  <>
+                    <p className="text-base font-black text-[var(--color-primary-900)]">{selectedMergeTarget.razaoSocial}</p>
+                    <p className="text-sm text-[var(--color-neutral-600)]">{formatCnpj(selectedMergeTarget.cnpj)}</p>
+                    <p className="text-sm text-[var(--color-neutral-500)]">
+                      ID interno: {selectedMergeTarget.id}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-[var(--color-neutral-500)]">Selecione abaixo o fornecedor que deve permanecer ativo no cadastro.</p>
+                )}
+              </Card>
+            </div>
+
+            <FormField label="Buscar fornecedor de destino">
+              <Input
+                value={mergeSearch}
+                onChange={(event) => setMergeSearch(event.target.value)}
+                placeholder="Razão social ou CNPJ"
+              />
+            </FormField>
+
+            <FormField label="Fornecedor mantido">
+              <Select value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)}>
+                <option value="">Selecione um fornecedor</option>
+                {mergeCandidates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.razaoSocial} • {formatCnpj(item.cnpj)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            {!mergeCandidates.length ? (
+              <Alert variant="info">
+                Nenhum fornecedor candidato encontrado com esse filtro. Ajuste a busca para localizar o cadastro correto.
+              </Alert>
+            ) : null}
+
+            <Alert variant="info">
+              O cadastro duplicado será removido do cadastro principal ao final da operação, mas os vínculos dos processos serão preservados no fornecedor mantido.
+            </Alert>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeMergeModal}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => void handleMergeFornecedores()}
+                loading={mergeFornecedoresMutation.isPending}
+                disabled={!mergeTargetId}
+                icon={<RefreshCcw className="h-4 w-4" />}
+              >
+                Unificar cadastros
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(mergePessoaSourceRow)}
+        onClose={closeMergePessoaModal}
+        size="md"
+        title={entity === "servidores" ? "Unificar servidores duplicados" : "Unificar pessoas duplicadas"}
+        description="Escolha qual cadastro deve permanecer. O sistema vai transferir os vínculos em departamentos, processos e DFDs para o registro mantido."
+      >
+        {mergePessoaSourceRow ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro duplicado</p>
+                <p className="text-base font-black text-[var(--color-primary-900)]">{mergePessoaSourceRow.nome}</p>
+                <p className="text-sm text-[var(--color-neutral-600)]">{formatCpf(mergePessoaSourceRow.cpf)}</p>
+                <p className="text-sm text-[var(--color-neutral-500)]">
+                  {mergePessoaSourceRow.cargo ?? "Sem cargo"}
+                </p>
+              </Card>
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro que será mantido</p>
+                {selectedMergePessoaTarget ? (
+                  <>
+                    <p className="text-base font-black text-[var(--color-primary-900)]">{selectedMergePessoaTarget.nome}</p>
+                    <p className="text-sm text-[var(--color-neutral-600)]">{formatCpf(selectedMergePessoaTarget.cpf)}</p>
+                    <p className="text-sm text-[var(--color-neutral-500)]">
+                      ID interno: {selectedMergePessoaTarget.id}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-[var(--color-neutral-500)]">Selecione abaixo o cadastro que deve permanecer ativo.</p>
+                )}
+              </Card>
+            </div>
+
+            <FormField label={entity === "servidores" ? "Buscar servidor de destino" : "Buscar pessoa de destino"}>
+              <Input
+                value={mergePessoaSearch}
+                onChange={(event) => setMergePessoaSearch(event.target.value)}
+                placeholder="Nome, CPF ou cargo"
+              />
+            </FormField>
+
+            <FormField label={entity === "servidores" ? "Servidor mantido" : "Pessoa mantida"}>
+              <Select value={mergePessoaTargetId} onChange={(event) => setMergePessoaTargetId(event.target.value)}>
+                <option value="">{entity === "servidores" ? "Selecione um servidor" : "Selecione uma pessoa"}</option>
+                {mergePessoaCandidates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.nome} • {formatCpf(item.cpf)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            {!mergePessoaCandidates.length ? (
+              <Alert variant="info">
+                Nenhum cadastro candidato encontrado com esse filtro. Ajuste a busca para localizar o registro correto.
+              </Alert>
+            ) : null}
+
+            <Alert variant="info">
+              O cadastro duplicado será removido ao final da operação, mas os vínculos já existentes serão preservados no registro mantido.
+            </Alert>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeMergePessoaModal}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => void handleMergePessoas()}
+                loading={mergePessoasMutation.isPending}
+                disabled={!mergePessoaTargetId}
+                icon={<RefreshCcw className="h-4 w-4" />}
+              >
+                Unificar cadastros
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal
         open={modalOpen}

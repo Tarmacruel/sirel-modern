@@ -2,10 +2,16 @@
 import { Link } from "wouter";
 import { ArrowRight, CalendarClock, Search, X } from "lucide-react";
 
-import { licitacaoStatusLabels, licitacaoStatusOptions } from "@sirel/shared/const";
+import {
+  licitacaoStatusLabels,
+  licitacaoStatusOptions,
+  modalidadeGrupoLabels,
+  modalidadeGrupoOptions,
+} from "@sirel/shared/const";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
 import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
@@ -54,6 +60,8 @@ export function LicitacaoPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | (typeof licitacaoStatusOptions)[number]>("");
   const [secretariaId, setSecretariaId] = useState("");
+  const [modalidadeGrupo, setModalidadeGrupo] = useState<"" | (typeof modalidadeGrupoOptions)[number]>("");
+  const [somenteObrasServicosEngenharia, setSomenteObrasServicosEngenharia] = useState(false);
   const [overlayIntensity, setOverlayIntensity] = useState<OverlayIntensity>(resolveOverlayIntensity);
 
   const deferredSearch = useDeferredValue(search.trim());
@@ -65,8 +73,19 @@ export function LicitacaoPage() {
       search: deferredSearch || undefined,
       statusLicitacao: statusFilter || undefined,
       secretariaId: secretariaId ? Number(secretariaId) : undefined,
+      modalidadeGrupo: modalidadeGrupo || undefined,
+      somenteObrasServicosEngenharia:
+        somenteObrasServicosEngenharia || undefined,
     }),
-    [deferredSearch, page, pageSize, secretariaId, statusFilter],
+    [
+      deferredSearch,
+      modalidadeGrupo,
+      page,
+      pageSize,
+      secretariaId,
+      somenteObrasServicosEngenharia,
+      statusFilter,
+    ],
   );
 
   const summaryQuery = trpc.licitacao.summary.useQuery(undefined, { retry: false });
@@ -85,6 +104,17 @@ export function LicitacaoPage() {
       window.localStorage.setItem(overlayStorageKey, overlayIntensity);
     }
   }, [overlayIntensity]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    deferredSearch,
+    modalidadeGrupo,
+    pageSize,
+    secretariaId,
+    somenteObrasServicosEngenharia,
+    statusFilter,
+  ]);
 
   return (
     <div className="space-y-5">
@@ -153,6 +183,19 @@ export function LicitacaoPage() {
             </FormField>
           </div>
 
+          <div className="w-[220px]">
+            <FormField label="Tipo de modalidade">
+              <Select value={modalidadeGrupo} onChange={(event) => setModalidadeGrupo(event.target.value as typeof modalidadeGrupo)}>
+                <option value="">Todos</option>
+                {modalidadeGrupoOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {modalidadeGrupoLabels[item]}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </div>
+
           <div className="w-[140px]">
             <FormField label="Por página">
               <Select value={String(pageSize)} onChange={(event) => setPageSize(Number(event.target.value))}>
@@ -164,6 +207,12 @@ export function LicitacaoPage() {
               </Select>
             </FormField>
           </div>
+        </div>
+        <div className="mb-4">
+          <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--input-border)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+            <Checkbox checked={somenteObrasServicosEngenharia} onChange={(event) => setSomenteObrasServicosEngenharia(event.target.checked)} />
+            Obras e serviços de engenharia
+          </label>
         </div>
 
         {listQuery.isLoading ? (

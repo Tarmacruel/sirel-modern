@@ -4,6 +4,7 @@ import {
   habilitacaoStatusOptions,
   licitacaoChecklistFlexStatusOptions,
   licitacaoStatusOptions,
+  modalidadeGrupoOptions,
   propostaSituacaoOptions,
   recursoResultadoOptions,
 } from "../const.js";
@@ -17,6 +18,8 @@ export const licitacaoListInputSchema = z.object({
   search: z.string().trim().optional(),
   secretariaId: z.number().int().positive().optional(),
   statusLicitacao: z.enum(licitacaoStatusOptions).optional(),
+  modalidadeGrupo: z.enum(modalidadeGrupoOptions).optional(),
+  somenteObrasServicosEngenharia: z.boolean().optional(),
   publicado: z.boolean().optional(),
 });
 
