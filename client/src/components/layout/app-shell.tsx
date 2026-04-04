@@ -43,6 +43,7 @@ const icons: Record<string, typeof LayoutDashboard> = {
   importacoes: RefreshCcw,
   cadastros: Database,
   processos: FolderOpenDot,
+  dossie: FileText,
   itens: Boxes,
   planejamento: FolderKanban,
   compras: ListTodo,
@@ -57,9 +58,23 @@ const icons: Record<string, typeof LayoutDashboard> = {
 
 const navGroups = [
   { title: "Visão Geral", keys: ["dashboard", "notificacoes"] },
-  { title: "Operacional", keys: ["planejamento", "compras", "licitacao", "contratos", "processos", "workflow"] },
+  {
+    title: "Operacional",
+    keys: [
+      "planejamento",
+      "compras",
+      "licitacao",
+      "contratos",
+      "processos",
+      "dossie",
+      "workflow",
+    ],
+  },
   { title: "Cadastros", keys: ["itens", "importacoes", "cadastros"] },
-  { title: "Gestão", keys: ["consultas", "relatorios", "prazos", "auditoria", "documentos"] },
+  {
+    title: "Gestão",
+    keys: ["consultas", "relatorios", "prazos", "auditoria", "documentos"],
+  },
   { title: "Admin", keys: ["usuarios", "parametros"] },
 ] as const;
 
@@ -96,11 +111,15 @@ function resolveStoredTheme(): ThemeMode {
   if (saved === "dark" || saved === "light") {
     return saved;
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 function buildDefaultGroupState() {
-  return Object.fromEntries(navGroups.map((group) => [group.title, true])) as Record<string, boolean>;
+  return Object.fromEntries(
+    navGroups.map((group) => [group.title, true]),
+  ) as Record<string, boolean>;
 }
 
 function resolveStoredSidebarGroups() {
@@ -137,7 +156,10 @@ function Sidebar({
   onToggleCollapse,
   onNavigate,
 }: SidebarProps) {
-  const moduleMap = useMemo(() => new Map(appModules.map((item) => [item.key, item])), []);
+  const moduleMap = useMemo(
+    () => new Map(appModules.map((item) => [item.key, item])),
+    [],
+  );
 
   return (
     <aside
@@ -149,8 +171,12 @@ function Sidebar({
       <div className="flex h-[60px] items-center justify-between border-b border-[var(--sidebar-border)] px-4">
         {!collapsed ? (
           <div>
-            <h2 className="m-0 text-lg font-bold tracking-tight text-[var(--text-primary)]">{systemName}</h2>
-            <small className="text-[11px] text-[var(--text-secondary)]">Teixeira de Freitas</small>
+            <h2 className="m-0 text-lg font-bold tracking-tight text-[var(--text-primary)]">
+              {systemName}
+            </h2>
+            <small className="text-[11px] text-[var(--text-secondary)]">
+              Teixeira de Freitas
+            </small>
           </div>
         ) : (
           <div className="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent-color)] text-sm font-bold text-[var(--text-inverse)]">
@@ -163,7 +189,11 @@ function Sidebar({
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--sidebar-border)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)] transition hover:text-[var(--accent-color)]"
           title={collapsed ? "Expandir menu" : "Recolher menu"}
         >
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
         </button>
       </div>
 
@@ -188,15 +218,32 @@ function Sidebar({
                   className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)] transition hover:bg-[var(--sidebar-hover)] hover:text-[var(--text-secondary)]"
                 >
                   <span>{group.title}</span>
-                  <ChevronDown className={["h-3 w-3 transition", isExpanded ? "rotate-0" : "-rotate-90"].join(" ")} />
+                  <ChevronDown
+                    className={[
+                      "h-3 w-3 transition",
+                      isExpanded ? "rotate-0" : "-rotate-90",
+                    ].join(" ")}
+                  />
                 </button>
               ) : null}
 
-              <div className={["space-y-1 overflow-hidden transition-all", !collapsed && !isExpanded ? "max-h-0 opacity-0" : "max-h-[800px] opacity-100"].join(" ")}>
+              <div
+                className={[
+                  "space-y-1 overflow-hidden transition-all",
+                  !collapsed && !isExpanded
+                    ? "max-h-0 opacity-0"
+                    : "max-h-[800px] opacity-100",
+                ].join(" ")}
+              >
                 {entries.map((entry) => {
                   const Icon = icons[entry.key] ?? LayoutDashboard;
-                  const active = entry.href === "/" ? location === "/" : location === entry.href || location.startsWith(`${entry.href}/`);
-                  const isNotification = entry.key === "notificacoes" && unreadNotifications > 0;
+                  const active =
+                    entry.href === "/"
+                      ? location === "/"
+                      : location === entry.href ||
+                        location.startsWith(`${entry.href}/`);
+                  const isNotification =
+                    entry.key === "notificacoes" && unreadNotifications > 0;
 
                   return (
                     <Link
@@ -213,7 +260,9 @@ function Sidebar({
                       title={collapsed ? entry.label : undefined}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-                      {!collapsed ? <span className="flex-1">{entry.label}</span> : null}
+                      {!collapsed ? (
+                        <span className="flex-1">{entry.label}</span>
+                      ) : null}
                       {isNotification ? (
                         <span className="inline-flex min-w-[1.3rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           {formatBadgeCount(unreadNotifications)}
@@ -235,8 +284,12 @@ function Sidebar({
               {user.name.slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{user.name}</div>
-              <div className="truncate text-xs text-[var(--text-secondary)]">{user.role.toLowerCase()}</div>
+              <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+                {user.name}
+              </div>
+              <div className="truncate text-xs text-[var(--text-secondary)]">
+                {user.role.toLowerCase()}
+              </div>
             </div>
             <button
               type="button"
@@ -276,7 +329,9 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("sirel-sidebar-collapsed") === "1";
   });
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(resolveStoredSidebarGroups);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+    resolveStoredSidebarGroups,
+  );
   const [theme, setTheme] = useState<ThemeMode>(resolveStoredTheme);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -289,12 +344,18 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("sirel-sidebar-collapsed", collapsed ? "1" : "0");
+    window.localStorage.setItem(
+      "sirel-sidebar-collapsed",
+      collapsed ? "1" : "0",
+    );
   }, [collapsed]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(sidebarGroupsStorageKey, JSON.stringify(expandedGroups));
+    window.localStorage.setItem(
+      sidebarGroupsStorageKey,
+      JSON.stringify(expandedGroups),
+    );
   }, [expandedGroups]);
 
   useEffect(() => {
@@ -343,7 +404,12 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
             systemName={branding.systemName}
             user={user}
             onLogout={onLogout}
-            onToggleGroup={(groupTitle) => setExpandedGroups((current) => ({ ...current, [groupTitle]: !current[groupTitle] }))}
+            onToggleGroup={(groupTitle) =>
+              setExpandedGroups((current) => ({
+                ...current,
+                [groupTitle]: !current[groupTitle],
+              }))
+            }
             onToggleCollapse={() => setCollapsed((value) => !value)}
           />
         </div>
@@ -365,7 +431,12 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                 systemName={branding.systemName}
                 user={user}
                 onLogout={onLogout}
-                onToggleGroup={(groupTitle) => setExpandedGroups((current) => ({ ...current, [groupTitle]: !current[groupTitle] }))}
+                onToggleGroup={(groupTitle) =>
+                  setExpandedGroups((current) => ({
+                    ...current,
+                    [groupTitle]: !current[groupTitle],
+                  }))
+                }
                 onToggleCollapse={() => setCollapsed(false)}
                 onNavigate={() => setMobileMenuOpen(false)}
               />
@@ -391,8 +462,12 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                 <Menu className="h-4 w-4" />
               </button>
               <div>
-                <h1 className="m-0 text-base font-bold text-[var(--text-primary)]">{pageTitle}</h1>
-                <span className="text-xs text-[var(--text-secondary)]">{branding.systemName} · acompanhamento operacional</span>
+                <h1 className="m-0 text-base font-bold text-[var(--text-primary)]">
+                  {pageTitle}
+                </h1>
+                <span className="text-xs text-[var(--text-secondary)]">
+                  {branding.systemName} · acompanhamento operacional
+                </span>
               </div>
             </div>
 
@@ -422,10 +497,20 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
               <button
                 type="button"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] transition hover:text-[var(--accent-color)]"
-                onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-                title={theme === "dark" ? "Modo Escuro (clique para Claro)" : "Modo Claro (clique para Escuro)"}
+                onClick={() =>
+                  setTheme((current) => (current === "dark" ? "light" : "dark"))
+                }
+                title={
+                  theme === "dark"
+                    ? "Modo Escuro (clique para Claro)"
+                    : "Modo Claro (clique para Escuro)"
+                }
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </button>
             </div>
           </header>

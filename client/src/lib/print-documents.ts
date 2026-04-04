@@ -4,10 +4,17 @@
   buildPrintableShell,
   buildTrHtml,
 } from "@sirel/shared/document-templates/planejamento";
+import { buildDossieHtml } from "@sirel/shared/document-templates/dossie";
 import { systemName } from "@/lib/branding";
 import { resolveServerAssetUrl } from "@/lib/document-upload";
 
-export { buildDfdHtml, buildMapaComparativoHtml, buildPrintableShell, buildTrHtml };
+export {
+  buildDossieHtml,
+  buildDfdHtml,
+  buildMapaComparativoHtml,
+  buildPrintableShell,
+  buildTrHtml,
+};
 
 function buildPreviewStatusHtml(title: string, message: string) {
   return buildPrintableShell(
@@ -31,14 +38,20 @@ export function openPreviewWindow(title = "Pré-visualização do documento") {
   }
 
   previewWindow.document.open();
-  previewWindow.document.write(buildPreviewStatusHtml(title, "Preparando a visualização do documento..."));
+  previewWindow.document.write(
+    buildPreviewStatusHtml(title, "Preparando a visualização do documento..."),
+  );
   previewWindow.document.close();
   previewWindow.focus();
 
   return previewWindow;
 }
 
-export function renderPreviewWindowMessage(previewWindow: Window, title: string, message: string) {
+export function renderPreviewWindowMessage(
+  previewWindow: Window,
+  title: string,
+  message: string,
+) {
   previewWindow.document.open();
   previewWindow.document.write(buildPreviewStatusHtml(title, message));
   previewWindow.document.close();

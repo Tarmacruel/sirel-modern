@@ -15,6 +15,7 @@ import { logAuditoria } from "./db/auditoria.js";
 import { requireDb } from "./db/client.js";
 import { catalogoItens, documentos, fornecedores } from "./db/schema.js";
 import { verifySessionToken } from "./lib/auth-session.js";
+import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
 import { appRouter } from "./routers/index.js";
 
@@ -467,7 +468,18 @@ app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
 
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 
-app.listen(port, host, () => {
+const server = app.listen(port, host, () => {
   startImportacoesScheduler();
+  startBllLocalScheduler();
   console.log(`SIREL SIREL server listening on http://${host}:${port}`);
 });
+
+function shutdown() {
+  stopBllLocalScheduler();
+  server.close(() => {
+    process.exit(0);
+  });
+}
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

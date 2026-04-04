@@ -3,43 +3,145 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { clearStoredSession, loadStoredSession, saveStoredSession, type AuthSession } from "@/lib/auth-session";
+import {
+  clearStoredSession,
+  loadStoredSession,
+  saveStoredSession,
+  type AuthSession,
+} from "@/lib/auth-session";
 import { queryClient } from "@/lib/query-client";
 import { trpc, trpcClient } from "@/lib/trpc";
 
-const AuditoriaPage = lazy(() => import("@/pages/auditoria-page").then((module) => ({ default: module.AuditoriaPage })));
-const CadastrosPage = lazy(() => import("@/pages/cadastros-page").then((module) => ({ default: module.CadastrosPage })));
-const ComprasPage = lazy(() => import("@/pages/compras-page").then((module) => ({ default: module.ComprasPage })));
-const ContratosPage = lazy(() => import("@/pages/contratos-page").then((module) => ({ default: module.ContratosPage })));
-const ConsultasPage = lazy(() => import("@/pages/consultas-page").then((module) => ({ default: module.ConsultasPage })));
-const DashboardPage = lazy(() => import("@/pages/dashboard-page").then((module) => ({ default: module.DashboardPage })));
-const DocumentosPage = lazy(() => import("@/pages/documentos-page").then((module) => ({ default: module.DocumentosPage })));
-const ImportacoesPage = lazy(() => import("@/pages/importacoes-page").then((module) => ({ default: module.ImportacoesPage })));
-const ItensPage = lazy(() => import("@/pages/itens-page").then((module) => ({ default: module.ItensPage })));
-const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })));
-const LicitacaoPage = lazy(() => import("@/pages/licitacao-page").then((module) => ({ default: module.LicitacaoPage })));
-const LicitacaoProcessoPage = lazy(() =>
-  import("@/pages/licitacao-processo-page").then((module) => ({ default: module.LicitacaoProcessoPage })),
+const AuditoriaPage = lazy(() =>
+  import("@/pages/auditoria-page").then((module) => ({
+    default: module.AuditoriaPage,
+  })),
 );
-const NotificacoesPage = lazy(() => import("@/pages/notificacoes-page").then((module) => ({ default: module.NotificacoesPage })));
-const NotFoundPage = lazy(() => import("@/pages/not-found-page").then((module) => ({ default: module.NotFoundPage })));
-const ParametrosPage = lazy(() => import("@/pages/parametros-page").then((module) => ({ default: module.ParametrosPage })));
+const CadastrosPage = lazy(() =>
+  import("@/pages/cadastros-page").then((module) => ({
+    default: module.CadastrosPage,
+  })),
+);
+const ComprasPage = lazy(() =>
+  import("@/pages/compras-page").then((module) => ({
+    default: module.ComprasPage,
+  })),
+);
+const ContratosPage = lazy(() =>
+  import("@/pages/contratos-page").then((module) => ({
+    default: module.ContratosPage,
+  })),
+);
+const ConsultasPage = lazy(() =>
+  import("@/pages/consultas-page").then((module) => ({
+    default: module.ConsultasPage,
+  })),
+);
+const DashboardPage = lazy(() =>
+  import("@/pages/dashboard-page").then((module) => ({
+    default: module.DashboardPage,
+  })),
+);
+const DossiePage = lazy(() =>
+  import("@/pages/dossie-page").then((module) => ({
+    default: module.DossiePage,
+  })),
+);
+const DocumentosPage = lazy(() =>
+  import("@/pages/documentos-page").then((module) => ({
+    default: module.DocumentosPage,
+  })),
+);
+const ImportacoesPage = lazy(() =>
+  import("@/pages/importacoes-page").then((module) => ({
+    default: module.ImportacoesPage,
+  })),
+);
+const ItensPage = lazy(() =>
+  import("@/pages/itens-page").then((module) => ({
+    default: module.ItensPage,
+  })),
+);
+const LoginPage = lazy(() =>
+  import("@/pages/login-page").then((module) => ({
+    default: module.LoginPage,
+  })),
+);
+const LicitacaoPage = lazy(() =>
+  import("@/pages/licitacao-page").then((module) => ({
+    default: module.LicitacaoPage,
+  })),
+);
+const LicitacaoProcessoPage = lazy(() =>
+  import("@/pages/licitacao-processo-page").then((module) => ({
+    default: module.LicitacaoProcessoPage,
+  })),
+);
+const NotificacoesPage = lazy(() =>
+  import("@/pages/notificacoes-page").then((module) => ({
+    default: module.NotificacoesPage,
+  })),
+);
+const NotFoundPage = lazy(() =>
+  import("@/pages/not-found-page").then((module) => ({
+    default: module.NotFoundPage,
+  })),
+);
+const ParametrosPage = lazy(() =>
+  import("@/pages/parametros-page").then((module) => ({
+    default: module.ParametrosPage,
+  })),
+);
 const PlanejamentoCotacoesPage = lazy(() =>
-  import("@/pages/planejamento-cotacoes-page").then((module) => ({ default: module.PlanejamentoCotacoesPage })),
+  import("@/pages/planejamento-cotacoes-page").then((module) => ({
+    default: module.PlanejamentoCotacoesPage,
+  })),
 );
 const PlanejamentoDfdPage = lazy(() =>
-  import("@/pages/planejamento-dfd-page").then((module) => ({ default: module.PlanejamentoDfdPage })),
+  import("@/pages/planejamento-dfd-page").then((module) => ({
+    default: module.PlanejamentoDfdPage,
+  })),
 );
 const PlanejamentoEtpPage = lazy(() =>
-  import("@/pages/planejamento-etp-page").then((module) => ({ default: module.PlanejamentoEtpPage })),
+  import("@/pages/planejamento-etp-page").then((module) => ({
+    default: module.PlanejamentoEtpPage,
+  })),
 );
-const PlanejamentoTrPage = lazy(() => import("@/pages/planejamento-tr-page").then((module) => ({ default: module.PlanejamentoTrPage })));
-const PlanejamentoPage = lazy(() => import("@/pages/planejamento-page").then((module) => ({ default: module.PlanejamentoPage })));
-const PrazosPage = lazy(() => import("@/pages/prazos-page").then((module) => ({ default: module.PrazosPage })));
-const ProcessosPage = lazy(() => import("@/pages/processos-page").then((module) => ({ default: module.ProcessosPage })));
-const RelatoriosPage = lazy(() => import("@/pages/relatorios-page").then((module) => ({ default: module.RelatoriosPage })));
-const UsuariosPage = lazy(() => import("@/pages/usuarios-page").then((module) => ({ default: module.UsuariosPage })));
-const WorkflowPage = lazy(() => import("@/pages/workflow-page").then((module) => ({ default: module.WorkflowPage })));
+const PlanejamentoTrPage = lazy(() =>
+  import("@/pages/planejamento-tr-page").then((module) => ({
+    default: module.PlanejamentoTrPage,
+  })),
+);
+const PlanejamentoPage = lazy(() =>
+  import("@/pages/planejamento-page").then((module) => ({
+    default: module.PlanejamentoPage,
+  })),
+);
+const PrazosPage = lazy(() =>
+  import("@/pages/prazos-page").then((module) => ({
+    default: module.PrazosPage,
+  })),
+);
+const ProcessosPage = lazy(() =>
+  import("@/pages/processos-page").then((module) => ({
+    default: module.ProcessosPage,
+  })),
+);
+const RelatoriosPage = lazy(() =>
+  import("@/pages/relatorios-page").then((module) => ({
+    default: module.RelatoriosPage,
+  })),
+);
+const UsuariosPage = lazy(() =>
+  import("@/pages/usuarios-page").then((module) => ({
+    default: module.UsuariosPage,
+  })),
+);
+const WorkflowPage = lazy(() =>
+  import("@/pages/workflow-page").then((module) => ({
+    default: module.WorkflowPage,
+  })),
+);
 
 function RouteFallback() {
   return (
@@ -49,7 +151,13 @@ function RouteFallback() {
   );
 }
 
-function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogout: () => void }) {
+function AuthenticatedApp({
+  session,
+  onLogout,
+}: {
+  session: AuthSession;
+  onLogout: () => void;
+}) {
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     staleTime: 60_000,
@@ -78,6 +186,10 @@ function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogou
       <Suspense fallback={<RouteFallback />}>
         <Switch>
           <Route path="/" component={DashboardPage} />
+          <Route path="/dossie/:processoId">
+            {(params) => <DossiePage processoId={Number(params.processoId)} />}
+          </Route>
+          <Route path="/dossie">{() => <DossiePage />}</Route>
           <Route path="/notificacoes" component={NotificacoesPage} />
           <Route path="/consultas" component={ConsultasPage} />
           <Route path="/relatorios" component={RelatoriosPage} />
@@ -85,26 +197,40 @@ function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogou
           <Route path="/importacoes" component={ImportacoesPage} />
           <Route path="/cadastros" component={CadastrosPage} />
           <Route path="/planejamento/dfd/:processoId">
-            {(params) => <PlanejamentoDfdPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <PlanejamentoDfdPage processoId={Number(params.processoId)} />
+            )}
           </Route>
           <Route path="/planejamento/etp/:processoId">
-            {(params) => <PlanejamentoEtpPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <PlanejamentoEtpPage processoId={Number(params.processoId)} />
+            )}
           </Route>
           <Route path="/planejamento/cotacoes/:processoId">
-            {(params) => <PlanejamentoCotacoesPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <PlanejamentoCotacoesPage
+                processoId={Number(params.processoId)}
+              />
+            )}
           </Route>
           <Route path="/planejamento/tr/:processoId">
-            {(params) => <PlanejamentoTrPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <PlanejamentoTrPage processoId={Number(params.processoId)} />
+            )}
           </Route>
           <Route path="/itens" component={ItensPage} />
           <Route path="/planejamento" component={PlanejamentoPage} />
           <Route path="/compras" component={ComprasPage} />
           <Route path="/processos/:processoId">
-            {(params) => <ProcessosPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <ProcessosPage processoId={Number(params.processoId)} />
+            )}
           </Route>
           <Route path="/processos">{() => <ProcessosPage />}</Route>
           <Route path="/licitacao/:processoId">
-            {(params) => <LicitacaoProcessoPage processoId={Number(params.processoId)} />}
+            {(params) => (
+              <LicitacaoProcessoPage processoId={Number(params.processoId)} />
+            )}
           </Route>
           <Route path="/licitacao" component={LicitacaoPage} />
           <Route path="/documentos" component={DocumentosPage} />
@@ -121,7 +247,9 @@ function AuthenticatedApp({ session, onLogout }: { session: AuthSession; onLogou
 }
 
 function AppContent() {
-  const [session, setSession] = useState<AuthSession | null>(() => loadStoredSession());
+  const [session, setSession] = useState<AuthSession | null>(() =>
+    loadStoredSession(),
+  );
 
   function handleLogin(nextSession: AuthSession) {
     saveStoredSession(nextSession);

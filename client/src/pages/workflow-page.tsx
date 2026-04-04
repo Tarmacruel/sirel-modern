@@ -8,6 +8,7 @@
 import {
   ArrowRightLeft,
   Edit,
+  FileText,
   FileStack,
   Search,
   Workflow,
@@ -583,10 +584,13 @@ export function WorkflowPage() {
                             row.numeroAdministrativo
                               ? `Adm ${row.numeroAdministrativo}`
                               : null,
-                            row.numeroEdital ? `Edital ${row.numeroEdital}` : null,
+                            row.numeroEdital
+                              ? `Edital ${row.numeroEdital}`
+                              : null,
                           ]
                             .filter(Boolean)
-                            .join(" • ") || "Sem identificadores complementares"}
+                            .join(" • ") ||
+                            "Sem identificadores complementares"}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
@@ -729,6 +733,12 @@ export function WorkflowPage() {
                   <Edit className="mr-2 h-4 w-4" />
                   Editar dados do processo
                 </Button>
+                <Link href={`/dossie/${selectedProcessId}`}>
+                  <Button type="button" size="sm" variant="outline">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Abrir dossiê
+                  </Button>
+                </Link>
                 {detailQuery.data?.processo ? (
                   <Button
                     type="button"

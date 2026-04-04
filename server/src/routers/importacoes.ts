@@ -19,6 +19,10 @@ import {
   importacaoBllExecutionListInputSchema,
   importacaoBllLinkProcessoInputSchema,
   importacaoBllListInputSchema,
+  importacaoBllLocalSyncBatchInputSchema,
+  importacaoBllLocalSyncCancelInputSchema,
+  importacaoBllLocalSyncProcessInputSchema,
+  importacaoBllLocalSyncStatusInputSchema,
   importacaoBllRemoteSyncInputSchema,
   importacaoBllSearchProcessosInputSchema,
   importacaoBllSetIgnoredInputSchema,
@@ -69,6 +73,11 @@ import {
   remoteImportSources,
   syncRemoteImport,
 } from "../lib/importacoes-bll.js";
+import {
+  cancelBllLocalSync,
+  getBllLocalSyncStatus,
+  startBllLocalSync,
+} from "../lib/bll-sync-local.js";
 import { gestorProcedure, operadorProcedure, protectedProcedure, router } from "../trpc.js";
 import { modalidades, secretarias } from "../db/schema.js";
 import type {
@@ -2077,6 +2086,138 @@ export const importacoesRouter = router({
         results,
         errors,
       };
+    }),
+
+  localSyncStatus: protectedProcedure
+    .input(importacaoBllLocalSyncStatusInputSchema)
+    .query(async ({ input }) => {
+      const status = await getBllLocalSyncStatus();
+      const basePayload = {
+        ...status,
+        processo: null as
+          | {
+              id: number;
+              numeroSirel: string;
+              numeroAdministrativo: string | null;
+              numeroEdital: string | null;
+              origem: "LICITACAO" | "COMPRA_DIRETA" | null;
+              linkExterno: string | null;
+              ultimaAtualizacaoEm: Date | null;
+            }
+          | null,
+      };
+
+      if (!input.processoId) {
+        return basePayload;
+      }
+
+      const db = requireDb();
+      const [processo] = await db
+        .select({
+          id: processos.id,
+          numeroSirel: processos.numeroSirel,
+          numeroAdministrativo: processos.numeroAdministrativo,
+          numeroEdital: processos.numeroEdital,
+          linkExterno: importacaoBllProcessos.linkExterno,
+          origem: importacaoBllProcessos.origem,
+          ultimaAtualizacaoEm: importacaoBllProcessos.ultimaAtualizacaoEm,
+        })
+        .from(processos)
+        .leftJoin(
+          importacaoBllProcessos,
+          eq(importacaoBllProcessos.processoInternoId, processos.id),
+        )
+        .where(eq(processos.id, input.processoId))
+        .limit(1);
+
+      return {
+        ...basePayload,
+        processo:
+          processo && processo.linkExterno
+            ? {
+                id: processo.id,
+                numeroSirel: processo.numeroSirel,
+                numeroAdministrativo: processo.numeroAdministrativo,
+                numeroEdital: processo.numeroEdital,
+                origem: processo.origem,
+                linkExterno: processo.linkExterno,
+                ultimaAtualizacaoEm: processo.ultimaAtualizacaoEm,
+              }
+            : processo
+              ? {
+                  id: processo.id,
+                  numeroSirel: processo.numeroSirel,
+                  numeroAdministrativo: processo.numeroAdministrativo,
+                  numeroEdital: processo.numeroEdital,
+                  origem: processo.origem,
+                  linkExterno: null,
+                  ultimaAtualizacaoEm: processo.ultimaAtualizacaoEm,
+                }
+              : null,
+      };
+    }),
+
+  localSyncProcesso: operadorProcedure
+    .input(importacaoBllLocalSyncProcessInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await startBllLocalSync({
+        processoId: input.processoId,
+        dryRun: input.dryRun,
+        userId: ctx.user?.id ?? null,
+      });
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_bll_execucoes",
+        registroId: result.executionId,
+        acao: "CREATE",
+        dadosNovos: result,
+        descricao: input.dryRun
+          ? `Simulação da sincronização local BLL iniciada para o processo ${input.processoId}.`
+          : `Sincronização local BLL iniciada para o processo ${input.processoId}.`,
+      });
+
+      return result;
+    }),
+
+  localSyncLote: operadorProcedure
+    .input(importacaoBllLocalSyncBatchInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await startBllLocalSync({
+        processoIds: input.processoIds,
+        dryRun: input.dryRun,
+        userId: ctx.user?.id ?? null,
+        limit: input.limit,
+      });
+
+      await logAuditoria(ctx, {
+        tabela: "importacao_bll_execucoes",
+        registroId: result.executionId,
+        acao: "CREATE",
+        dadosNovos: result,
+        descricao: input.dryRun
+          ? "Simulação da sincronização local BLL iniciada em lote."
+          : "Sincronização local BLL iniciada em lote.",
+      });
+
+      return result;
+    }),
+
+  localSyncCancel: operadorProcedure
+    .input(importacaoBllLocalSyncCancelInputSchema)
+    .mutation(async ({ ctx }) => {
+      const result = await cancelBllLocalSync();
+
+      if (result.cancelled && result.executionId) {
+        await logAuditoria(ctx, {
+          tabela: "importacao_bll_execucoes",
+          registroId: result.executionId,
+          acao: "UPDATE",
+          dadosNovos: result,
+          descricao: "Cancelamento solicitado para a sincronização local BLL.",
+        });
+      }
+
+      return result;
     }),
 
   importCsv: operadorProcedure

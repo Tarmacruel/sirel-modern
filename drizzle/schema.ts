@@ -226,6 +226,7 @@ export const importacaoBllOrigemEnum = pgEnum("importacao_bll_origem", [
 export const importacaoBllModoEnum = pgEnum("importacao_bll_modo", [
   "REMOTA_JSON",
   "CSV_MANUAL",
+  "PLAYWRIGHT_LOCAL",
 ]);
 export const importacaoBllStatusExecucaoEnum = pgEnum(
   "importacao_bll_status_execucao",
@@ -747,6 +748,120 @@ export const itensProcesso = pgTable(
     idxProcesso: index("itens_processo_idx").on(table.processoId),
     idxCatalogoItem: index("itens_processo_catalogo_item_idx").on(
       table.catalogoItemId,
+    ),
+  }),
+);
+
+export const itensProcessoValores = pgTable(
+  "itens_processo_valores",
+  {
+    id: serial("id").primaryKey(),
+    itemProcessoId: integer("item_processo_id")
+      .notNull()
+      .references(() => itensProcesso.id, { onDelete: "cascade" }),
+    valorEstimadoUnitario: numeric("valor_estimado_unitario", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorEstimadoTotal: numeric("valor_estimado_total", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorLanceVencedorUnitario: numeric("valor_lance_vencedor_unitario", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorLanceVencedorTotal: numeric("valor_lance_vencedor_total", {
+      precision: 14,
+      scale: 2,
+    }),
+    percentualDesconto: numeric("percentual_desconto", {
+      precision: 8,
+      scale: 4,
+    }),
+    economiaObtida: numeric("economia_obtida", { precision: 14, scale: 2 }),
+    fornecedorVencedorId: integer("fornecedor_vencedor_id").references(
+      () => fornecedores.id,
+      { onDelete: "set null" },
+    ),
+    fornecedorVencedorNome: varchar("fornecedor_vencedor_nome", {
+      length: 255,
+    }),
+    fornecedorVencedorCnpj: varchar("fornecedor_vencedor_cnpj", {
+      length: 20,
+    }),
+    itemHomologado: boolean("item_homologado").notNull().default(false),
+    itemDeserto: boolean("item_deserto").notNull().default(false),
+    itemFracassado: boolean("item_fracassado").notNull().default(false),
+    motivoFracasso: text("motivo_fracasso"),
+    dataHomologacao: date("data_homologacao"),
+    numeroLote: varchar("numero_lote", { length: 64 }),
+    origemAlteracao: varchar("origem_alteracao", { length: 64 }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqItemProcesso: uniqueIndex("itens_processo_valores_item_uq").on(
+      table.itemProcessoId,
+    ),
+    idxFornecedor: index("itens_processo_valores_fornecedor_idx").on(
+      table.fornecedorVencedorId,
+    ),
+    idxStatus: index("itens_processo_valores_status_idx").on(
+      table.itemHomologado,
+      table.itemDeserto,
+      table.itemFracassado,
+    ),
+    idxLote: index("itens_processo_valores_lote_idx").on(table.numeroLote),
+  }),
+);
+
+export const auditoriaValoresLicitacao = pgTable(
+  "auditoria_valores_licitacao",
+  {
+    id: serial("id").primaryKey(),
+    itemProcessoId: integer("item_processo_id")
+      .notNull()
+      .references(() => itensProcesso.id, { onDelete: "cascade" }),
+    valorEstimadoAnterior: numeric("valor_estimado_anterior", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorEstimadoNovo: numeric("valor_estimado_novo", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorLanceAnterior: numeric("valor_lance_anterior", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorLanceNovo: numeric("valor_lance_novo", {
+      precision: 14,
+      scale: 2,
+    }),
+    origemAlteracao: varchar("origem_alteracao", { length: 64 }).notNull(),
+    usuarioResponsavel: integer("usuario_responsavel").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    justificativa: text("justificativa"),
+    dataAlteracao: timestamp("data_alteracao", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxItem: index("auditoria_valores_licitacao_item_idx").on(
+      table.itemProcessoId,
+    ),
+    idxData: index("auditoria_valores_licitacao_data_idx").on(
+      table.dataAlteracao,
+    ),
+    idxOrigem: index("auditoria_valores_licitacao_origem_idx").on(
+      table.origemAlteracao,
     ),
   }),
 );
@@ -2271,6 +2386,65 @@ export const importacaoPncpContratos = pgTable(
     idxProcessoInterno: index(
       "importacao_pncp_contratos_processo_interno_idx",
     ).on(table.processoInternoId),
+  }),
+);
+
+export const contratosPncp = pgTable(
+  "contratos_pncp",
+  {
+    id: serial("id").primaryKey(),
+    processoId: integer("processo_id")
+      .notNull()
+      .references(() => processos.id, { onDelete: "cascade" }),
+    pncpContractId: varchar("pncp_contract_id", { length: 120 }).notNull(),
+    pncpProcessId: varchar("pncp_process_id", { length: 120 }),
+    pncpUrl: varchar("pncp_url", { length: 500 }),
+    pncpApiUrl: varchar("pncp_api_url", { length: 500 }),
+    numeroContrato: varchar("numero_contrato", { length: 120 }),
+    anoContrato: integer("ano_contrato"),
+    objetoContrato: text("objeto_contrato"),
+    valorTotalContrato: numeric("valor_total_contrato", {
+      precision: 14,
+      scale: 2,
+    }),
+    valorEmpenhado: numeric("valor_empenhado", { precision: 14, scale: 2 }),
+    valorLiquidado: numeric("valor_liquidado", { precision: 14, scale: 2 }),
+    valorPago: numeric("valor_pago", { precision: 14, scale: 2 }),
+    dataAssinatura: date("data_assinatura"),
+    dataInicioVigencia: date("data_inicio_vigencia"),
+    dataFimVigencia: date("data_fim_vigencia"),
+    diasVigencia: integer("dias_vigencia"),
+    fornecedorId: integer("fornecedor_id").references(() => fornecedores.id, {
+      onDelete: "set null",
+    }),
+    fornecedorNome: varchar("fornecedor_nome", { length: 255 }),
+    fornecedorCnpj: varchar("fornecedor_cnpj", { length: 20 }),
+    statusContrato: varchar("status_contrato", { length: 120 }),
+    itensVinculados: jsonb("itens_vinculados"),
+    urlDocumentoContrato: varchar("url_documento_contrato", { length: 500 }),
+    urlDocumentoEmpenho: varchar("url_documento_empenho", { length: 500 }),
+    ultimaSincronizacaoPncp: timestamp("ultima_sincronizacao_pncp", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    dadosCompletosPncp: jsonb("dados_completos_pncp"),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqPncpContract: uniqueIndex("contratos_pncp_contract_uq").on(
+      table.pncpContractId,
+    ),
+    idxProcesso: index("contratos_pncp_processo_idx").on(table.processoId),
+    idxFornecedorCnpj: index("contratos_pncp_fornecedor_cnpj_idx").on(
+      table.fornecedorCnpj,
+    ),
+    idxStatus: index("contratos_pncp_status_idx").on(table.statusContrato),
   }),
 );
 

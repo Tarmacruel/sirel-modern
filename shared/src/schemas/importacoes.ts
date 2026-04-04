@@ -4,7 +4,15 @@ export const importacaoBllSourceOptions = [
   "LICITACAO",
   "COMPRA_DIRETA",
 ] as const;
-export const importacaoBllModeOptions = ["REMOTA_JSON", "CSV_MANUAL"] as const;
+export const importacaoBllModeOptions = [
+  "REMOTA_JSON",
+  "CSV_MANUAL",
+  "PLAYWRIGHT_LOCAL",
+] as const;
+export const importacaoBllLocalSyncTargetOptions = [
+  "PROCESSO",
+  "LOTE",
+] as const;
 export const importacaoBllExecutionStatusOptions = [
   "PROCESSANDO",
   "CONCLUIDA",
@@ -58,6 +66,25 @@ export const importacaoBllCsvInputSchema = z.object({
 
 export const importacaoBllRemoteSyncInputSchema = z.object({
   source: z.enum(importacaoBllSourceOptions).optional(),
+});
+
+export const importacaoBllLocalSyncStatusInputSchema = z.object({
+  processoId: z.number().int().positive().optional(),
+});
+
+export const importacaoBllLocalSyncProcessInputSchema = z.object({
+  processoId: z.number().int().positive(),
+  dryRun: z.boolean().default(false),
+});
+
+export const importacaoBllLocalSyncBatchInputSchema = z.object({
+  processoIds: z.array(z.number().int().positive()).max(100).optional(),
+  dryRun: z.boolean().default(false),
+  limit: z.number().int().positive().max(100).default(20),
+});
+
+export const importacaoBllLocalSyncCancelInputSchema = z.object({
+  executionId: z.number().int().positive().optional(),
 });
 
 export const importacaoBllSearchProcessosInputSchema = z.object({
@@ -227,6 +254,20 @@ export type ImportacaoBllDetailInput = z.infer<
 export type ImportacaoBllCsvInput = z.infer<typeof importacaoBllCsvInputSchema>;
 export type ImportacaoBllRemoteSyncInput = z.infer<
   typeof importacaoBllRemoteSyncInputSchema
+>;
+export type ImportacaoBllLocalSyncTarget =
+  (typeof importacaoBllLocalSyncTargetOptions)[number];
+export type ImportacaoBllLocalSyncStatusInput = z.infer<
+  typeof importacaoBllLocalSyncStatusInputSchema
+>;
+export type ImportacaoBllLocalSyncProcessInput = z.infer<
+  typeof importacaoBllLocalSyncProcessInputSchema
+>;
+export type ImportacaoBllLocalSyncBatchInput = z.infer<
+  typeof importacaoBllLocalSyncBatchInputSchema
+>;
+export type ImportacaoBllLocalSyncCancelInput = z.infer<
+  typeof importacaoBllLocalSyncCancelInputSchema
 >;
 export type ImportacaoBllSearchProcessosInput = z.infer<
   typeof importacaoBllSearchProcessosInputSchema

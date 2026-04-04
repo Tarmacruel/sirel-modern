@@ -1024,6 +1024,20 @@ export function ImportacoesPage() {
     { id: selectedRecordId ?? 0 },
     { enabled: selectedRecordId !== null, retry: false },
   );
+  const localSyncStatusQuery = trpc.importacoes.localSyncStatus.useQuery(
+    {
+      processoId:
+        detailQuery.data?.record?.processoInternoId &&
+        Number.isFinite(detailQuery.data.record.processoInternoId)
+          ? detailQuery.data.record.processoInternoId
+          : undefined,
+    },
+    {
+      retry: false,
+      refetchInterval: (query) =>
+        query.state.data?.activeRun ? 3_000 : 20_000,
+    },
+  );
   const processSearchQuery = trpc.importacoes.searchProcessos.useQuery(
     {
       importedId: selectedRecordId ?? 0,
@@ -1140,6 +1154,7 @@ export function ImportacoesPage() {
       utils.importacoes.list.invalidate(),
       utils.importacoes.executions.invalidate(),
       utils.importacoes.detail.invalidate(),
+      utils.importacoes.localSyncStatus.invalidate(),
       utils.importacoes.listLegacyXlsxLotes.invalidate(),
       utils.importacoes.getLegacyXlsxLoteDetail.invalidate(),
     ]);
@@ -1462,6 +1477,35 @@ export function ImportacoesPage() {
     onError: (error) =>
       setFeedback({ variant: "error", message: error.message }),
   });
+  const localSyncProcessMutation =
+    trpc.importacoes.localSyncProcesso.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({ variant: "success", message: result.message });
+        await invalidateImportacoes();
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
+  const localSyncBatchMutation = trpc.importacoes.localSyncLote.useMutation({
+    onSuccess: async (result) => {
+      setFeedback({ variant: "success", message: result.message });
+      await invalidateImportacoes();
+    },
+    onError: (error) =>
+      setFeedback({ variant: "error", message: error.message }),
+  });
+  const localSyncCancelMutation =
+    trpc.importacoes.localSyncCancel.useMutation({
+      onSuccess: async (result) => {
+        setFeedback({
+          variant: result.cancelled ? "warning" : "info",
+          message: result.message,
+        });
+        await invalidateImportacoes();
+      },
+      onError: (error) =>
+        setFeedback({ variant: "error", message: error.message }),
+    });
 
   // PNCP mutations
   const pncpAutoConciliateMutation =
@@ -1586,6 +1630,17 @@ export function ImportacoesPage() {
       },
     ];
   }, [summaryQuery.data]);
+  const localSyncStatus = localSyncStatusQuery.data;
+  const linkedInternalProcessId =
+    detailData?.record?.processoInternoId &&
+    Number.isFinite(detailData.record.processoInternoId)
+      ? detailData.record.processoInternoId
+      : null;
+  const localSyncBusy =
+    localSyncProcessMutation.isPending ||
+    localSyncBatchMutation.isPending ||
+    localSyncCancelMutation.isPending ||
+    Boolean(localSyncStatus?.activeRun);
 
   const importacoesTabs = useMemo<
     Array<{ value: ImportacoesTab; label: string }>
@@ -2539,6 +2594,139 @@ export function ImportacoesPage() {
               proximidade de datas.
             </p>
           </div>
+        </div>
+        <div className="mt-4 rounded-[26px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Sincronização local BLL
+              </p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
+                Atualiza valores estimados, lances vencedores, economia e contratos PNCP
+                a partir da base já importada e da checagem local em Playwright,
+                sem depender de GitHub Actions.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void localSyncBatchMutation.mutateAsync({
+                    dryRun: true,
+                    limit: 20,
+                  })
+                }
+                disabled={localSyncBusy}
+              >
+                Simular lote
+              </Button>
+              <Button
+                onClick={() =>
+                  void localSyncBatchMutation.mutateAsync({
+                    dryRun: false,
+                    limit: 20,
+                  })
+                }
+                disabled={localSyncBusy}
+                icon={<RefreshCcw className="h-4 w-4" />}
+              >
+                {localSyncBatchMutation.isPending
+                  ? "Iniciando..."
+                  : "Sincronizar vinculados"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  linkedInternalProcessId
+                    ? void localSyncProcessMutation.mutateAsync({
+                        processoId: linkedInternalProcessId,
+                        dryRun: false,
+                      })
+                    : undefined
+                }
+                disabled={!linkedInternalProcessId || localSyncBusy}
+              >
+                Sincronizar processo
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void localSyncCancelMutation.mutateAsync({})}
+                disabled={!localSyncStatus?.activeRun}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-700)]">
+                Status
+              </p>
+              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
+                {localSyncStatus?.activeRun
+                  ? localSyncStatus.activeRun.message
+                  : "Sem sincronização local em andamento."}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                {localSyncStatus?.enabled
+                  ? `Cron diário ${localSyncStatus.cronDaily} (${localSyncStatus.timezone})`
+                  : "Rotina local desabilitada por ambiente."}
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Última execução
+              </p>
+              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
+                {localSyncStatus?.lastExecution
+                  ? formatShortDateTimeBR(localSyncStatus.lastExecution.iniciadoEm)
+                  : "Ainda não executada."}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                {localSyncStatus?.lastExecution
+                  ? `${importacaoBllModeLabels[localSyncStatus.lastExecution.modo]} • ${localSyncStatus.lastExecution.status}`
+                  : "Aguardando primeira sincronização local."}
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Processo em foco
+              </p>
+              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
+                {localSyncStatus?.processo?.numeroSirel ?? "Selecione um registro vinculado"}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                {localSyncStatus?.processo?.linkExterno
+                  ? "Com link BLL disponível para checagem local."
+                  : "Sem link BLL vinculado para o processo atual."}
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Rate limit
+              </p>
+              <p className="mt-2 text-sm font-semibold text-[var(--color-neutral-900)]">
+                {formatIntegerBR(localSyncStatus?.rateLimitMs ?? 0)} ms
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                Base URL: {localSyncStatus?.baseUrl || "não configurada"}
+              </p>
+            </div>
+          </div>
+          {localSyncStatus?.activeRun ? (
+            <div className="mt-4 rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-[var(--surface-elevated)] px-4 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[var(--color-neutral-900)]">
+                  Progresso: {formatIntegerBR(localSyncStatus.activeRun.processed)} /{" "}
+                  {formatIntegerBR(localSyncStatus.activeRun.processIds.length)} processo(s)
+                </p>
+                <p className="text-xs text-[var(--color-neutral-500)]">
+                  Itens atualizados: {formatIntegerBR(localSyncStatus.activeRun.updatedItems)} •
+                  Contratos PNCP: {formatIntegerBR(localSyncStatus.activeRun.updatedContracts)}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
       </SectionCard>
       <div className="sticky top-2 z-10 rounded-[24px] border border-[rgba(204,225,255,0.95)] bg-white/95 px-3 py-2 shadow-sm backdrop-blur">

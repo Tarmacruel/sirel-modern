@@ -66,6 +66,10 @@
       "types": "./dist/schemas/importacoes.d.ts",
       "import": "./dist/schemas/importacoes.js"
     },
+    "./schemas/dossie": {
+      "types": "./dist/schemas/dossie.d.ts",
+      "import": "./dist/schemas/dossie.js"
+    },
     "./schemas/relatorios": {
       "types": "./dist/schemas/relatorios.d.ts",
       "import": "./dist/schemas/relatorios.js"
@@ -89,6 +93,10 @@
     "./document-templates/planejamento": {
       "types": "./dist/document-templates/planejamento.d.ts",
       "import": "./dist/document-templates/planejamento.js"
+    },
+    "./document-templates/dossie": {
+      "types": "./dist/document-templates/dossie.d.ts",
+      "import": "./dist/document-templates/dossie.js"
     }
   },
   "scripts": {
