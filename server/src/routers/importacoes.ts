@@ -41,6 +41,7 @@ import {
   importacaoBllProcessos,
   importacaoLegadoLotes,
   importacaoLegadoRegistros,
+  licitacoes,
   movimentacoesWorkflow,
   pessoas,
   processos,
@@ -2119,6 +2120,7 @@ export const importacoesRouter = router({
           numeroAdministrativo: processos.numeroAdministrativo,
           numeroEdital: processos.numeroEdital,
           linkExterno: importacaoBllProcessos.linkExterno,
+          linkBllManual: licitacoes.linkBllPublico,
           origem: importacaoBllProcessos.origem,
           ultimaAtualizacaoEm: importacaoBllProcessos.ultimaAtualizacaoEm,
         })
@@ -2127,20 +2129,21 @@ export const importacoesRouter = router({
           importacaoBllProcessos,
           eq(importacaoBllProcessos.processoInternoId, processos.id),
         )
+        .leftJoin(licitacoes, eq(licitacoes.processoId, processos.id))
         .where(eq(processos.id, input.processoId))
         .limit(1);
 
       return {
         ...basePayload,
         processo:
-          processo && processo.linkExterno
+          processo && (processo.linkExterno || processo.linkBllManual)
             ? {
                 id: processo.id,
                 numeroSirel: processo.numeroSirel,
                 numeroAdministrativo: processo.numeroAdministrativo,
                 numeroEdital: processo.numeroEdital,
-                origem: processo.origem,
-                linkExterno: processo.linkExterno,
+                origem: processo.origem ?? "LICITACAO",
+                linkExterno: processo.linkExterno ?? processo.linkBllManual,
                 ultimaAtualizacaoEm: processo.ultimaAtualizacaoEm,
               }
             : processo
@@ -2184,9 +2187,11 @@ export const importacoesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const result = await startBllLocalSync({
         processoIds: input.processoIds,
+        source: input.source,
         dryRun: input.dryRun,
         userId: ctx.user?.id ?? null,
         limit: input.limit,
+        pageLimit: input.pageLimit,
       });
 
       await logAuditoria(ctx, {

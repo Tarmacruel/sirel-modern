@@ -245,6 +245,8 @@ export interface DossieLicitacao {
     dataFimLances: string | null;
     dataJulgamento: string | null;
     dataHomologacao: string | null;
+    linkBllPublico: string | null;
+    linkPncpPublico: string | null;
     inversaoFasesHabilitada: boolean;
     inversaoFasesJustificativa: string | null;
     observacoes: string | null;

@@ -52,6 +52,8 @@ export const licitacaoPublishInputSchema = z.object({
   condutorProcessoId: z.number().int().positive(),
   statusId: z.number().int().positive().optional(),
   justificativaAuditoria: z.string().trim().max(4000).optional(),
+  linkBllPublico: z.string().trim().max(500).optional(),
+  linkPncpPublico: z.string().trim().max(500).optional(),
   dataPublicacaoEdital: optionalDateTimeString,
   dataRecebimentoPropostasInicio: optionalDateTimeString,
   dataRecebimentoPropostasFim: optionalDateTimeString,

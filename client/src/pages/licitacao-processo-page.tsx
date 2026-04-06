@@ -14,6 +14,7 @@ import {
   Clock3,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   FileCheck2,
   FileStack,
   FolderKanban,
@@ -475,6 +476,8 @@ export function LicitacaoProcessoPage({
     statusId: "",
     dataPublicacaoEdital: "",
     horaDisputa: "08:30",
+    linkBllPublico: "",
+    linkPncpPublico: "",
     descricao: "",
     observacao: "",
   });
@@ -548,6 +551,8 @@ export function LicitacaoProcessoPage({
         detail.licitacao.dataPublicacaoEdital,
       ),
       horaDisputa: toTimeInputValue(detail.licitacao.dataAberturaPropostas),
+      linkBllPublico: detail.licitacao.linkBllPublico ?? "",
+      linkPncpPublico: detail.licitacao.linkPncpPublico ?? "",
       descricao: detail.processo.numeroEdital
         ? `Publicação do edital ${detail.processo.numeroEdital}`
         : `Publicação do processo ${detail.processo.numeroSirel}`,
@@ -1358,6 +1363,8 @@ export function LicitacaoProcessoPage({
       justificativaAuditoria: isForaDoFluxo
         ? legalOverrideAudit || undefined
         : undefined,
+      linkBllPublico: publishForm.linkBllPublico || undefined,
+      linkPncpPublico: publishForm.linkPncpPublico || undefined,
       dataPublicacaoEdital: publishForm.dataPublicacaoEdital
         ? `${publishForm.dataPublicacaoEdital}T00:00:00`
         : undefined,
@@ -3650,6 +3657,61 @@ export function LicitacaoProcessoPage({
                         }
                         disabled
                       />
+                    </FormField>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <FormField label="Link público da BLL">
+                      <div className="space-y-2">
+                        <Input
+                          type="url"
+                          placeholder="https://bllcompras.com/Process/..."
+                          value={publishForm.linkBllPublico}
+                          onChange={(event) =>
+                            setPublishForm((current) => ({
+                              ...current,
+                              linkBllPublico: event.target.value,
+                            }))
+                          }
+                        />
+                        {publishForm.linkBllPublico ? (
+                          <a
+                            href={publishForm.linkBllPublico}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir página pública da BLL
+                          </a>
+                        ) : null}
+                      </div>
+                    </FormField>
+                    <FormField label="Link público do PNCP">
+                      <div className="space-y-2">
+                        <Input
+                          type="url"
+                          placeholder="https://pncp.gov.br/..."
+                          value={publishForm.linkPncpPublico}
+                          onChange={(event) =>
+                            setPublishForm((current) => ({
+                              ...current,
+                              linkPncpPublico: event.target.value,
+                            }))
+                          }
+                        />
+                        {publishForm.linkPncpPublico ? (
+                          <a
+                            href={publishForm.linkPncpPublico}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir publicação do PNCP
+                          </a>
+                        ) : null}
+                      </div>
                     </FormField>
                   </div>
 

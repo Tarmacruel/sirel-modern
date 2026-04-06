@@ -161,6 +161,22 @@ function toNullableText(value?: string | null) {
   return value?.trim() ? value.trim() : null;
 }
 
+function normalizePublicUrl(value?: string | null) {
+  const normalized = toNullableText(value);
+  if (!normalized) return null;
+  const withProtocol =
+    /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
+
+  try {
+    return new URL(withProtocol).toString();
+  } catch {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Informe um link público válido da BLL ou do PNCP.",
+    });
+  }
+}
+
 function normalizeDigits(value?: string | null) {
   return String(value ?? "").replace(/\D+/g, "");
 }
@@ -1114,6 +1130,8 @@ export const licitacaoRouter = router({
               dataFimLances: null,
               dataJulgamento: null,
               dataHomologacao: null,
+              linkBllPublico: null,
+              linkPncpPublico: null,
               inversaoFasesHabilitada: false,
               inversaoFasesJustificativa: null,
               observacoes: null,
@@ -1691,6 +1709,8 @@ export const licitacaoRouter = router({
           parseOptionalTimestamp(input.dataFimLances) ??
           licitacao.dataFimLances ??
           null,
+        linkBllPublico: normalizePublicUrl(input.linkBllPublico),
+        linkPncpPublico: normalizePublicUrl(input.linkPncpPublico),
         atualizadoEm: new Date(),
       };
 

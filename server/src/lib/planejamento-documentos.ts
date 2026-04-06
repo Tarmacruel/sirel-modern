@@ -15,6 +15,7 @@ import { desc, eq } from "drizzle-orm";
 import type { AppContext } from "../_core/context.js";
 import { requireDb } from "../db/client.js";
 import { documentos } from "../db/schema.js";
+import { getSystemParamValue } from "./system-params.js";
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
@@ -58,6 +59,62 @@ function textValue(value: string | null | undefined) {
 function linesFromText(value: string | null | undefined) {
   const cleaned = value?.trim();
   return cleaned ? cleaned.split(/\n{2,}|\n/).map((line) => line.trim()).filter(Boolean) : ["-"];
+}
+
+function normalizeLogoUrl(value: unknown, baseUrl: string) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  const withoutDist = normalized.replace(/^\/dist\//, "/");
+  if (/^https?:\/\//i.test(withoutDist)) {
+    return withoutDist;
+  }
+  if (withoutDist.startsWith("/")) {
+    return `${baseUrl}${withoutDist}`;
+  }
+  return `${baseUrl}/${withoutDist.replace(/^\.?\//, "")}`;
+}
+
+async function resolvePrintableBranding(baseUrl: string) {
+  const db = requireDb();
+  const nome = String(
+    (await getSystemParamValue(db, "INSTITUCIONAL.NOME_ORGAO")) ??
+      "PREFEITURA MUNICIPAL DE TEIXEIRA DE FREITAS",
+  ).trim();
+  const cnpj = String(
+    (await getSystemParamValue(db, "INSTITUCIONAL.CNPJ_ORGAO")) ??
+      "13.650.403/0001-28",
+  ).trim();
+  const enderecoValue =
+    ((await getSystemParamValue(db, "INSTITUCIONAL.ENDERECO")) as
+      | Record<string, unknown>
+      | undefined) ?? {};
+  const endereco = [
+    String(enderecoValue.logradouro ?? "").trim(),
+    String(enderecoValue.numero ?? "").trim(),
+    String(enderecoValue.bairro ?? "").trim(),
+    String(enderecoValue.cep ?? "").trim(),
+    String(enderecoValue.municipio ?? "").trim(),
+    String(enderecoValue.uf ?? "").trim(),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    logoUrl: normalizeLogoUrl(
+      await getSystemParamValue(db, "VISUAL.LOGO_URL"),
+      baseUrl,
+    ),
+    lines: [
+      "MUNICIPIO DE TEIXEIRA DE FREITAS",
+      nome,
+      `CNPJ: ${cnpj}`,
+      endereco ||
+        "AV MARECHAL CASTELO BRANCO, 145, CENTRO, 45985160, TEIXEIRA DE FREITAS-BA",
+    ] as const,
+    footerText: String(
+      (await getSystemParamValue(db, "SISTEMA.RODAPE")) ?? "",
+    ).trim(),
+  };
 }
 
 function createPdfBuffer(render: (doc: PdfDoc) => void) {
@@ -297,6 +354,7 @@ export async function saveGeneratedPlanejamentoDocumento({
   ensureUploadsRoot();
   const db = requireDb();
   const baseUrl = `${ctx.req.protocol}://${ctx.req.get("host")}`;
+  const printableBranding = await resolvePrintableBranding(baseUrl);
   const processoDir = join(uploadsRoot, `processo-${processoId}`, "gerados");
   mkdirSync(processoDir, { recursive: true });
 
@@ -316,7 +374,10 @@ export async function saveGeneratedPlanejamentoDocumento({
     tipo = "DFD";
     bodyHtml = buildDfdHtml(detail);
     fileBuffer = formato === "HTML"
-      ? Buffer.from(buildPrintableShell(titulo, bodyHtml), "utf8")
+      ? Buffer.from(
+          buildPrintableShell(titulo, bodyHtml, printableBranding),
+          "utf8",
+        )
       : await buildDfdPdf(detail);
   } else if (documento === "MAPA_COMPARATIVO") {
     titulo = `Mapa comparativo ${detail.processo.numeroSirel}`;
@@ -324,7 +385,10 @@ export async function saveGeneratedPlanejamentoDocumento({
     tipo = "OUTRO";
     bodyHtml = buildMapaComparativoHtml(detail, metodologiaLabel);
     fileBuffer = formato === "HTML"
-      ? Buffer.from(buildPrintableShell(titulo, bodyHtml), "utf8")
+      ? Buffer.from(
+          buildPrintableShell(titulo, bodyHtml, printableBranding),
+          "utf8",
+        )
       : await buildMapaPdf(detail, metodologiaLabel);
   } else {
     titulo = `TR ${detail.processo.numeroSirel}`;
@@ -332,7 +396,10 @@ export async function saveGeneratedPlanejamentoDocumento({
     tipo = "TR";
     bodyHtml = buildTrHtml(detail);
     fileBuffer = formato === "HTML"
-      ? Buffer.from(buildPrintableShell(titulo, bodyHtml), "utf8")
+      ? Buffer.from(
+          buildPrintableShell(titulo, bodyHtml, printableBranding),
+          "utf8",
+        )
       : await buildTrPdf(detail);
   }
 

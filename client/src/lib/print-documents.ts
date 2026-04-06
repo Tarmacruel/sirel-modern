@@ -5,7 +5,7 @@
   buildTrHtml,
 } from "@sirel/shared/document-templates/planejamento";
 import { buildDossieHtml } from "@sirel/shared/document-templates/dossie";
-import { systemName } from "@/lib/branding";
+import { getRuntimeBrandingSnapshot, systemName } from "@/lib/branding";
 import { resolveServerAssetUrl } from "@/lib/document-upload";
 
 export {
@@ -17,6 +17,7 @@ export {
 };
 
 function buildPreviewStatusHtml(title: string, message: string) {
+  const branding = getRuntimeBrandingSnapshot();
   return buildPrintableShell(
     title,
     `
@@ -28,6 +29,13 @@ function buildPreviewStatusHtml(title: string, message: string) {
         </article>
       </section>
     `,
+    {
+      logoUrl:
+        resolveServerAssetUrl(branding.prefeituraLogoUrl) ??
+        branding.prefeituraLogoUrl,
+      lines: branding.prefeituraLines,
+      footerText: branding.systemFooterText,
+    },
   );
 }
 
@@ -73,9 +81,18 @@ export function openPrintableHtml({
   autoPrint?: boolean;
 }) {
   const printWindow = openPreviewWindow(title);
+  const branding = getRuntimeBrandingSnapshot();
 
   printWindow.document.open();
-  printWindow.document.write(buildPrintableShell(title, bodyHtml));
+  printWindow.document.write(
+    buildPrintableShell(title, bodyHtml, {
+      logoUrl:
+        resolveServerAssetUrl(branding.prefeituraLogoUrl) ??
+        branding.prefeituraLogoUrl,
+      lines: branding.prefeituraLines,
+      footerText: branding.systemFooterText,
+    }),
+  );
   printWindow.document.close();
   printWindow.focus();
 

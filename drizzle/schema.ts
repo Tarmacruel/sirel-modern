@@ -989,6 +989,8 @@ export const licitacoes = pgTable(
     dataFimLances: timestamp("data_fim_lances", { withTimezone: true }),
     dataJulgamento: timestamp("data_julgamento", { withTimezone: true }),
     dataHomologacao: timestamp("data_homologacao", { withTimezone: true }),
+    linkBllPublico: varchar("link_bll_publico", { length: 500 }),
+    linkPncpPublico: varchar("link_pncp_publico", { length: 500 }),
     inversaoFasesHabilitada: boolean("inversao_fases_habilitada")
       .notNull()
       .default(false),

@@ -1425,6 +1425,8 @@ export const dossieRouter = router({
                 dataFimLances: toDateValue(licitacaoRow.dataFimLances),
                 dataJulgamento: toDateValue(licitacaoRow.dataJulgamento),
                 dataHomologacao: toDateValue(licitacaoRow.dataHomologacao),
+                linkBllPublico: licitacaoRow.linkBllPublico,
+                linkPncpPublico: licitacaoRow.linkPncpPublico,
                 inversaoFasesHabilitada: licitacaoRow.inversaoFasesHabilitada,
                 inversaoFasesJustificativa:
                   licitacaoRow.inversaoFasesJustificativa,

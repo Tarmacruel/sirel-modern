@@ -1,6 +1,12 @@
 ﻿import { systemFooterText, prefeituraLines, buildPrefeituraLogoSvg } from "../branding.js";
 import { metodologiaCotacaoLabels } from "../const.js";
 
+export interface PrintableBranding {
+  logoUrl?: string | null;
+  lines?: readonly [string, string, string, string];
+  footerText?: string | null;
+}
+
 export function escapeHtml(value: string | number | null | undefined) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -40,7 +46,15 @@ function paragraphsFromText(value: string | null | undefined) {
     .join("");
 }
 
-export function buildPrintableShell(title: string, bodyHtml: string) {
+export function buildPrintableShell(
+  title: string,
+  bodyHtml: string,
+  branding?: PrintableBranding,
+) {
+  const lines = branding?.lines ?? prefeituraLines;
+  const logoMarkup = branding?.logoUrl
+    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(lines[1])}" class="brand-image" />`
+    : buildPrefeituraLogoSvg();
   return `<!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -68,9 +82,10 @@ export function buildPrintableShell(title: string, bodyHtml: string) {
         box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
         padding: 18mm 16mm 18mm;
       }
-      .brand-top { display:flex; align-items:flex-start; gap:16px; border-bottom: 3px solid var(--brand); padding-bottom: 12px; margin-bottom: 18px; }
-      .brand-mark { width: 180px; min-width: 180px; }
-      .brand-copy { display:grid; gap:4px; }
+      .brand-top { display:flex; align-items:center; gap:18px; border-bottom: 3px solid var(--brand); padding-bottom: 12px; margin-bottom: 18px; }
+      .brand-mark { width: 220px; min-width: 220px; display:flex; align-items:center; justify-content:flex-start; }
+      .brand-mark svg, .brand-mark img { display:block; width:100%; max-width:220px; max-height:78px; height:auto; object-fit:contain; }
+      .brand-copy { display:grid; gap:4px; min-width:0; flex:1; }
       .brand-copy .org { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--brand); }
       .brand-copy .meta { font-size: 11px; color: var(--muted); }
       .header { border-bottom: 3px solid var(--brand); padding-bottom: 12px; margin-bottom: 18px; }
@@ -88,6 +103,10 @@ export function buildPrintableShell(title: string, bodyHtml: string) {
       td { font-size: 13px; }
       .muted { color: var(--muted); }
       .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+      @media (max-width: 900px) {
+        .brand-top { align-items:flex-start; }
+        .brand-mark { width: 180px; min-width: 180px; }
+      }
       @page { size: A4; margin: 12mm; }
       @media print {
         body { background: #fff; }
@@ -98,12 +117,12 @@ export function buildPrintableShell(title: string, bodyHtml: string) {
   <body>
     <main class="page">
       <section class="brand-top">
-        <div class="brand-mark">${buildPrefeituraLogoSvg()}</div>
+        <div class="brand-mark">${logoMarkup}</div>
         <div class="brand-copy">
-          <div class="org">${prefeituraLines[0]}</div>
-          <div class="org">${prefeituraLines[1]}</div>
-          <div class="meta">${prefeituraLines[2]}</div>
-          <div class="meta">${prefeituraLines[3]}</div>
+          <div class="org">${escapeHtml(lines[0])}</div>
+          <div class="org">${escapeHtml(lines[1])}</div>
+          <div class="meta">${escapeHtml(lines[2])}</div>
+          <div class="meta">${escapeHtml(lines[3])}</div>
         </div>
       </section>
       ${bodyHtml}</main>

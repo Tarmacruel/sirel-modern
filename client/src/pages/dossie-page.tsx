@@ -125,16 +125,24 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
   }
 
   const externalLinks = [
-    detailQuery.data?.importacoes.bll.processo?.linkExterno
+    (detailQuery.data?.importacoes.bll.processo?.linkExterno ??
+      detailQuery.data?.licitacao.cabecalho?.linkBllPublico)
       ? {
           label: "Abrir BLL",
-          href: detailQuery.data.importacoes.bll.processo.linkExterno,
+          href:
+            detailQuery.data?.importacoes.bll.processo?.linkExterno ??
+            detailQuery.data?.licitacao.cabecalho?.linkBllPublico ??
+            "",
         }
       : null,
-    detailQuery.data?.importacoes.bll.processo?.urlPncp
+    (detailQuery.data?.importacoes.bll.processo?.urlPncp ??
+      detailQuery.data?.licitacao.cabecalho?.linkPncpPublico)
       ? {
           label: "Abrir PNCP",
-          href: detailQuery.data.importacoes.bll.processo.urlPncp,
+          href:
+            detailQuery.data?.importacoes.bll.processo?.urlPncp ??
+            detailQuery.data?.licitacao.cabecalho?.linkPncpPublico ??
+            "",
         }
       : null,
   ].filter(Boolean) as Array<{ label: string; href: string }>;

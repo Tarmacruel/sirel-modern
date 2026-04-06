@@ -33,7 +33,7 @@ import { remoteImportSources } from "./importacoes-bll.js";
  */
 export async function persistEnhancedNormalizedDataset(options: {
   origem: ImportacaoBllSource;
-  modo: "REMOTA_JSON" | "CSV_MANUAL";
+  modo: "REMOTA_JSON" | "CSV_MANUAL" | "PLAYWRIGHT_LOCAL";
   criadoPor?: number | null;
   agendada?: boolean;
   referenciaRotina?: string | null;

@@ -836,6 +836,9 @@ export function ImportacoesPage() {
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [activeTab, setActiveTab] = useState<ImportacoesTab>("DASHBOARD");
   const [syncAction, setSyncAction] = useState<SyncAction>("TODOS");
+  const [localSyncSource, setLocalSyncSource] = useState<SyncAction>("TODOS");
+  const [localSyncLimit, setLocalSyncLimit] = useState("200");
+  const [localSyncPageLimit, setLocalSyncPageLimit] = useState("5");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<
     Record<ColumnKey, boolean>
@@ -1636,6 +1639,18 @@ export function ImportacoesPage() {
     Number.isFinite(detailData.record.processoInternoId)
       ? detailData.record.processoInternoId
       : null;
+  const parsedLocalSyncLimit = Math.min(
+    1000,
+    Math.max(1, Number.parseInt(localSyncLimit, 10) || 200),
+  );
+  const parsedLocalSyncPageLimit = Math.min(
+    50,
+    Math.max(1, Number.parseInt(localSyncPageLimit, 10) || 5),
+  );
+  const localSyncSourceValue =
+    localSyncSource === "TODOS"
+      ? undefined
+      : (localSyncSource as ImportacaoBllSource);
   const localSyncBusy =
     localSyncProcessMutation.isPending ||
     localSyncBatchMutation.isPending ||
@@ -2602,29 +2617,66 @@ export function ImportacoesPage() {
                 Sincronização local BLL
               </p>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
-                Atualiza valores estimados, lances vencedores, economia e contratos PNCP
-                a partir da base já importada e da checagem local em Playwright,
-                sem depender de GitHub Actions.
+                Captura listagens e detalhes públicos da BLL com Playwright,
+                filtrando o promotor "Município de Teixeira de Freitas",
+                atualiza a base importada localmente e recalcula valores,
+                vencedores, economia e contratos PNCP sem depender de GitHub
+                Actions.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <div className="min-w-[230px]">
+                <Select
+                  value={localSyncSource}
+                  onChange={(event) =>
+                    setLocalSyncSource(event.target.value as SyncAction)
+                  }
+                >
+                  <option value="TODOS">
+                    Capturar licitação + compra direta
+                  </option>
+                  {sourceOptions.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {`Capturar ${label.toLowerCase()}`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Input
+                value={localSyncPageLimit}
+                onChange={(event) => setLocalSyncPageLimit(event.target.value)}
+                className="w-[116px]"
+                inputMode="numeric"
+                placeholder="Páginas"
+              />
+              <Input
+                value={localSyncLimit}
+                onChange={(event) => setLocalSyncLimit(event.target.value)}
+                className="w-[132px]"
+                inputMode="numeric"
+                placeholder="Registros"
+              />
               <Button
                 variant="outline"
                 onClick={() =>
                   void localSyncBatchMutation.mutateAsync({
                     dryRun: true,
-                    limit: 20,
+                    source: localSyncSourceValue,
+                    limit: parsedLocalSyncLimit,
+                    pageLimit: parsedLocalSyncPageLimit,
                   })
                 }
                 disabled={localSyncBusy}
               >
-                Simular lote
+                Simular captura
               </Button>
               <Button
                 onClick={() =>
                   void localSyncBatchMutation.mutateAsync({
                     dryRun: false,
-                    limit: 20,
+                    source: localSyncSourceValue,
+                    limit: parsedLocalSyncLimit,
+                    pageLimit: parsedLocalSyncPageLimit,
                   })
                 }
                 disabled={localSyncBusy}
@@ -2632,7 +2684,7 @@ export function ImportacoesPage() {
               >
                 {localSyncBatchMutation.isPending
                   ? "Iniciando..."
-                  : "Sincronizar vinculados"}
+                  : "Capturar BLL local"}
               </Button>
               <Button
                 variant="secondary"
@@ -2670,7 +2722,7 @@ export function ImportacoesPage() {
               <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
                 {localSyncStatus?.enabled
                   ? `Cron diário ${localSyncStatus.cronDaily} (${localSyncStatus.timezone})`
-                  : "Rotina local desabilitada por ambiente."}
+                  : "Rotina automática desabilitada por ambiente; captura manual disponível."}
               </p>
             </div>
             <div className="rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
@@ -2718,11 +2770,15 @@ export function ImportacoesPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-[var(--color-neutral-900)]">
                   Progresso: {formatIntegerBR(localSyncStatus.activeRun.processed)} /{" "}
-                  {formatIntegerBR(localSyncStatus.activeRun.processIds.length)} processo(s)
+                  {formatIntegerBR(localSyncStatus.activeRun.totalTargets)} alvo(s)
                 </p>
                 <p className="text-xs text-[var(--color-neutral-500)]">
-                  Itens atualizados: {formatIntegerBR(localSyncStatus.activeRun.updatedItems)} •
-                  Contratos PNCP: {formatIntegerBR(localSyncStatus.activeRun.updatedContracts)}
+                  Registros importados:{" "}
+                  {formatIntegerBR(localSyncStatus.activeRun.importedRecords)} • Itens
+                  atualizados: {formatIntegerBR(localSyncStatus.activeRun.updatedItems)} •
+                  Contratos PNCP:{" "}
+                  {formatIntegerBR(localSyncStatus.activeRun.updatedContracts)} • Falhas:{" "}
+                  {formatIntegerBR(localSyncStatus.activeRun.failed)}
                 </p>
               </div>
             </div>

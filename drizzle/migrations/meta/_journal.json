@@ -330,6 +330,13 @@
       "when": 1775091601000,
       "tag": "0046_dossie_autonomo_financeiro",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1775091602000,
+      "tag": "0047_licitacao_links_publicos",
+      "breakpoints": true
     }
   ]
 }
