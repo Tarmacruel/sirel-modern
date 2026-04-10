@@ -81,8 +81,8 @@ export const importacaoBllLocalSyncBatchInputSchema = z.object({
   processoIds: z.array(z.number().int().positive()).max(100).optional(),
   source: z.enum(importacaoBllSourceOptions).optional(),
   dryRun: z.boolean().default(false),
-  limit: z.number().int().positive().max(1000).default(200),
-  pageLimit: z.number().int().positive().max(50).default(5),
+  limit: z.number().int().positive().max(10000).default(5000),
+  pageLimit: z.number().int().positive().max(200).default(100),
 });
 
 export const importacaoBllLocalSyncCancelInputSchema = z.object({

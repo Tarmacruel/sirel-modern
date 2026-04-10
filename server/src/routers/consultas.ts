@@ -4,9 +4,12 @@ import { consultaSearchInputSchema } from "@sirel/shared/schemas/consultas";
 
 import { requireDb } from "../db/client.js";
 import {
+  contratosPncp,
   cotacoes,
   documentos,
   fornecedores,
+  itensProcesso,
+  itensProcessoValores,
   licitacoes,
   licitantes,
   modalidades,
@@ -39,7 +42,7 @@ export const consultasRouter = router({
     let matchingSupplierProcessIds: number[] = [];
     if (input.termo) {
       const pattern = `%${input.termo}%`;
-      const [matchingDocs, cotacaoMatches, licitanteMatches] = await Promise.all([
+      const [matchingDocs, cotacaoMatches, licitanteMatches, winnerMatches, pncpSupplierMatches] = await Promise.all([
         db
           .selectDistinct({ processoId: documentos.processoId })
           .from(documentos)
@@ -62,9 +65,33 @@ export const consultasRouter = router({
           .innerJoin(fornecedores, eq(fornecedores.id, licitantes.fornecedorId))
           .innerJoin(licitacoes, eq(licitacoes.id, licitantes.licitacaoId))
           .where(or(ilike(fornecedores.razaoSocial, pattern), ilike(fornecedores.cnpj, pattern))),
+        db
+          .selectDistinct({ processoId: itensProcesso.processoId })
+          .from(itensProcessoValores)
+          .innerJoin(itensProcesso, eq(itensProcesso.id, itensProcessoValores.itemProcessoId))
+          .where(
+            or(
+              ilike(itensProcessoValores.fornecedorVencedorNome, pattern),
+              ilike(itensProcessoValores.fornecedorVencedorCnpj, pattern),
+            ),
+          ),
+        db
+          .selectDistinct({ processoId: contratosPncp.processoId })
+          .from(contratosPncp)
+          .where(
+            or(
+              ilike(contratosPncp.fornecedorNome, pattern),
+              ilike(contratosPncp.fornecedorCnpj, pattern),
+            ),
+          ),
       ]);
       matchingDocumentProcessIds = matchingDocs.map((row) => row.processoId);
-      matchingSupplierProcessIds = [...cotacaoMatches, ...licitanteMatches].map((row) => row.processoId);
+      matchingSupplierProcessIds = [
+        ...cotacaoMatches,
+        ...licitanteMatches,
+        ...winnerMatches,
+        ...pncpSupplierMatches,
+      ].map((row) => row.processoId);
 
       const termFilters: any[] = [
         ilike(processos.numeroSirel, pattern),

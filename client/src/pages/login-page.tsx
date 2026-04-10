@@ -1,5 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Fingerprint, LogIn, ShieldCheck, Workflow } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  LogIn,
+  ShieldCheck,
+  Sparkles,
+  Workflow,
+} from "lucide-react";
 
 import type { AuthSession } from "@/lib/auth-session";
 import { trpc } from "@/lib/trpc";
@@ -17,12 +26,17 @@ const supportItems = [
   {
     icon: ShieldCheck,
     title: "Acesso protegido",
-    description: "Autenticação local segura e rastreabilidade por perfil operacional.",
+    description: "Autenticação local segura com rastreabilidade e leitura por perfil operacional.",
   },
   {
     icon: Workflow,
-    title: "Fluxo unificado",
-    description: "Planejamento, licitação, contratos e documentos em um só ambiente.",
+    title: "Fluxo centralizado",
+    description: "Planejamento, compras, licitação, contratos e documentos em uma superfície única.",
+  },
+  {
+    icon: Sparkles,
+    title: "Entrada orientada",
+    description: "Primeira visão pensada para mostrar urgências, retomadas e atalhos antes do restante do painel.",
   },
 ] as const;
 
@@ -30,6 +44,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const branding = useRuntimeBranding();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const mutation = trpc.auth.login.useMutation({
     onSuccess: (session) => {
@@ -43,24 +58,25 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#09111b] text-white">
+    <div className="relative min-h-screen overflow-hidden bg-[#08111d] text-white">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(93,173,226,0.24),_transparent_38%),radial-gradient(circle_at_80%_18%,_rgba(39,174,96,0.16),_transparent_24%),linear-gradient(180deg,_rgba(9,17,27,0.92)_0%,_rgba(9,17,27,1)_100%)]" />
-        <div className="absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,0.22)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.18)_1px,transparent_1px)] [background-size:32px_32px]" />
-        <div className="absolute -left-16 top-20 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl sm:h-64 sm:w-64" />
-        <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-cyan-300/10 blur-3xl sm:h-72 sm:w-72" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(93,173,226,0.26),transparent_34%),radial-gradient(circle_at_78%_14%,rgba(56,189,248,0.15),transparent_22%),linear-gradient(180deg,rgba(8,17,29,0.94)_0%,rgba(8,17,29,1)_100%)]" />
+        <div className="absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:34px_34px]" />
+        <div className="absolute -left-24 top-10 h-64 w-64 rounded-full bg-sky-400/20 blur-3xl" />
+        <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-cyan-300/12 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(400px,500px)_minmax(0,1fr)] lg:items-center lg:gap-8 lg:px-8">
-        <section className="order-2 flex lg:order-2 lg:items-center">
-          <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.82)_0%,rgba(15,23,42,0.94)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/70 to-transparent" />
-            <div className="p-5 sm:p-7 lg:p-8">
+      <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col justify-center gap-5 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(380px,460px)] lg:items-stretch lg:gap-8 lg:px-8">
+        <section className="order-2 lg:order-1">
+          <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,33,0.84)_0%,rgba(12,20,33,0.96)_100%)] px-5 py-5 shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl sm:px-7 sm:py-7 lg:px-9 lg:py-9">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-200/80 to-transparent" />
+
+            <div>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-[20px] border border-white/10 bg-white/95 px-2 py-2 shadow-[0_12px_32px_-18px_rgba(255,255,255,0.65)]">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-[22px] border border-white/10 bg-white/95 px-2 py-2 shadow-[0_18px_44px_-26px_rgba(255,255,255,0.66)]">
                     {logoFailed ? (
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-sm font-black tracking-[0.22em] text-slate-950">
+                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] bg-[var(--brand-primary)] text-sm font-black tracking-[0.22em] text-slate-950">
                         TF
                       </span>
                     ) : (
@@ -73,63 +89,63 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     )}
                   </div>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-sky-200/80">Ambiente seguro</p>
-                    <h1 className="mt-1 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] text-white sm:text-[2.5rem]">{branding.systemName}</h1>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-sky-200/78">Ambiente institucional</p>
+                    <h1 className="mt-1 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] sm:text-[2.4rem]">{branding.systemName}</h1>
                   </div>
                 </div>
+
                 <div className="hidden rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100 sm:inline-flex">
                   Prefeitura
                 </div>
               </div>
 
-              <div className="mt-8 max-w-2xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-200/70">Registro e gestão de licitações</p>
-                <h2 className="mt-3 font-[var(--font-heading)] text-3xl font-black leading-[1.02] tracking-[-0.04em] text-white sm:text-4xl lg:text-[3rem]">
-                  Operação institucional mais clara para a rotina do município.
+              <div className="mt-10 max-w-3xl">
+                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-200/70">Registro e gestão de licitações</p>
+                <h2 className="mt-3 font-[var(--font-heading)] text-4xl font-black leading-[0.98] tracking-[-0.05em] text-white sm:text-[3.3rem]">
+                  Entrada mais clara para uma operação pública mais segura.
                 </h2>
-                <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300 sm:text-[15px]">
-                  Entrada enxuta, leitura confortável e acesso rápido aos módulos principais do SIREL.
+                <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-[15px]">
+                  O SIREL organiza a rotina do município com leitura imediata de prioridades, continuidade entre módulos e rastreabilidade de ponta a ponta.
                 </p>
               </div>
 
-              <div className="mt-8 grid gap-4 border-t border-white/10 pt-6 sm:grid-cols-2">
+              <div className="mt-8 grid gap-4 lg:grid-cols-3">
                 {supportItems.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <article key={item.title} className="grid grid-cols-[auto_1fr] items-start gap-3 rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-4">
-                      <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-300/20 bg-sky-300/10 text-sky-200">
-                        <Icon className="h-5 w-5" />
+                    <article key={item.title} className="rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4">
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-sky-300/16 bg-sky-300/10 text-sky-100">
+                        <Icon className="h-4 w-4" />
                       </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-white">{item.title}</h3>
-                        <p className="mt-1 text-sm leading-6 text-slate-300">{item.description}</p>
-                      </div>
+                      <h3 className="mt-4 text-sm font-bold text-white">{item.title}</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{item.description}</p>
                     </article>
                   );
                 })}
               </div>
+            </div>
 
-              <div className="mt-8 flex flex-col gap-2 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400">
-                <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
-                <p>{branding.prefeituraLines[1]}</p>
-                <p>{branding.prefeituraLines[2]}</p>
-              </div>
+            <div className="mt-8 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400">
+              <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
+              <p className="mt-2">{branding.prefeituraLines[1]}</p>
+              <p>{branding.prefeituraLines[2]}</p>
+              <p>{branding.prefeituraLines[3]}</p>
             </div>
           </div>
         </section>
 
-        <section className="order-1 flex lg:order-1 lg:items-center">
-          <div className="w-full rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,32,0.9)_0%,rgba(10,18,29,0.98)_100%)] shadow-[0_30px_80px_-32px_rgba(2,6,23,0.9)] backdrop-blur-xl">
+        <section className="order-1 lg:order-2">
+          <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,19,31,0.92)_0%,rgba(10,17,28,0.98)_100%)] shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl">
             <div className="border-b border-white/8 px-5 py-5 sm:px-7 sm:py-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-sky-300/15 bg-sky-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100">
+              <div className="inline-flex items-center gap-2 rounded-full border border-sky-300/16 bg-sky-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100">
                 <Fingerprint className="h-3.5 w-3.5" />
                 Login institucional
               </div>
-              <h2 className="mt-4 font-[var(--font-heading)] text-2xl font-black tracking-[-0.03em] text-white sm:text-[2rem]">
+              <h2 className="mt-4 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] text-white">
                 Entrar no painel operacional
               </h2>
               <p className="mt-3 max-w-md text-sm leading-7 text-slate-300">
-                Acesse o {branding.systemName} com seu login institucional.
+                Acesse o {branding.systemName} com seu login institucional. A sessão é auditada e preparada antes da abertura do painel.
               </p>
             </div>
 
@@ -137,7 +153,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <FormField
                   label="Usuário ou e-mail"
-                  description="Informe o login institucional ou e-mail cadastrado no sistema."
+                  description="Use o login institucional ou o e-mail cadastrado no sistema."
                   className="text-slate-100"
                 >
                   <Input
@@ -153,35 +169,54 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
                 <FormField
                   label="Senha"
-                  description="O acesso é auditado e vinculado ao seu perfil operacional."
+                  description="Seu acesso fica vinculado ao perfil operacional e à trilha de auditoria."
                   className="text-slate-100"
                 >
-                  <Input
-                    required
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Digite sua senha"
-                    className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 text-white placeholder:text-slate-500 focus:border-sky-300/40"
-                  />
+                  <div className="relative">
+                    <Input
+                      required
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Digite sua senha"
+                      className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 pr-12 text-white placeholder:text-slate-500 focus:border-sky-300/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                      className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-[16px] border border-white/10 bg-white/[0.04] text-slate-300 transition hover:text-white"
+                      aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </FormField>
 
-                {mutation.error ? <Alert variant="error">{mutation.error.message}</Alert> : null}
+                {mutation.error ? (
+                  <Alert variant="error" title="Falha no acesso">
+                    {mutation.error.message}
+                  </Alert>
+                ) : null}
 
                 <Button
                   type="submit"
                   size="lg"
-                  className="mt-2 h-12 w-full rounded-[20px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#76c8ff_100%)] text-slate-950 shadow-[0_20px_40px_-24px_rgba(93,173,226,0.95)] hover:brightness-105"
+                  className="mt-2 h-12 w-full rounded-[20px] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#82d5ff_100%)] text-slate-950 shadow-[0_20px_44px_-24px_rgba(93,173,226,0.95)] hover:brightness-105"
                   disabled={mutation.isPending}
                 >
                   <LogIn className="h-4 w-4" />
-                  {mutation.isPending ? "Validando acesso..." : "Entrar no sistema"}
+                  {mutation.isPending ? "Preparando acesso..." : "Entrar no sistema"}
                 </Button>
               </form>
 
+              <div className="mt-6 rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
+                <p className="font-semibold text-white">Antes de entrar</p>
+                <p className="mt-2">As telas iniciais agora destacam prioridades, retomadas e atalhos mais prováveis para reduzir o tempo até a próxima ação útil.</p>
+              </div>
+
               <div className="mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <p className="max-w-sm">Todos os acessos são registrados para segurança e auditoria.</p>
+                <p className="max-w-sm">Todos os acessos são registrados para segurança e auditoria institucional.</p>
                 <div className="inline-flex items-center gap-2 text-sky-100/80">
                   <span>Ambiente autenticado</span>
                   <ArrowRight className="h-4 w-4" />

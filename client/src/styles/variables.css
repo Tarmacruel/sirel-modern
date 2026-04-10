@@ -2,23 +2,23 @@
    TEMA CLARO (PADRÃO)
    ============================================ */
 :root {
-  --primary-color: #2c3e50;
-  --primary-light: #34495e;
-  --accent-color: #3498db;
-  --accent-hover: #2980b9;
+  --primary-color: #19324f;
+  --primary-light: #2f4b69;
+  --accent-color: #3d8fd3;
+  --accent-hover: #2f79b9;
 
-  --bg-body: #f5f7fa;
+  --bg-body: #eef3f8;
   --bg-surface: #ffffff;
-  --bg-surface-2: #f8f9fa;
+  --bg-surface-2: #f4f7fb;
   --bg-overlay: rgba(0, 0, 0, 0.5);
 
-  --text-primary: #1a1a2e;
-  --text-secondary: #2d3748;
-  --text-muted: #4a5568;
+  --text-primary: #17263a;
+  --text-secondary: #30465f;
+  --text-muted: #5c6f86;
   --text-inverse: #ffffff;
 
-  --border-color: #cbd5e0;
-  --border-light: #e2e8f0;
+  --border-color: #d8e1ec;
+  --border-light: #e7edf5;
 
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -94,11 +94,17 @@
   --surface-overlay: var(--bg-overlay);
   --border-subtle: var(--border-color);
   --border-strong: #7ea7cc;
+  --surface-hero: linear-gradient(135deg, #0f1728 0%, #17304c 46%, #0e1f33 100%);
+  --surface-hero-soft: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,253,0.94));
+  --surface-sunken: #ecf2f8;
+  --surface-spotlight: rgba(61, 143, 211, 0.16);
+  --border-soft-contrast: rgba(25, 50, 79, 0.08);
 
   --brand-primary: var(--accent-color);
   --brand-secondary: var(--primary-color);
 
   --shadow-card: var(--shadow-md);
+  --shadow-floating: 0 24px 70px -42px rgba(10, 20, 50, 0.85);
   --chart-1: #4169e1;
   --chart-2: #66a5ff;
   --chart-3: #2440a7;
@@ -113,21 +119,21 @@
 [data-theme="dark"] {
   --primary-color: #5dade2;
   --primary-light: #85c1e9;
-  --accent-color: #5dade2;
-  --accent-hover: #3498db;
+  --accent-color: #67b2ea;
+  --accent-hover: #4d97cf;
 
-  --bg-body: #0f1419;
-  --bg-surface: #1a2332;
-  --bg-surface-2: #242f42;
+  --bg-body: #0d1320;
+  --bg-surface: #182233;
+  --bg-surface-2: #202d41;
   --bg-overlay: rgba(0, 0, 0, 0.7);
 
-  --text-primary: #f7fafc;
-  --text-secondary: #e2e8f0;
-  --text-muted: #a0aec0;
+  --text-primary: #f4f8fc;
+  --text-secondary: #d9e4f0;
+  --text-muted: #97abc0;
   --text-inverse: #0f1419;
 
-  --border-color: #4a5568;
-  --border-light: #2d3748;
+  --border-color: #334155;
+  --border-light: #253246;
 
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
@@ -186,11 +192,17 @@
   --surface-overlay: var(--bg-overlay);
   --border-subtle: var(--border-color);
   --border-strong: #718096;
+  --surface-hero: linear-gradient(135deg, #091120 0%, #10233c 44%, #0c1728 100%);
+  --surface-hero-soft: linear-gradient(180deg, rgba(24,34,51,0.98), rgba(19,28,42,0.94));
+  --surface-sunken: #121b2b;
+  --surface-spotlight: rgba(103, 178, 234, 0.16);
+  --border-soft-contrast: rgba(151, 171, 192, 0.12);
 
   --brand-primary: var(--accent-color);
   --brand-secondary: var(--primary-light);
 
   --shadow-card: var(--shadow-lg);
+  --shadow-floating: 0 28px 80px -34px rgba(0, 0, 0, 0.78);
   --chart-1: #5dade2;
   --chart-2: #7fb6f5;
   --chart-3: #3f67d8;
@@ -207,7 +219,9 @@ html {
 body {
   margin: 0;
   font-family: var(--font-body);
-  background: var(--bg-body);
+  background:
+    radial-gradient(circle at top left, rgba(61, 143, 211, 0.08), transparent 26%),
+    linear-gradient(180deg, var(--bg-body) 0%, color-mix(in srgb, var(--bg-body) 92%, white 8%) 100%);
   color: var(--text-primary);
   min-height: 100vh;
   transition: background-color 0.3s ease, color 0.3s ease;

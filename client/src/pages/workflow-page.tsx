@@ -54,6 +54,10 @@ import { resolveServerAssetUrl } from "@/lib/document-upload";
 import { cleanDisplayText } from "@/lib/text";
 import { trpc } from "@/lib/trpc";
 import { mapZodFieldErrors } from "@/lib/zod-errors";
+import {
+  getCriticalStatusKind,
+  getCriticalStatusKindLabel,
+} from "@/lib/process-status-critical";
 
 function toOptionalId(value: string) {
   const parsed = Number(value);
@@ -105,6 +109,7 @@ export function WorkflowPage() {
     situacao: "RASCUNHO",
     etapaAtual: "Cadastro inicial",
     statusId: "",
+    dataStatus: "",
     descricao: "",
     observacao: "",
   });
@@ -195,6 +200,8 @@ export function WorkflowPage() {
       moduloDestino: detail.estado.moduloAtual,
       situacao: detail.estado.situacao,
       etapaAtual: detail.estado.etapaAtual,
+      statusId: "",
+      dataStatus: "",
       descricao:
         current.descricao ||
         `Processo movido para ${detail.estado.moduloAtual}`,
@@ -297,6 +304,24 @@ export function WorkflowPage() {
     },
   });
 
+  const currentProcessStatusId = detailQuery.data?.processo?.statusId ?? null;
+  const selectedMoveStatusId = toOptionalId(moveForm.statusId);
+  const selectedMoveStatus = useMemo(
+    () =>
+      catalogQuery.data?.statusProcesso.find(
+        (item) => item.id === selectedMoveStatusId,
+      ) ?? null,
+    [catalogQuery.data?.statusProcesso, selectedMoveStatusId],
+  );
+  const selectedMoveCriticalStatusKind = useMemo(
+    () => getCriticalStatusKind(selectedMoveStatus),
+    [selectedMoveStatus],
+  );
+  const moveCriticalStatusDateRequired =
+    Boolean(selectedMoveStatus) &&
+    Boolean(selectedMoveCriticalStatusKind) &&
+    selectedMoveStatus?.id !== currentProcessStatusId;
+
   async function handleMoveProcesso(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProcessId) return;
@@ -304,12 +329,23 @@ export function WorkflowPage() {
     setFeedback(null);
     setErrorMessage(null);
 
+    if (moveCriticalStatusDateRequired && !moveForm.dataStatus) {
+      setFieldErrors({
+        dataStatus: "Informe a data antes de alterar para status critico.",
+      });
+      setErrorMessage(
+        `Informe a data do status critico (${getCriticalStatusKindLabel(selectedMoveCriticalStatusKind!)}).`,
+      );
+      return;
+    }
+
     const parsed = validateWorkflowMoveForm({
       processoId: selectedProcessId,
       moduloDestino: moveForm.moduloDestino,
       situacao: moveForm.situacao,
       etapaAtual: moveForm.etapaAtual.trim(),
       statusId: toOptionalId(moveForm.statusId),
+      dataStatus: moveForm.dataStatus || undefined,
       descricao: moveForm.descricao.trim() || undefined,
       observacao: moveForm.observacao.trim() || undefined,
     });
@@ -1034,6 +1070,26 @@ export function WorkflowPage() {
                         />
                       </FormField>
                     </div>
+
+                    {selectedMoveStatus && selectedMoveCriticalStatusKind ? (
+                      <FormField
+                        label={`Data do status (${selectedMoveStatus.nome ?? selectedMoveStatus.codigo})`}
+                        error={fieldErrors.dataStatus}
+                      >
+                        <Input
+                          type="date"
+                          value={moveForm.dataStatus}
+                          error={Boolean(fieldErrors.dataStatus)}
+                          required={moveCriticalStatusDateRequired}
+                          onChange={(event) =>
+                            setMoveForm((current) => ({
+                              ...current,
+                              dataStatus: event.target.value,
+                            }))
+                          }
+                        />
+                      </FormField>
+                    ) : null}
 
                     <FormField
                       label="Observação operacional"

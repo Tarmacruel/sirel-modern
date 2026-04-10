@@ -5,7 +5,12 @@ import {
   cadastroBulkMergeInputSchema,
   cadastroBulkStatusInputSchema,
   cadastroDeleteInputSchema,
+  cadastroDedupeSuggestionsInputSchema,
   cadastroExportInputSchema,
+  cadastroFornecedorVencedorBackfillBulkConfirmInputSchema,
+  cadastroFornecedorVencedorBackfillConfirmInputSchema,
+  cadastroFornecedorVencedorBackfillPreviewInputSchema,
+  cadastroFornecedorVencedorBackfillRunInputSchema,
   cadastroHistoryInputSchema,
   cadastroSaveInputSchema,
   cadastrosListInputSchema,
@@ -28,12 +33,16 @@ import { requireDb } from "../db/client.js";
 import {
   auditoriaLog,
   catalogoItens,
+  contratoItens,
   contratos,
   cotacoes,
   dfd,
   dfdResponsaveis,
   departamentos,
   fornecedores,
+  importacaoBllItensEspecificados,
+  itensProcesso,
+  itensProcessoValores,
   lancesLicitacao,
   licitantes,
   modalidades,
@@ -47,6 +56,12 @@ import {
   users,
 } from "../db/schema.js";
 import { hashPassword } from "../lib/auth-password.js";
+import {
+  confirmFornecedorVencedorLinksBatch,
+  confirmFornecedorVencedorLink,
+  previewFornecedorVencedorBackfill,
+  runFornecedorVencedorBackfill,
+} from "../lib/fornecedor-vencedor-saneamento.js";
 import { adminProcedure, gestorProcedure, protectedProcedure, router } from "../trpc.js";
 
 function toNullableString(value: string | null | undefined) {
@@ -109,6 +124,19 @@ function chooseFornecedorText(
   fallbackValue: string | null | undefined,
 ) {
   return toNullableString(preferredValue) ?? toNullableString(fallbackValue);
+}
+
+function chooseLongerText(
+  preferredValue: string | null | undefined,
+  fallbackValue: string | null | undefined,
+) {
+  const normalizedPreferred = toNullableString(preferredValue);
+  const normalizedFallback = toNullableString(fallbackValue);
+  if (!normalizedPreferred) return normalizedFallback;
+  if (!normalizedFallback) return normalizedPreferred;
+  return normalizedPreferred.length >= normalizedFallback.length
+    ? normalizedPreferred
+    : normalizedFallback;
 }
 
 function licitanteStatusPriority(value: string | null | undefined) {
@@ -487,6 +515,213 @@ async function mergeFornecedorRecords(
   };
 }
 
+function decimalToNumber(value: unknown) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toDecimalString(value: number, scale: number) {
+  return value.toFixed(scale);
+}
+
+async function mergeItemRecords(
+  tx: any,
+  userId: number | null,
+  sourceId: number,
+  targetId: number,
+) {
+  const rows = await tx
+    .select()
+    .from(catalogoItens)
+    .where(inArray(catalogoItens.id, [sourceId, targetId]));
+
+  const source = rows.find((row: any) => row.id === sourceId) ?? null;
+  const target = rows.find((row: any) => row.id === targetId) ?? null;
+
+  if (!source) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Item duplicado não encontrado." });
+  }
+
+  if (!target) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Item de destino não encontrado." });
+  }
+
+  const now = new Date();
+  const targetPatch = {
+    descricao: chooseLongerText(target.descricao, source.descricao) ?? target.descricao,
+    unidadePadrao: chooseFornecedorText(target.unidadePadrao, source.unidadePadrao) ?? target.unidadePadrao,
+    valorReferencia:
+      target.valorReferencia ?? source.valorReferencia ?? null,
+    imagemUrl: target.imagemUrl ?? source.imagemUrl,
+    imagemChave: target.imagemChave ?? source.imagemChave,
+    ativo: target.ativo || source.ativo,
+    atualizadoEm: now,
+  };
+
+  const [updatedTarget] = await tx
+    .update(catalogoItens)
+    .set(targetPatch)
+    .where(eq(catalogoItens.id, target.id))
+    .returning();
+
+  if (!updatedTarget) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Item de destino não encontrado." });
+  }
+
+  const processosAtualizados = await tx
+    .update(itensProcesso)
+    .set({ catalogoItemId: target.id, atualizadoEm: now })
+    .where(eq(itensProcesso.catalogoItemId, source.id))
+    .returning({ id: itensProcesso.id });
+
+  const importacaoItensAtualizados = await tx
+    .update(importacaoBllItensEspecificados)
+    .set({ catalogoInternoId: target.id, atualizadoEm: now })
+    .where(eq(importacaoBllItensEspecificados.catalogoInternoId, source.id))
+    .returning({ id: importacaoBllItensEspecificados.id });
+
+  const sourceContratoItemRows = await tx
+    .select()
+    .from(contratoItens)
+    .where(eq(contratoItens.catalogoItemId, source.id));
+  const targetContratoItemRows = await tx
+    .select()
+    .from(contratoItens)
+    .where(eq(contratoItens.catalogoItemId, target.id));
+
+  const targetContratoItemByContratoId = new Map<number, any>(
+    targetContratoItemRows.map((row: any) => [row.contratoId, row]),
+  );
+
+  let contratoItensRemapeados = 0;
+  let contratoItensMesclados = 0;
+
+  for (const sourceContratoItem of sourceContratoItemRows) {
+    const targetContratoItem = targetContratoItemByContratoId.get(
+      sourceContratoItem.contratoId,
+    );
+
+    if (!targetContratoItem) {
+      await tx
+        .update(contratoItens)
+        .set({
+          catalogoItemId: target.id,
+          descricao:
+            chooseLongerText(sourceContratoItem.descricao, updatedTarget.descricao) ??
+            sourceContratoItem.descricao,
+          unidade:
+            chooseFornecedorText(sourceContratoItem.unidade, updatedTarget.unidadePadrao) ??
+            sourceContratoItem.unidade,
+          atualizadoEm: now,
+        })
+        .where(eq(contratoItens.id, sourceContratoItem.id));
+      contratoItensRemapeados += 1;
+      continue;
+    }
+
+    const quantidadeContratada =
+      decimalToNumber(targetContratoItem.quantidadeContratada) +
+      decimalToNumber(sourceContratoItem.quantidadeContratada);
+    const quantidadeConsumida =
+      decimalToNumber(targetContratoItem.quantidadeConsumida) +
+      decimalToNumber(sourceContratoItem.quantidadeConsumida);
+
+    await tx
+      .update(contratoItens)
+      .set({
+        descricao:
+          chooseLongerText(targetContratoItem.descricao, sourceContratoItem.descricao) ??
+          targetContratoItem.descricao,
+        unidade:
+          chooseFornecedorText(targetContratoItem.unidade, sourceContratoItem.unidade) ??
+          targetContratoItem.unidade,
+        quantidadeContratada: toDecimalString(quantidadeContratada, 3),
+        quantidadeConsumida: toDecimalString(quantidadeConsumida, 3),
+        valorUnitario: targetContratoItem.valorUnitario ?? sourceContratoItem.valorUnitario ?? null,
+        ativo: targetContratoItem.ativo || sourceContratoItem.ativo,
+        atualizadoEm: now,
+      })
+      .where(eq(contratoItens.id, targetContratoItem.id));
+
+    await tx
+      .delete(contratoItens)
+      .where(eq(contratoItens.id, sourceContratoItem.id))
+      .returning({ id: contratoItens.id });
+
+    contratoItensMesclados += 1;
+  }
+
+  const [deletedSource] = await tx
+    .delete(catalogoItens)
+    .where(eq(catalogoItens.id, source.id))
+    .returning();
+
+  if (!deletedSource) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Não foi possível concluir a unificação do item duplicado.",
+    });
+  }
+
+  await tx.insert(auditoriaLog).values([
+    {
+      usuarioId: userId,
+      tabela: "catalogo_itens",
+      registroId: updatedTarget.id,
+      acao: "UPDATE",
+      dadosAnteriores: target,
+      dadosNovos: {
+        ...updatedTarget,
+        mergeSummary: {
+          sourceId: source.id,
+          sourceDescricao: source.descricao,
+          processosAtualizados: processosAtualizados.length,
+          contratoItensRemapeados,
+          contratoItensMesclados,
+          importacaoItensAtualizados: importacaoItensAtualizados.length,
+        },
+      },
+      descricao: `Item ${source.descricao} unificado em ${updatedTarget.descricao}`,
+    },
+    {
+      usuarioId: userId,
+      tabela: "catalogo_itens",
+      registroId: source.id,
+      acao: "DELETE",
+      dadosAnteriores: source,
+      dadosNovos: {
+        mergedIntoCatalogoItemId: updatedTarget.id,
+        mergedIntoDescricao: updatedTarget.descricao,
+      },
+      descricao: `Item ${source.descricao} absorvido por ${updatedTarget.descricao}`,
+    },
+  ]);
+
+  return {
+    itemMantido: {
+      id: updatedTarget.id,
+      descricao: updatedTarget.descricao,
+      unidadePadrao: updatedTarget.unidadePadrao,
+    },
+    itemRemovido: {
+      id: source.id,
+      descricao: source.descricao,
+      unidadePadrao: source.unidadePadrao,
+    },
+    summary: {
+      processosAtualizados: processosAtualizados.length,
+      contratoItensRemapeados,
+      contratoItensMesclados,
+      importacaoItensAtualizados: importacaoItensAtualizados.length,
+    },
+  };
+}
+
 async function mergePessoaRecords(
   tx: any,
   userId: number | null,
@@ -730,11 +965,451 @@ function withPagination(page: number, pageSize: number) {
   };
 }
 
+type DedupeClassification = "ALTA" | "MEDIA" | "BAIXA";
+
+type DedupeCandidateRecord = {
+  id: number;
+  label: string;
+  documento: string | null;
+  ativo: boolean;
+  vinculos: number;
+  atualizadoEm: Date | null;
+  subtitle: string | null;
+  normalizedName: string;
+  normalizedEmail: string;
+  normalizedPhone: string;
+  normalizedCity: string;
+  normalizedState: string;
+  normalizedDocumento: string;
+  normalizedCargo: string;
+  normalizedUnit: string;
+  secretariaId: number | null;
+  nameTokens: string[];
+  completenessScore: number;
+  referenceValue: number | null;
+};
+
+type DedupePairScore = {
+  score: number;
+  classification: DedupeClassification | null;
+  reasons: string[];
+};
+
+type DedupePairEdge = {
+  leftId: number;
+  rightId: number;
+  score: number;
+  classification: DedupeClassification;
+  reasons: string[];
+};
+
+function normalizeDedupeText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDedupeDigits(value: string | null | undefined) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+function normalizeDedupeEmail(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function normalizeDedupePhone(value: string | null | undefined) {
+  const digits = normalizeDedupeDigits(value);
+  if (digits.length < 8) return "";
+  return digits.slice(-8);
+}
+
+function dedupeNameTokens(value: string) {
+  return value.split(" ").filter((token) => token.length >= 2);
+}
+
+function dedupeTokenSimilarity(leftTokens: string[], rightTokens: string[]) {
+  if (!leftTokens.length || !rightTokens.length) {
+    return 0;
+  }
+
+  const leftSet = new Set(leftTokens);
+  const rightSet = new Set(rightTokens);
+  let intersection = 0;
+
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  const union = leftSet.size + rightSet.size - intersection;
+  if (!union) return 0;
+  return intersection / union;
+}
+
+function dedupeClassificationFromScore(
+  score: number,
+  thresholds: { alta: number; media: number; baixa: number },
+): DedupeClassification | null {
+  if (score >= thresholds.alta) return "ALTA";
+  if (score >= thresholds.media) return "MEDIA";
+  if (score >= thresholds.baixa) return "BAIXA";
+  return null;
+}
+
+function dedupeClassificationWeight(classification: DedupeClassification) {
+  switch (classification) {
+    case "ALTA":
+      return 3;
+    case "MEDIA":
+      return 2;
+    case "BAIXA":
+      return 1;
+  }
+}
+
+function dedupePairKey(leftId: number, rightId: number) {
+  if (leftId < rightId) return `${leftId}:${rightId}`;
+  return `${rightId}:${leftId}`;
+}
+
+function buildDedupePairCandidates(
+  buckets: Map<string, number[]>,
+  maxBucketSize: number,
+) {
+  const pairKeys = new Set<string>();
+
+  for (const ids of buckets.values()) {
+    if (ids.length < 2 || ids.length > maxBucketSize) {
+      continue;
+    }
+
+    for (let leftIndex = 0; leftIndex < ids.length - 1; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < ids.length; rightIndex += 1) {
+        pairKeys.add(dedupePairKey(ids[leftIndex], ids[rightIndex]));
+      }
+    }
+  }
+
+  return pairKeys;
+}
+
+function scoreFornecedorPair(
+  left: DedupeCandidateRecord,
+  right: DedupeCandidateRecord,
+): DedupePairScore {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (
+    left.normalizedDocumento.length === 14 &&
+    left.normalizedDocumento === right.normalizedDocumento
+  ) {
+    score += 92;
+    reasons.push("CNPJ idêntico");
+  }
+
+  if (left.normalizedName && left.normalizedName === right.normalizedName) {
+    score += 46;
+    reasons.push("Razão social idêntica");
+  } else if (left.normalizedName && right.normalizedName) {
+    const similarity = dedupeTokenSimilarity(left.nameTokens, right.nameTokens);
+    if (similarity >= 0.82) {
+      score += 34;
+      reasons.push("Razão social muito parecida");
+    } else if (similarity >= 0.65) {
+      score += 22;
+      reasons.push("Razão social parecida");
+    } else if (
+      left.normalizedName.includes(right.normalizedName) ||
+      right.normalizedName.includes(left.normalizedName)
+    ) {
+      score += 18;
+      reasons.push("Uma razão social contém a outra");
+    }
+  }
+
+  if (
+    left.normalizedEmail &&
+    left.normalizedEmail === right.normalizedEmail
+  ) {
+    score += 18;
+    reasons.push("E-mail idêntico");
+  }
+
+  if (
+    left.normalizedPhone &&
+    left.normalizedPhone === right.normalizedPhone
+  ) {
+    score += 14;
+    reasons.push("Telefone idêntico");
+  }
+
+  if (
+    left.normalizedCity &&
+    right.normalizedCity &&
+    left.normalizedCity === right.normalizedCity
+  ) {
+    score += 6;
+    reasons.push("Mesma cidade");
+  }
+
+  if (
+    left.normalizedState &&
+    right.normalizedState &&
+    left.normalizedState === right.normalizedState
+  ) {
+    score += 4;
+    if (!reasons.includes("Mesma cidade")) {
+      reasons.push("Mesma UF");
+    }
+  }
+
+  if (
+    !left.normalizedDocumento &&
+    !right.normalizedDocumento &&
+    score < 55
+  ) {
+    score -= 10;
+  }
+
+  const boundedScore = Math.max(0, Math.min(100, Math.round(score)));
+  return {
+    score: boundedScore,
+    classification: dedupeClassificationFromScore(boundedScore, {
+      alta: 85,
+      media: 65,
+      baixa: 52,
+    }),
+    reasons: reasons.slice(0, 4),
+  };
+}
+
+function scorePessoaPair(
+  left: DedupeCandidateRecord,
+  right: DedupeCandidateRecord,
+): DedupePairScore {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (
+    left.normalizedDocumento.length === 11 &&
+    left.normalizedDocumento === right.normalizedDocumento
+  ) {
+    score += 95;
+    reasons.push("CPF idêntico");
+  }
+
+  if (left.normalizedName && left.normalizedName === right.normalizedName) {
+    score += 48;
+    reasons.push("Nome idêntico");
+  } else if (left.normalizedName && right.normalizedName) {
+    const similarity = dedupeTokenSimilarity(left.nameTokens, right.nameTokens);
+    if (similarity >= 0.84) {
+      score += 32;
+      reasons.push("Nome muito parecido");
+    } else if (similarity >= 0.7) {
+      score += 22;
+      reasons.push("Nome parecido");
+    } else if (
+      left.normalizedName.includes(right.normalizedName) ||
+      right.normalizedName.includes(left.normalizedName)
+    ) {
+      score += 16;
+      reasons.push("Um nome contém o outro");
+    }
+  }
+
+  if (
+    left.secretariaId &&
+    right.secretariaId &&
+    left.secretariaId === right.secretariaId
+  ) {
+    score += 10;
+    reasons.push("Mesma secretaria");
+  }
+
+  if (left.normalizedCargo && right.normalizedCargo) {
+    if (left.normalizedCargo === right.normalizedCargo) {
+      score += 10;
+      reasons.push("Cargo idêntico");
+    } else {
+      const cargoSimilarity = dedupeTokenSimilarity(
+        dedupeNameTokens(left.normalizedCargo),
+        dedupeNameTokens(right.normalizedCargo),
+      );
+      if (cargoSimilarity >= 0.75) {
+        score += 6;
+        reasons.push("Cargo parecido");
+      }
+    }
+  }
+
+  if (
+    !left.normalizedDocumento &&
+    !right.normalizedDocumento &&
+    !left.secretariaId &&
+    !right.secretariaId &&
+    score < 62
+  ) {
+    score -= 8;
+  }
+
+  const boundedScore = Math.max(0, Math.min(100, Math.round(score)));
+  return {
+    score: boundedScore,
+    classification: dedupeClassificationFromScore(boundedScore, {
+      alta: 88,
+      media: 68,
+      baixa: 55,
+    }),
+    reasons: reasons.slice(0, 4),
+  };
+}
+
+function scoreItemPair(
+  left: DedupeCandidateRecord,
+  right: DedupeCandidateRecord,
+): DedupePairScore {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (left.normalizedName && left.normalizedName === right.normalizedName) {
+    score += 68;
+    reasons.push("Descrição idêntica");
+  } else if (left.normalizedName && right.normalizedName) {
+    const similarity = dedupeTokenSimilarity(left.nameTokens, right.nameTokens);
+    if (similarity >= 0.9) {
+      score += 42;
+      reasons.push("Descrição muito parecida");
+    } else if (similarity >= 0.75) {
+      score += 28;
+      reasons.push("Descrição parecida");
+    } else if (
+      left.normalizedName.includes(right.normalizedName) ||
+      right.normalizedName.includes(left.normalizedName)
+    ) {
+      score += 24;
+      reasons.push("Uma descrição contém a outra");
+    }
+  }
+
+  if (
+    left.nameTokens.length >= 3 &&
+    right.nameTokens.length >= 3 &&
+    left.nameTokens.slice(0, 3).join(" ") === right.nameTokens.slice(0, 3).join(" ")
+  ) {
+    score += 18;
+    reasons.push("Mesmo prefixo descritivo");
+  }
+
+  if (
+    left.normalizedUnit &&
+    right.normalizedUnit &&
+    left.normalizedUnit === right.normalizedUnit
+  ) {
+    score += 14;
+    reasons.push("Mesma unidade");
+  } else if (left.normalizedUnit && right.normalizedUnit) {
+    score -= 14;
+  }
+
+  if (left.referenceValue !== null && right.referenceValue !== null) {
+    const maxReference = Math.max(left.referenceValue, right.referenceValue);
+    const difference = Math.abs(left.referenceValue - right.referenceValue);
+    if (difference === 0) {
+      score += 12;
+      reasons.push("Mesmo valor de referência");
+    } else if (maxReference > 0 && difference / maxReference <= 0.03) {
+      score += 8;
+      reasons.push("Valor de referência muito próximo");
+    }
+  }
+
+  if (left.normalizedName && right.normalizedName && score < 52) {
+    const sharedTokens = left.nameTokens.filter((token) => right.nameTokens.includes(token));
+    if (sharedTokens.length <= 1) {
+      score -= 8;
+    }
+  }
+
+  const boundedScore = Math.max(0, Math.min(100, Math.round(score)));
+  return {
+    score: boundedScore,
+    classification: dedupeClassificationFromScore(boundedScore, {
+      alta: 84,
+      media: 66,
+      baixa: 54,
+    }),
+    reasons: reasons.slice(0, 4),
+  };
+}
+
+function buildDedupeComponents(edges: DedupePairEdge[]) {
+  const adjacency = new Map<number, Set<number>>();
+
+  for (const edge of edges) {
+    if (!adjacency.has(edge.leftId)) adjacency.set(edge.leftId, new Set<number>());
+    if (!adjacency.has(edge.rightId)) adjacency.set(edge.rightId, new Set<number>());
+    adjacency.get(edge.leftId)!.add(edge.rightId);
+    adjacency.get(edge.rightId)!.add(edge.leftId);
+  }
+
+  const visited = new Set<number>();
+  const components: number[][] = [];
+
+  for (const id of adjacency.keys()) {
+    if (visited.has(id)) continue;
+
+    const stack = [id];
+    const component: number[] = [];
+    visited.add(id);
+
+    while (stack.length) {
+      const currentId = stack.pop()!;
+      component.push(currentId);
+      const neighbors = adjacency.get(currentId);
+      if (!neighbors) continue;
+
+      for (const neighbor of neighbors) {
+        if (visited.has(neighbor)) continue;
+        visited.add(neighbor);
+        stack.push(neighbor);
+      }
+    }
+
+    if (component.length > 1) {
+      component.sort((left, right) => left - right);
+      components.push(component);
+    }
+  }
+
+  return components;
+}
+
+function dedupeRecordPriority(left: DedupeCandidateRecord, right: DedupeCandidateRecord) {
+  if (left.ativo !== right.ativo) return Number(right.ativo) - Number(left.ativo);
+  if (left.vinculos !== right.vinculos) return right.vinculos - left.vinculos;
+  if (left.completenessScore !== right.completenessScore) {
+    return right.completenessScore - left.completenessScore;
+  }
+
+  const leftUpdated = left.atualizadoEm ? left.atualizadoEm.getTime() : 0;
+  const rightUpdated = right.atualizadoEm ? right.atualizadoEm.getTime() : 0;
+  if (leftUpdated !== rightUpdated) return rightUpdated - leftUpdated;
+
+  return left.id - right.id;
+}
+
 export const cadastrosRouter = router({
   formOptions: protectedProcedure.query(async () => {
     const db = requireDb();
 
-    const [secretariaRows, modalidadeRows, statusRows, pessoaRows, fornecedorRows, departamentoRows] = await Promise.all([
+    const [secretariaRows, modalidadeRows, statusRows, pessoaRows, fornecedorRows, departamentoRows, itemRows] = await Promise.all([
       db
         .select({ id: secretarias.id, nome: secretarias.nome, sigla: secretarias.sigla })
         .from(secretarias)
@@ -779,6 +1454,16 @@ export const cadastrosRouter = router({
         .from(departamentos)
         .where(eq(departamentos.ativo, true))
         .orderBy(asc(departamentos.nome)),
+      db
+        .select({
+          id: catalogoItens.id,
+          descricao: catalogoItens.descricao,
+          unidadePadrao: catalogoItens.unidadePadrao,
+          valorReferencia: catalogoItens.valorReferencia,
+        })
+        .from(catalogoItens)
+        .where(eq(catalogoItens.ativo, true))
+        .orderBy(asc(catalogoItens.descricao)),
     ]);
 
     return {
@@ -792,6 +1477,12 @@ export const cadastrosRouter = router({
       pessoas: pessoaRows,
       fornecedores: fornecedorRows,
       departamentos: departamentoRows,
+      itens: itemRows.map((row) => ({
+        id: row.id,
+        descricao: row.descricao,
+        unidadePadrao: row.unidadePadrao,
+        valorReferencia: row.valorReferencia ? Number(row.valorReferencia) : null,
+      })),
       workflowModules: workflowModuleOptions,
       modoDisputa: modoDisputaOptions.map((codigo) => ({ codigo, nome: modoDisputaLabels[codigo] })),
       grauPrioridade: grauPrioridadeOptions.map((codigo) => ({ codigo, nome: grauPrioridadeLabels[codigo] })),
@@ -1255,6 +1946,780 @@ export const cadastrosRouter = router({
     }
   }),
 
+  dedupeSuggestions: protectedProcedure
+    .input(cadastroDedupeSuggestionsInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const scanLimit = Math.max(120, Math.min(1600, input.limit * 25));
+
+      const sumGroupedCounts = (
+        targetMap: Map<number, number>,
+        rows: Array<{ id: number | null; total: unknown }>,
+      ) => {
+        for (const row of rows) {
+          if (!row.id) continue;
+          const total = Number(row.total ?? 0);
+          targetMap.set(row.id, (targetMap.get(row.id) ?? 0) + total);
+        }
+      };
+
+      if (input.entity === "itens") {
+        const filters = [
+          buildAtivoFilter(input.status, catalogoItens.ativo),
+          input.search ? ilike(catalogoItens.descricao, `%${input.search}%`) : undefined,
+        ].filter(Boolean) as any[];
+        const whereClause = filters.length ? and(...filters) : undefined;
+
+        const fetchedRows = await db
+          .select({
+            id: catalogoItens.id,
+            descricao: catalogoItens.descricao,
+            unidadePadrao: catalogoItens.unidadePadrao,
+            valorReferencia: catalogoItens.valorReferencia,
+            imagemUrl: catalogoItens.imagemUrl,
+            ativo: catalogoItens.ativo,
+            atualizadoEm: catalogoItens.atualizadoEm,
+          })
+          .from(catalogoItens)
+          .where(whereClause)
+          .orderBy(asc(catalogoItens.descricao))
+          .limit(scanLimit + 1);
+
+        const truncatedByScan = fetchedRows.length > scanLimit;
+        const rows = truncatedByScan ? fetchedRows.slice(0, scanLimit) : fetchedRows;
+
+        if (rows.length < 2) {
+          return {
+            entity: input.entity,
+            generatedAt: new Date(),
+            analyzedRecords: rows.length,
+            truncated: truncatedByScan,
+            suggestions: [],
+          };
+        }
+
+        const ids = rows.map((row) => row.id);
+        const [itensProcessoCounts, contratoItensCounts, importacaoItensCounts] =
+          await Promise.all([
+            db
+              .select({ id: itensProcesso.catalogoItemId, total: count() })
+              .from(itensProcesso)
+              .where(inArray(itensProcesso.catalogoItemId, ids))
+              .groupBy(itensProcesso.catalogoItemId),
+            db
+              .select({ id: contratoItens.catalogoItemId, total: count() })
+              .from(contratoItens)
+              .where(inArray(contratoItens.catalogoItemId, ids))
+              .groupBy(contratoItens.catalogoItemId),
+            db
+              .select({ id: importacaoBllItensEspecificados.catalogoInternoId, total: count() })
+              .from(importacaoBllItensEspecificados)
+              .where(inArray(importacaoBllItensEspecificados.catalogoInternoId, ids))
+              .groupBy(importacaoBllItensEspecificados.catalogoInternoId),
+          ]);
+
+        const vinculosById = new Map<number, number>();
+        sumGroupedCounts(vinculosById, itensProcessoCounts);
+        sumGroupedCounts(vinculosById, contratoItensCounts);
+        sumGroupedCounts(vinculosById, importacaoItensCounts);
+
+        const dedupeRecords: DedupeCandidateRecord[] = rows.map((row) => {
+          const normalizedName = normalizeDedupeText(row.descricao);
+          const normalizedUnit = normalizeDedupeText(row.unidadePadrao);
+          const nameTokens = dedupeNameTokens(normalizedName);
+          const referenceValue = row.valorReferencia ? Number(row.valorReferencia) : null;
+          const completenessScore =
+            Number(Boolean(normalizedUnit)) +
+            Number(referenceValue !== null) +
+            Number(Boolean(row.imagemUrl)) +
+            Math.min(2, Math.floor(normalizedName.length / 48));
+
+          return {
+            id: row.id,
+            label: row.descricao,
+            documento: itemCodeFromId(row.id),
+            ativo: row.ativo,
+            vinculos: vinculosById.get(row.id) ?? 0,
+            atualizadoEm: row.atualizadoEm,
+            subtitle: `${row.unidadePadrao}${referenceValue !== null ? ` • ${Number(referenceValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}`,
+            normalizedName,
+            normalizedEmail: "",
+            normalizedPhone: "",
+            normalizedCity: "",
+            normalizedState: "",
+            normalizedDocumento: "",
+            normalizedCargo: "",
+            normalizedUnit,
+            secretariaId: null,
+            nameTokens,
+            completenessScore,
+            referenceValue,
+          };
+        });
+
+        const recordById = new Map<number, DedupeCandidateRecord>(
+          dedupeRecords.map((record) => [record.id, record]),
+        );
+
+        const candidateBuckets = new Map<string, number[]>();
+        const addToBucket = (bucketKey: string, id: number) => {
+          if (!bucketKey) return;
+          const existing = candidateBuckets.get(bucketKey);
+          if (!existing) {
+            candidateBuckets.set(bucketKey, [id]);
+            return;
+          }
+          if (!existing.includes(id)) {
+            existing.push(id);
+          }
+        };
+
+        for (const record of dedupeRecords) {
+          if (record.normalizedName) {
+            addToBucket(`name:${record.normalizedName}`, record.id);
+            if (record.nameTokens.length >= 2) {
+              addToBucket(`name2:${record.nameTokens[0]}:${record.nameTokens[1]}`, record.id);
+            }
+            if (record.nameTokens.length >= 3) {
+              addToBucket(
+                `name3:${record.nameTokens[0]}:${record.nameTokens[1]}:${record.nameTokens[2]}`,
+                record.id,
+              );
+            }
+            if (record.nameTokens.length >= 1 && record.normalizedUnit) {
+              addToBucket(`name-unit:${record.nameTokens[0]}:${record.normalizedUnit}`, record.id);
+            }
+          }
+        }
+
+        const pairKeys = buildDedupePairCandidates(candidateBuckets, 48);
+        const edges: DedupePairEdge[] = [];
+
+        for (const pairKey of pairKeys) {
+          const [leftRaw, rightRaw] = pairKey.split(":");
+          const left = recordById.get(Number(leftRaw));
+          const right = recordById.get(Number(rightRaw));
+          if (!left || !right) continue;
+
+          const pair = scoreItemPair(left, right);
+          if (!pair.classification) continue;
+
+          edges.push({
+            leftId: left.id,
+            rightId: right.id,
+            score: pair.score,
+            classification: pair.classification,
+            reasons: pair.reasons,
+          });
+        }
+
+        if (!edges.length) {
+          return {
+            entity: input.entity,
+            generatedAt: new Date(),
+            analyzedRecords: rows.length,
+            truncated: truncatedByScan,
+            suggestions: [],
+          };
+        }
+
+        const components = buildDedupeComponents(edges);
+        const suggestions = components
+          .map((componentIds) => {
+            const componentSet = new Set(componentIds);
+            const componentEdges = edges.filter(
+              (edge) =>
+                componentSet.has(edge.leftId) &&
+                componentSet.has(edge.rightId),
+            );
+            if (!componentEdges.length) return null;
+
+            const strongestEdge = componentEdges.reduce((best, current) =>
+              current.score > best.score ? current : best,
+            );
+            const reasons = Array.from(
+              new Set(componentEdges.flatMap((edge) => edge.reasons)),
+            ).slice(0, 5);
+
+            const prioritizedRecords = componentIds
+              .map((id) => recordById.get(id))
+              .filter((record): record is DedupeCandidateRecord => Boolean(record))
+              .sort(dedupeRecordPriority);
+            const targetRecord = prioritizedRecords[0];
+            const sourceIds = prioritizedRecords.slice(1).map((record) => record.id);
+
+            if (!targetRecord || !sourceIds.length) return null;
+
+            return {
+              groupKey: `${input.entity}:${componentIds.join("-")}`,
+              classification: strongestEdge.classification,
+              confidenceScore: strongestEdge.score,
+              reasonSummary: reasons,
+              suggestedTargetId: targetRecord.id,
+              sourceIds,
+              records: prioritizedRecords.map((record) => ({
+                id: record.id,
+                label: record.label,
+                documento: record.documento,
+                ativo: record.ativo,
+                vinculos: record.vinculos,
+                atualizadoEm: record.atualizadoEm,
+                subtitle: record.subtitle,
+              })),
+            };
+          })
+          .filter((suggestion): suggestion is NonNullable<typeof suggestion> =>
+            Boolean(suggestion),
+          )
+          .sort((left, right) => {
+            const classificationDiff =
+              dedupeClassificationWeight(right.classification) -
+              dedupeClassificationWeight(left.classification);
+            if (classificationDiff !== 0) return classificationDiff;
+            if (left.confidenceScore !== right.confidenceScore) {
+              return right.confidenceScore - left.confidenceScore;
+            }
+            return left.groupKey.localeCompare(right.groupKey, "pt-BR");
+          });
+
+        const limitedSuggestions = suggestions.slice(0, input.limit);
+        return {
+          entity: input.entity,
+          generatedAt: new Date(),
+          analyzedRecords: rows.length,
+          truncated: truncatedByScan || suggestions.length > input.limit,
+          suggestions: limitedSuggestions,
+        };
+      }
+
+      if (input.entity === "fornecedores") {
+        const filters = [
+          buildAtivoFilter(input.status, fornecedores.ativo),
+          input.search
+            ? or(
+                ilike(fornecedores.razaoSocial, `%${input.search}%`),
+                ilike(fornecedores.cnpj, `%${input.search}%`),
+                ilike(fornecedores.email, `%${input.search}%`),
+              )
+            : undefined,
+          input.cidade ? ilike(fornecedores.cidade, `%${input.cidade}%`) : undefined,
+        ].filter(Boolean) as any[];
+        const whereClause = filters.length ? and(...filters) : undefined;
+
+        const fetchedRows = await db
+          .select({
+            id: fornecedores.id,
+            razaoSocial: fornecedores.razaoSocial,
+            cnpj: fornecedores.cnpj,
+            email: fornecedores.email,
+            telefone: fornecedores.telefone,
+            cidade: fornecedores.cidade,
+            estado: fornecedores.estado,
+            ativo: fornecedores.ativo,
+            atualizadoEm: fornecedores.atualizadoEm,
+            logoUrl: fornecedores.logoUrl,
+          })
+          .from(fornecedores)
+          .where(whereClause)
+          .orderBy(asc(fornecedores.razaoSocial))
+          .limit(scanLimit + 1);
+
+        const truncatedByScan = fetchedRows.length > scanLimit;
+        const rows = truncatedByScan ? fetchedRows.slice(0, scanLimit) : fetchedRows;
+
+        if (rows.length < 2) {
+          return {
+            entity: input.entity,
+            generatedAt: new Date(),
+            analyzedRecords: rows.length,
+            truncated: truncatedByScan,
+            suggestions: [],
+          };
+        }
+
+        const ids = rows.map((row) => row.id);
+        const [cotacaoCounts, contratoCounts, licitanteCounts] = await Promise.all([
+          db
+            .select({ id: cotacoes.fornecedorId, total: count() })
+            .from(cotacoes)
+            .where(inArray(cotacoes.fornecedorId, ids))
+            .groupBy(cotacoes.fornecedorId),
+          db
+            .select({ id: contratos.fornecedorId, total: count() })
+            .from(contratos)
+            .where(inArray(contratos.fornecedorId, ids))
+            .groupBy(contratos.fornecedorId),
+          db
+            .select({ id: licitantes.fornecedorId, total: count() })
+            .from(licitantes)
+            .where(inArray(licitantes.fornecedorId, ids))
+            .groupBy(licitantes.fornecedorId),
+        ]);
+
+        const vinculosById = new Map<number, number>();
+        sumGroupedCounts(vinculosById, cotacaoCounts);
+        sumGroupedCounts(vinculosById, contratoCounts);
+        sumGroupedCounts(vinculosById, licitanteCounts);
+
+        const dedupeRecords: DedupeCandidateRecord[] = rows.map((row) => {
+          const normalizedName = normalizeDedupeText(row.razaoSocial);
+          const normalizedEmail = normalizeDedupeEmail(row.email);
+          const normalizedPhone = normalizeDedupePhone(row.telefone);
+          const normalizedCity = normalizeDedupeText(row.cidade);
+          const normalizedState = normalizeDedupeText(row.estado).slice(0, 2);
+          const normalizedDocumento = normalizeDedupeDigits(row.cnpj);
+          const nameTokens = dedupeNameTokens(normalizedName);
+          const completenessScore =
+            Number(Boolean(normalizedDocumento)) +
+            Number(Boolean(normalizedEmail)) +
+            Number(Boolean(normalizedPhone)) +
+            Number(Boolean(normalizedCity)) +
+            Number(Boolean(normalizedState)) +
+            Number(Boolean(row.logoUrl));
+
+          return {
+            id: row.id,
+            label: row.razaoSocial,
+            documento: row.cnpj,
+            ativo: row.ativo,
+            vinculos: vinculosById.get(row.id) ?? 0,
+            atualizadoEm: row.atualizadoEm,
+            subtitle: row.cidade
+              ? row.estado
+                ? `${row.cidade}/${row.estado}`
+                : row.cidade
+              : row.estado
+                ? `UF ${row.estado}`
+                : null,
+            normalizedName,
+            normalizedEmail,
+            normalizedPhone,
+            normalizedCity,
+            normalizedState,
+            normalizedDocumento,
+            normalizedCargo: "",
+            normalizedUnit: "",
+            secretariaId: null,
+            nameTokens,
+            completenessScore,
+            referenceValue: null,
+          };
+        });
+
+        const recordById = new Map<number, DedupeCandidateRecord>(
+          dedupeRecords.map((record) => [record.id, record]),
+        );
+
+        const candidateBuckets = new Map<string, number[]>();
+        const addToBucket = (bucketKey: string, id: number) => {
+          if (!bucketKey) return;
+          const existing = candidateBuckets.get(bucketKey);
+          if (!existing) {
+            candidateBuckets.set(bucketKey, [id]);
+            return;
+          }
+          if (!existing.includes(id)) {
+            existing.push(id);
+          }
+        };
+
+        for (const record of dedupeRecords) {
+          if (record.normalizedDocumento.length === 14) {
+            addToBucket(`doc:${record.normalizedDocumento}`, record.id);
+          }
+          if (record.normalizedEmail) {
+            addToBucket(`mail:${record.normalizedEmail}`, record.id);
+          }
+          if (record.normalizedPhone) {
+            addToBucket(`phone:${record.normalizedPhone}`, record.id);
+          }
+          if (record.normalizedName) {
+            addToBucket(`name:${record.normalizedName}`, record.id);
+            if (record.nameTokens.length >= 2) {
+              addToBucket(
+                `name2:${record.nameTokens[0]}:${record.nameTokens[1]}`,
+                record.id,
+              );
+            }
+            if (record.nameTokens.length >= 1 && record.normalizedCity) {
+              addToBucket(
+                `name-city:${record.nameTokens[0]}:${record.normalizedCity}`,
+                record.id,
+              );
+            }
+          }
+        }
+
+        const pairKeys = buildDedupePairCandidates(candidateBuckets, 40);
+        const edges: DedupePairEdge[] = [];
+
+        for (const pairKey of pairKeys) {
+          const [leftRaw, rightRaw] = pairKey.split(":");
+          const left = recordById.get(Number(leftRaw));
+          const right = recordById.get(Number(rightRaw));
+          if (!left || !right) continue;
+
+          const pair = scoreFornecedorPair(left, right);
+          if (!pair.classification) continue;
+
+          edges.push({
+            leftId: left.id,
+            rightId: right.id,
+            score: pair.score,
+            classification: pair.classification,
+            reasons: pair.reasons,
+          });
+        }
+
+        if (!edges.length) {
+          return {
+            entity: input.entity,
+            generatedAt: new Date(),
+            analyzedRecords: rows.length,
+            truncated: truncatedByScan,
+            suggestions: [],
+          };
+        }
+
+        const components = buildDedupeComponents(edges);
+        const suggestions = components
+          .map((componentIds) => {
+            const componentSet = new Set(componentIds);
+            const componentEdges = edges.filter(
+              (edge) =>
+                componentSet.has(edge.leftId) &&
+                componentSet.has(edge.rightId),
+            );
+            if (!componentEdges.length) return null;
+
+            const strongestEdge = componentEdges.reduce((best, current) =>
+              current.score > best.score ? current : best,
+            );
+            const reasons = Array.from(
+              new Set(componentEdges.flatMap((edge) => edge.reasons)),
+            ).slice(0, 5);
+
+            const prioritizedRecords = componentIds
+              .map((id) => recordById.get(id))
+              .filter((record): record is DedupeCandidateRecord => Boolean(record))
+              .sort(dedupeRecordPriority);
+            const targetRecord = prioritizedRecords[0];
+            const sourceIds = prioritizedRecords.slice(1).map((record) => record.id);
+
+            if (!targetRecord || !sourceIds.length) return null;
+
+            return {
+              groupKey: `${input.entity}:${componentIds.join("-")}`,
+              classification: strongestEdge.classification,
+              confidenceScore: strongestEdge.score,
+              reasonSummary: reasons,
+              suggestedTargetId: targetRecord.id,
+              sourceIds,
+              records: prioritizedRecords.map((record) => ({
+                id: record.id,
+                label: record.label,
+                documento: record.documento,
+                ativo: record.ativo,
+                vinculos: record.vinculos,
+                atualizadoEm: record.atualizadoEm,
+                subtitle: record.subtitle,
+              })),
+            };
+          })
+          .filter((suggestion): suggestion is NonNullable<typeof suggestion> =>
+            Boolean(suggestion),
+          )
+          .sort((left, right) => {
+            const classificationDiff =
+              dedupeClassificationWeight(right.classification) -
+              dedupeClassificationWeight(left.classification);
+            if (classificationDiff !== 0) return classificationDiff;
+            if (left.confidenceScore !== right.confidenceScore) {
+              return right.confidenceScore - left.confidenceScore;
+            }
+            return left.groupKey.localeCompare(right.groupKey, "pt-BR");
+          });
+
+        const limitedSuggestions = suggestions.slice(0, input.limit);
+        return {
+          entity: input.entity,
+          generatedAt: new Date(),
+          analyzedRecords: rows.length,
+          truncated: truncatedByScan || suggestions.length > input.limit,
+          suggestions: limitedSuggestions,
+        };
+      }
+
+      const onlyServidores = input.entity === "servidores";
+      const pessoaFilters = [
+        buildAtivoFilter(input.status, pessoas.ativo),
+        input.search
+          ? or(
+              ilike(pessoas.nome, `%${input.search}%`),
+              ilike(pessoas.cpf, `%${input.search}%`),
+              ilike(pessoas.cargo, `%${input.search}%`),
+              ilike(secretarias.nome, `%${input.search}%`),
+            )
+          : undefined,
+        input.secretariaId ? eq(pessoas.secretariaId, input.secretariaId) : undefined,
+        onlyServidores ? isNotNull(pessoas.secretariaId) : undefined,
+      ].filter(Boolean) as any[];
+      const pessoaWhere = pessoaFilters.length ? and(...pessoaFilters) : undefined;
+
+      const fetchedRows = await db
+        .select({
+          id: pessoas.id,
+          nome: pessoas.nome,
+          cpf: pessoas.cpf,
+          cargo: pessoas.cargo,
+          secretariaId: pessoas.secretariaId,
+          secretariaNome: secretarias.nome,
+          ativo: pessoas.ativo,
+          atualizadoEm: pessoas.atualizadoEm,
+        })
+        .from(pessoas)
+        .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+        .where(pessoaWhere)
+        .orderBy(asc(pessoas.nome))
+        .limit(scanLimit + 1);
+
+      const truncatedByScan = fetchedRows.length > scanLimit;
+      const rows = truncatedByScan ? fetchedRows.slice(0, scanLimit) : fetchedRows;
+
+      if (rows.length < 2) {
+        return {
+          entity: input.entity,
+          generatedAt: new Date(),
+          analyzedRecords: rows.length,
+          truncated: truncatedByScan,
+          suggestions: [],
+        };
+      }
+
+      const ids = rows.map((row) => row.id);
+      const [
+        departamentoCounts,
+        processoAutoridadeCounts,
+        processoCondutorCounts,
+        dfdSolicitanteCounts,
+        dfdAssinaturaCounts,
+        dfdResponsavelCounts,
+      ] = await Promise.all([
+        db
+          .select({ id: departamentos.responsavelId, total: count() })
+          .from(departamentos)
+          .where(inArray(departamentos.responsavelId, ids))
+          .groupBy(departamentos.responsavelId),
+        db
+          .select({ id: processos.autoridadeCompetenteId, total: count() })
+          .from(processos)
+          .where(inArray(processos.autoridadeCompetenteId, ids))
+          .groupBy(processos.autoridadeCompetenteId),
+        db
+          .select({ id: processos.condutorProcessoId, total: count() })
+          .from(processos)
+          .where(inArray(processos.condutorProcessoId, ids))
+          .groupBy(processos.condutorProcessoId),
+        db
+          .select({ id: dfd.solicitantePessoaId, total: count() })
+          .from(dfd)
+          .where(inArray(dfd.solicitantePessoaId, ids))
+          .groupBy(dfd.solicitantePessoaId),
+        db
+          .select({ id: dfd.assinaturaResponsavelId, total: count() })
+          .from(dfd)
+          .where(inArray(dfd.assinaturaResponsavelId, ids))
+          .groupBy(dfd.assinaturaResponsavelId),
+        db
+          .select({ id: dfdResponsaveis.pessoaId, total: count() })
+          .from(dfdResponsaveis)
+          .where(inArray(dfdResponsaveis.pessoaId, ids))
+          .groupBy(dfdResponsaveis.pessoaId),
+      ]);
+
+      const vinculosById = new Map<number, number>();
+      sumGroupedCounts(vinculosById, departamentoCounts);
+      sumGroupedCounts(vinculosById, processoAutoridadeCounts);
+      sumGroupedCounts(vinculosById, processoCondutorCounts);
+      sumGroupedCounts(vinculosById, dfdSolicitanteCounts);
+      sumGroupedCounts(vinculosById, dfdAssinaturaCounts);
+      sumGroupedCounts(vinculosById, dfdResponsavelCounts);
+
+      const dedupeRecords: DedupeCandidateRecord[] = rows.map((row) => {
+        const normalizedName = normalizeDedupeText(row.nome);
+        const normalizedDocumento = normalizeDedupeDigits(row.cpf);
+        const normalizedCargo = normalizeDedupeText(row.cargo);
+        const nameTokens = dedupeNameTokens(normalizedName);
+        const completenessScore =
+          Number(Boolean(normalizedDocumento)) +
+          Number(Boolean(normalizedCargo)) +
+          Number(Boolean(row.secretariaId));
+
+        return {
+          id: row.id,
+          label: row.nome,
+          documento: row.cpf,
+          ativo: row.ativo,
+          vinculos: vinculosById.get(row.id) ?? 0,
+          atualizadoEm: row.atualizadoEm,
+          subtitle: row.cargo
+            ? row.secretariaNome
+              ? `${row.cargo} - ${row.secretariaNome}`
+              : row.cargo
+            : row.secretariaNome ?? null,
+          normalizedName,
+          normalizedEmail: "",
+          normalizedPhone: "",
+          normalizedCity: "",
+          normalizedState: "",
+          normalizedDocumento,
+          normalizedCargo,
+          normalizedUnit: "",
+          secretariaId: row.secretariaId,
+          nameTokens,
+          completenessScore,
+          referenceValue: null,
+        };
+      });
+
+      const recordById = new Map<number, DedupeCandidateRecord>(
+        dedupeRecords.map((record) => [record.id, record]),
+      );
+
+      const candidateBuckets = new Map<string, number[]>();
+      const addToBucket = (bucketKey: string, id: number) => {
+        if (!bucketKey) return;
+        const existing = candidateBuckets.get(bucketKey);
+        if (!existing) {
+          candidateBuckets.set(bucketKey, [id]);
+          return;
+        }
+        if (!existing.includes(id)) {
+          existing.push(id);
+        }
+      };
+
+      for (const record of dedupeRecords) {
+        if (record.normalizedDocumento.length === 11) {
+          addToBucket(`doc:${record.normalizedDocumento}`, record.id);
+        }
+        if (record.normalizedName) {
+          addToBucket(`name:${record.normalizedName}`, record.id);
+          if (record.nameTokens.length >= 2) {
+            addToBucket(
+              `name2:${record.nameTokens[0]}:${record.nameTokens[1]}`,
+              record.id,
+            );
+          }
+          if (record.nameTokens.length >= 1 && record.secretariaId) {
+            addToBucket(
+              `name-sec:${record.nameTokens[0]}:${record.secretariaId}`,
+              record.id,
+            );
+          }
+        }
+      }
+
+      const pairKeys = buildDedupePairCandidates(candidateBuckets, 48);
+      const edges: DedupePairEdge[] = [];
+
+      for (const pairKey of pairKeys) {
+        const [leftRaw, rightRaw] = pairKey.split(":");
+        const left = recordById.get(Number(leftRaw));
+        const right = recordById.get(Number(rightRaw));
+        if (!left || !right) continue;
+
+        const pair = scorePessoaPair(left, right);
+        if (!pair.classification) continue;
+
+        edges.push({
+          leftId: left.id,
+          rightId: right.id,
+          score: pair.score,
+          classification: pair.classification,
+          reasons: pair.reasons,
+        });
+      }
+
+      if (!edges.length) {
+        return {
+          entity: input.entity,
+          generatedAt: new Date(),
+          analyzedRecords: rows.length,
+          truncated: truncatedByScan,
+          suggestions: [],
+        };
+      }
+
+      const components = buildDedupeComponents(edges);
+      const suggestions = components
+        .map((componentIds) => {
+          const componentSet = new Set(componentIds);
+          const componentEdges = edges.filter(
+            (edge) =>
+              componentSet.has(edge.leftId) &&
+              componentSet.has(edge.rightId),
+          );
+          if (!componentEdges.length) return null;
+
+          const strongestEdge = componentEdges.reduce((best, current) =>
+            current.score > best.score ? current : best,
+          );
+          const reasons = Array.from(
+            new Set(componentEdges.flatMap((edge) => edge.reasons)),
+          ).slice(0, 5);
+
+          const prioritizedRecords = componentIds
+            .map((id) => recordById.get(id))
+            .filter((record): record is DedupeCandidateRecord => Boolean(record))
+            .sort(dedupeRecordPriority);
+          const targetRecord = prioritizedRecords[0];
+          const sourceIds = prioritizedRecords.slice(1).map((record) => record.id);
+
+          if (!targetRecord || !sourceIds.length) return null;
+
+          return {
+            groupKey: `${input.entity}:${componentIds.join("-")}`,
+            classification: strongestEdge.classification,
+            confidenceScore: strongestEdge.score,
+            reasonSummary: reasons,
+            suggestedTargetId: targetRecord.id,
+            sourceIds,
+            records: prioritizedRecords.map((record) => ({
+              id: record.id,
+              label: record.label,
+              documento: record.documento,
+              ativo: record.ativo,
+              vinculos: record.vinculos,
+              atualizadoEm: record.atualizadoEm,
+              subtitle: record.subtitle,
+            })),
+          };
+        })
+        .filter((suggestion): suggestion is NonNullable<typeof suggestion> =>
+          Boolean(suggestion),
+        )
+        .sort((left, right) => {
+          const classificationDiff =
+            dedupeClassificationWeight(right.classification) -
+            dedupeClassificationWeight(left.classification);
+          if (classificationDiff !== 0) return classificationDiff;
+          if (left.confidenceScore !== right.confidenceScore) {
+            return right.confidenceScore - left.confidenceScore;
+          }
+          return left.groupKey.localeCompare(right.groupKey, "pt-BR");
+        });
+
+      const limitedSuggestions = suggestions.slice(0, input.limit);
+      return {
+        entity: input.entity,
+        generatedAt: new Date(),
+        analyzedRecords: rows.length,
+        truncated: truncatedByScan || suggestions.length > input.limit,
+        suggestions: limitedSuggestions,
+      };
+    }),
+
   exportRows: protectedProcedure.input(cadastroExportInputSchema).query(async ({ input }) => {
     const db = requireDb();
 
@@ -1521,6 +2986,168 @@ export const cadastrosRouter = router({
       }
     }
   }),
+
+  fornecedorVencedorBackfillPreview: gestorProcedure
+    .input(cadastroFornecedorVencedorBackfillPreviewInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      return previewFornecedorVencedorBackfill(db, input);
+    }),
+
+  runFornecedorVencedorBackfill: adminProcedure
+    .input(cadastroFornecedorVencedorBackfillRunInputSchema)
+    .mutation(async ({ ctx }) => {
+      const db = requireDb();
+      const result = await runFornecedorVencedorBackfill(db);
+
+      await logAuditoria(ctx, {
+        tabela: "itens_processo_valores",
+        registroId: result.sampleUpdatedRows[0]?.id ?? 0,
+        acao: "UPDATE",
+        dadosNovos: {
+          saneamentoFornecedorVencedor: {
+            generatedAt: result.generatedAt,
+            candidates: result.candidates,
+            updated: result.updated,
+            nullIdRepairs: result.nullIdRepairs,
+            mergedIdRepairs: result.mergedIdRepairs,
+            unresolved: result.unresolved,
+            absorbedSupplierIds: result.absorbedSupplierIds,
+            sampleUpdatedRows: result.sampleUpdatedRows,
+          },
+        },
+        descricao:
+          result.updated > 0
+            ? `Saneamento retroativo de fornecedor vencedor executado com ${result.updated} atualização(ões).`
+            : "Saneamento retroativo de fornecedor vencedor executado sem atualizações.",
+      });
+
+      return result;
+    }),
+
+  confirmFornecedorVencedorBackfillLink: adminProcedure
+    .input(cadastroFornecedorVencedorBackfillConfirmInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [before] = await db
+        .select()
+        .from(itensProcessoValores)
+        .where(eq(itensProcessoValores.id, input.id))
+        .limit(1);
+
+      if (!before) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Registro de vencedor importado não encontrado.",
+        });
+      }
+
+      let result;
+      try {
+        result = await confirmFornecedorVencedorLink(db, input);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Não foi possível confirmar manualmente o vínculo do fornecedor vencedor.",
+        });
+      }
+
+      const [after] = await db
+        .select()
+        .from(itensProcessoValores)
+        .where(eq(itensProcessoValores.id, input.id))
+        .limit(1);
+
+      await logAuditoria(ctx, {
+        tabela: "itens_processo_valores",
+        registroId: input.id,
+        acao: "UPDATE",
+        dadosAnteriores: before,
+        dadosNovos: {
+          ...after,
+          confirmacaoManualFornecedorVencedor: {
+            processoId: result.processoId,
+            numeroSirel: result.numeroSirel,
+            itemProcessoId: result.itemProcessoId,
+            numeroItem: result.numeroItem,
+            fornecedorVencedorId: result.fornecedorVencedorId,
+            fornecedorVencedorNome: result.fornecedorVencedorNome,
+            fornecedorVencedorCnpj: result.fornecedorVencedorCnpj,
+            reason: result.reason,
+          },
+        },
+        descricao: `Fornecedor vencedor confirmado manualmente para o item ${result.numeroItem} do processo ${result.numeroSirel}.`,
+      });
+
+      return result;
+    }),
+
+  confirmFornecedorVencedorBackfillLinksBatch: adminProcedure
+    .input(cadastroFornecedorVencedorBackfillBulkConfirmInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const beforeRows = await db
+        .select()
+        .from(itensProcessoValores)
+        .where(inArray(itensProcessoValores.id, input.ids));
+
+      if (!beforeRows.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Nenhum item selecionado foi encontrado para confirmação manual em lote.",
+        });
+      }
+
+      let result;
+      try {
+        result = await confirmFornecedorVencedorLinksBatch(db, input);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Não foi possível confirmar manualmente os vínculos selecionados.",
+        });
+      }
+
+      const afterRows = await db
+        .select()
+        .from(itensProcessoValores)
+        .where(inArray(itensProcessoValores.id, result.itemIds));
+
+      for (const rowId of result.itemIds) {
+        const before = beforeRows.find((row) => row.id === rowId) ?? null;
+        const after = afterRows.find((row) => row.id === rowId) ?? null;
+        const numeroItem = beforeRows.find((row) => row.id === rowId)?.itemProcessoId ?? null;
+        await logAuditoria(ctx, {
+          tabela: "itens_processo_valores",
+          registroId: rowId,
+          acao: "UPDATE",
+          dadosAnteriores: before,
+          dadosNovos: {
+            ...after,
+            confirmacaoManualFornecedorVencedorEmLote: {
+              processoId: result.processoId,
+              numeroSirel: result.numeroSirel,
+              fornecedorVencedorId: result.fornecedorVencedorId,
+              fornecedorVencedorNome: result.fornecedorVencedorNome,
+              fornecedorVencedorCnpj: result.fornecedorVencedorCnpj,
+              updatedCount: result.updatedCount,
+              itemNumbers: result.itemNumbers,
+              reason: result.reason,
+              itemProcessoId: numeroItem,
+            },
+          },
+          descricao: `Fornecedor vencedor confirmado manualmente em lote para o processo ${result.numeroSirel}.`,
+        });
+      }
+
+      return result;
+    }),
 
   save: gestorProcedure.input(cadastroSaveInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
@@ -1895,6 +3522,35 @@ export const cadastrosRouter = router({
     }
 
     const result = await db.transaction(async (tx) => {
+      if (input.entity === "itens") {
+        const summary = {
+          processosAtualizados: 0,
+          contratoItensRemapeados: 0,
+          contratoItensMesclados: 0,
+          importacaoItensAtualizados: 0,
+        };
+        let itemMantido: Awaited<ReturnType<typeof mergeItemRecords>>["itemMantido"] | null = null;
+        let registrosUnificados = 0;
+
+        for (const sourceId of sourceIds) {
+          const merged = await mergeItemRecords(tx, userId, sourceId, input.targetId);
+          itemMantido = merged.itemMantido;
+          registrosUnificados += 1;
+          summary.processosAtualizados += merged.summary.processosAtualizados;
+          summary.contratoItensRemapeados += merged.summary.contratoItensRemapeados;
+          summary.contratoItensMesclados += merged.summary.contratoItensMesclados;
+          summary.importacaoItensAtualizados += merged.summary.importacaoItensAtualizados;
+        }
+
+        return {
+          success: true,
+          entity: input.entity,
+          registrosUnificados,
+          registroMantido: itemMantido,
+          summary,
+        };
+      }
+
       if (input.entity === "fornecedores") {
         const summary = {
           cotacoesAtualizadas: 0,

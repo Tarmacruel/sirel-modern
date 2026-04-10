@@ -3,6 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { SectionSkeleton } from "@/components/shared/section-skeleton";
 import {
   clearStoredSession,
   loadStoredSession,
@@ -45,6 +46,16 @@ const DashboardPage = lazy(() =>
 const DossiePage = lazy(() =>
   import("@/pages/dossie-page").then((module) => ({
     default: module.DossiePage,
+  })),
+);
+const DossieItemPage = lazy(() =>
+  import("@/pages/dossie-item-page").then((module) => ({
+    default: module.DossieItemPage,
+  })),
+);
+const DossieFornecedorPage = lazy(() =>
+  import("@/pages/dossie-fornecedor-page").then((module) => ({
+    default: module.DossieFornecedorPage,
   })),
 );
 const DocumentosPage = lazy(() =>
@@ -145,8 +156,23 @@ const WorkflowPage = lazy(() =>
 
 function RouteFallback() {
   return (
-    <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-6 text-sm text-[var(--color-neutral-600)] shadow-[var(--shadow-card)]">
-      Carregando modulo...
+    <div className="space-y-4">
+      <SectionSkeleton hero cards={3} rows={3} />
+    </div>
+  );
+}
+
+function PreparingSessionScreen({ label }: { label: string }) {
+  return (
+    <div className="min-h-screen bg-[var(--surface-base)] px-4 py-6 md:px-6 md:py-8">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <div className="rounded-[32px] border border-[var(--border-soft-contrast)] bg-[var(--surface-hero)] px-6 py-7 text-white shadow-[var(--shadow-floating)]">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-100/72">Entrada segura</p>
+          <h1 className="mt-3 font-[var(--font-heading)] text-3xl font-black tracking-[-0.05em]">Preparando seu painel</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-200">{label}</p>
+        </div>
+        <SectionSkeleton hero cards={4} rows={4} />
+      </div>
     </div>
   );
 }
@@ -162,6 +188,18 @@ function AuthenticatedApp({
     retry: false,
     staleTime: 60_000,
   });
+  const dashboardEntryQuery = trpc.dashboard.entry.useQuery(undefined, {
+    retry: false,
+    staleTime: 30_000,
+  });
+  const dashboardSummaryQuery = trpc.dashboard.summary.useQuery(undefined, {
+    retry: false,
+    staleTime: 30_000,
+  });
+  const notificationsSummaryQuery = trpc.notificacoes.summary.useQuery(undefined, {
+    retry: false,
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     if (meQuery.error) {
@@ -169,13 +207,14 @@ function AuthenticatedApp({
     }
   }, [meQuery.error, onLogout]);
 
-  if (meQuery.isLoading) {
+  if (
+    meQuery.isLoading ||
+    dashboardEntryQuery.isLoading ||
+    dashboardSummaryQuery.isLoading ||
+    notificationsSummaryQuery.isLoading
+  ) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--surface-base)]">
-        <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-6 py-5 text-sm text-[var(--color-neutral-600)] shadow-[var(--shadow-card)]">
-          Validando sessao...
-        </div>
-      </div>
+      <PreparingSessionScreen label="Validando sessão, sincronizando notificações e carregando os dados centrais da sua entrada operacional." />
     );
   }
 
@@ -186,6 +225,20 @@ function AuthenticatedApp({
       <Suspense fallback={<RouteFallback />}>
         <Switch>
           <Route path="/" component={DashboardPage} />
+          <Route path="/dossie/item/:itemId">
+            {(params) => <DossieItemPage itemId={Number(params.itemId)} />}
+          </Route>
+          <Route path="/dossie/item">{() => <DossieItemPage />}</Route>
+          <Route path="/dossie/fornecedor/:fornecedorId">
+            {(params) => (
+              <DossieFornecedorPage
+                fornecedorId={Number(params.fornecedorId)}
+              />
+            )}
+          </Route>
+          <Route path="/dossie/fornecedor">
+            {() => <DossieFornecedorPage />}
+          </Route>
           <Route path="/dossie/:processoId">
             {(params) => <DossiePage processoId={Number(params.processoId)} />}
           </Route>
@@ -250,19 +303,33 @@ function AppContent() {
   const [session, setSession] = useState<AuthSession | null>(() =>
     loadStoredSession(),
   );
+  const [preparingLogin, setPreparingLogin] = useState(false);
 
   function handleLogin(nextSession: AuthSession) {
     saveStoredSession(nextSession);
+    setPreparingLogin(true);
     setSession(nextSession);
   }
 
   function handleLogout() {
     clearStoredSession();
     queryClient.clear();
+    setPreparingLogin(false);
     setSession(null);
   }
 
+  useEffect(() => {
+    if (session) {
+      setPreparingLogin(false);
+    }
+  }, [session]);
+
   if (!session) {
+    if (preparingLogin) {
+      return (
+        <PreparingSessionScreen label="Autenticando e organizando seu ambiente inicial antes de liberar o acesso ao SIREL." />
+      );
+    }
     return (
       <Suspense fallback={<RouteFallback />}>
         <LoginPage onLogin={handleLogin} />

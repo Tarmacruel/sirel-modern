@@ -1,6 +1,6 @@
 import cron, { type ScheduledTask } from "node-cron";
 import type { ImportacaoBllSource } from "@sirel/shared/schemas/importacoes";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { chromium, type Browser, type Page } from "playwright";
 
 import { requireDb } from "../db/client.js";
@@ -101,6 +101,14 @@ const BLL_SYNC_CRON_WEEKLY =
 const BLL_SYNC_TIMEZONE =
   String(process.env.BLL_SYNC_TIMEZONE ?? "").trim() || "America/Sao_Paulo";
 const BLL_PROMOTOR_FILTER = "MUNICIPIO DE TEIXEIRA DE FREITAS";
+const DEFAULT_PUBLIC_CAPTURE_LIMIT = Math.max(
+  1_500,
+  Number(process.env.BLL_SYNC_DEFAULT_LIMIT ?? 5_000),
+);
+const DEFAULT_PUBLIC_CAPTURE_PAGE_LIMIT = Math.max(
+  20,
+  Number(process.env.BLL_SYNC_DEFAULT_PAGE_LIMIT ?? 100),
+);
 const BLL_RATE_LIMIT_MS = Math.max(
   250,
   Number(process.env.BLL_RATE_LIMIT_MS ?? 1200),
@@ -162,6 +170,20 @@ function buildStableLocalKey(
 
   const detailParam = extractUrlParam(detailUrl);
   return `${origem}:${detailParam ?? detailUrl}`;
+}
+
+function buildListingKey(row: SearchRow) {
+  const numero = normalizeLookup(row.numero);
+  if (numero) {
+    return `${row.origem}:${numero}`;
+  }
+
+  const detailParam = row.detailParam ? normalizeLookup(row.detailParam) : "";
+  if (detailParam) {
+    return `${row.origem}:${detailParam}`;
+  }
+
+  return `${row.origem}:${normalizeLookup(row.detailUrl)}`;
 }
 
 function extractUrlParam(url: string) {
@@ -427,7 +449,14 @@ async function requestSearchRowsPage(
 
   const html = await requestJsonHtml(
     page,
-    (url) => url.includes(endpoint) && url.includes(`Offset=${offset}`),
+    (url) => {
+      if (!url.includes(endpoint)) return false;
+      try {
+        return new URL(url).searchParams.get("Offset") === String(offset);
+      } catch {
+        return false;
+      }
+    },
     async () => {
       await evaluateWithPayload(
         page,
@@ -518,15 +547,16 @@ async function capturePublicListings(params: {
       const rows = await requestSearchRowsPage(
         page,
         params.origem,
-        pageIndex * 100,
+        pageIndex,
         params.signal,
       );
 
       if (!rows.length) break;
 
       for (const row of rows) {
-        if (seen.has(row.detailUrl)) continue;
-        seen.add(row.detailUrl);
+        const listingKey = buildListingKey(row);
+        if (seen.has(listingKey)) continue;
+        seen.add(listingKey);
         collected.push(row);
         if (collected.length >= params.limit) {
           return collected;
@@ -540,6 +570,27 @@ async function capturePublicListings(params: {
   } finally {
     await page.close();
   }
+}
+
+async function recoverOrphanedLocalExecutions() {
+  if (activeRun) return;
+
+  const db = requireDb();
+  await db
+    .update(importacaoBllExecucoes)
+    .set({
+      status: "ERRO",
+      mensagem:
+        "Execucao local anterior interrompida antes da finalizacao. Marcada como encerrada na recuperacao automatica.",
+      finalizadoEm: new Date(),
+    })
+    .where(
+      and(
+        eq(importacaoBllExecucoes.modo, "PLAYWRIGHT_LOCAL"),
+        eq(importacaoBllExecucoes.status, "PROCESSANDO"),
+        isNull(importacaoBllExecucoes.finalizadoEm),
+      ),
+    );
 }
 
 async function readMainProcessFields(page: Page) {
@@ -1665,6 +1716,7 @@ async function runLocalSync(params: {
 }
 
 export async function getBllLocalSyncStatus() {
+  await recoverOrphanedLocalExecutions();
   const db = requireDb();
   const [lastExecution] = await db
     .select()
@@ -1694,6 +1746,8 @@ export async function startBllLocalSync(params: {
   limit?: number;
   pageLimit?: number;
 }) {
+  await recoverOrphanedLocalExecutions();
+
   if (activeRun) {
     throw new Error("Ja existe uma sincronizacao local BLL em andamento.");
   }
@@ -1733,7 +1787,7 @@ export async function startBllLocalSync(params: {
     updatedContracts: 0,
     refreshedLinkedProcesses: 0,
     failed: 0,
-    pageLimit: Math.max(1, params.pageLimit ?? 5),
+    pageLimit: Math.max(1, params.pageLimit ?? DEFAULT_PUBLIC_CAPTURE_PAGE_LIMIT),
     message: hasExplicitProcesses
       ? "Fila de processos vinculados iniciada."
       : "Captura publica local iniciada.",
@@ -1745,8 +1799,8 @@ export async function startBllLocalSync(params: {
     processIds,
     dryRun: Boolean(params.dryRun),
     userId: params.userId ?? null,
-    limit: Math.max(1, params.limit ?? 200),
-    pageLimit: Math.max(1, params.pageLimit ?? 5),
+    limit: Math.max(1, params.limit ?? DEFAULT_PUBLIC_CAPTURE_LIMIT),
+    pageLimit: Math.max(1, params.pageLimit ?? DEFAULT_PUBLIC_CAPTURE_PAGE_LIMIT),
     sources,
     mode,
   }).catch(() => null);
@@ -1801,7 +1855,11 @@ export function startBllLocalScheduler() {
   dailyTask = startCronTask(BLL_SYNC_CRON_DAILY, async () => {
     if (activeRun) return;
     try {
-      await startBllLocalSync({ dryRun: false, limit: 200, pageLimit: 5 });
+      await startBllLocalSync({
+        dryRun: false,
+        limit: DEFAULT_PUBLIC_CAPTURE_LIMIT,
+        pageLimit: DEFAULT_PUBLIC_CAPTURE_PAGE_LIMIT,
+      });
     } catch {
       // Evita ruido extra durante o boot.
     }
@@ -1811,7 +1869,11 @@ export function startBllLocalScheduler() {
     weeklyTask = startCronTask(BLL_SYNC_CRON_WEEKLY, async () => {
       if (activeRun) return;
       try {
-        await startBllLocalSync({ dryRun: false, limit: 400, pageLimit: 8 });
+        await startBllLocalSync({
+          dryRun: false,
+          limit: DEFAULT_PUBLIC_CAPTURE_LIMIT,
+          pageLimit: DEFAULT_PUBLIC_CAPTURE_PAGE_LIMIT,
+        });
       } catch {
         // Evita ruido extra durante o boot.
       }

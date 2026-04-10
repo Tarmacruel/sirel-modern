@@ -837,8 +837,8 @@ export function ImportacoesPage() {
   const [activeTab, setActiveTab] = useState<ImportacoesTab>("DASHBOARD");
   const [syncAction, setSyncAction] = useState<SyncAction>("TODOS");
   const [localSyncSource, setLocalSyncSource] = useState<SyncAction>("TODOS");
-  const [localSyncLimit, setLocalSyncLimit] = useState("200");
-  const [localSyncPageLimit, setLocalSyncPageLimit] = useState("5");
+  const [localSyncLimit, setLocalSyncLimit] = useState("5000");
+  const [localSyncPageLimit, setLocalSyncPageLimit] = useState("100");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<
     Record<ColumnKey, boolean>
@@ -1641,11 +1641,11 @@ export function ImportacoesPage() {
       : null;
   const parsedLocalSyncLimit = Math.min(
     1000,
-    Math.max(1, Number.parseInt(localSyncLimit, 10) || 200),
+    Math.max(1, Number.parseInt(localSyncLimit, 10) || 5000),
   );
   const parsedLocalSyncPageLimit = Math.min(
     50,
-    Math.max(1, Number.parseInt(localSyncPageLimit, 10) || 5),
+    Math.max(1, Number.parseInt(localSyncPageLimit, 10) || 100),
   );
   const localSyncSourceValue =
     localSyncSource === "TODOS"

@@ -14,11 +14,13 @@
   RefreshCcw,
   Search,
   Settings2,
+  Sparkles,
   Trash2,
   UserCog,
   Users,
 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useLocation } from "wouter";
 
 import type { CadastroEntity } from "@sirel/shared/schemas/cadastros";
 
@@ -54,6 +56,54 @@ type AuditEntry = {
 type ExportScope = "page" | "selected" | "all";
 type ExportFormat = "csv" | "xlsx" | "pdf";
 type CropState = { zoom: number; offsetX: number; offsetY: number };
+type DedupeClassification = "ALTA" | "MEDIA" | "BAIXA";
+type BackfillConfidence = DedupeClassification | "SEM_CORRESPONDENCIA";
+type DedupeSuggestionRecord = {
+  id: number;
+  label: string;
+  documento: string | null;
+  ativo: boolean;
+  vinculos: number;
+  atualizadoEm: string | Date | null;
+  subtitle: string | null;
+};
+type DedupeSuggestion = {
+  groupKey: string;
+  classification: DedupeClassification;
+  confidenceScore: number;
+  reasonSummary: string[];
+  suggestedTargetId: number;
+  sourceIds: number[];
+  records: DedupeSuggestionRecord[];
+};
+type FornecedorWinnerBackfillRow = {
+  id: number;
+  processoId: number;
+  itemProcessoId: number;
+  numeroItem: number;
+  itemDescricao: string;
+  dataHomologacao: string | Date | null;
+  situacaoItem: string;
+  numeroSirel: string;
+  numeroAdministrativo: string | null;
+  numeroEdital: string | null;
+  objeto: string;
+  fornecedorVencedorId: number | null;
+  fornecedorVencedorNome: string | null;
+  fornecedorVencedorCnpj: string | null;
+  fornecedorAtualNome: string | null;
+  fornecedorAtualCnpj: string | null;
+  fornecedorSugeridoId: number | null;
+  fornecedorSugeridoNome: string | null;
+  fornecedorSugeridoCnpj: string | null;
+  confidence: BackfillConfidence;
+  reasonSummary: string[];
+  origemAlteracao: string | null;
+};
+type WinnerLinkModalState =
+  | { mode: "single"; row: FornecedorWinnerBackfillRow }
+  | { mode: "process"; processoId: number; numeroSirel: string; seedRow: FornecedorWinnerBackfillRow }
+  | null;
 
 const entityMeta: Array<{ key: CadastroEntity; label: string; icon: typeof Boxes; singular: string; searchLabel: string }> = [
   { key: "itens", label: "Itens", icon: Boxes, singular: "item", searchLabel: "descrição, código ou unidade" },
@@ -251,6 +301,51 @@ function normalizeLookupText(value: string | null | undefined) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function dedupeClassificationMeta(classification: DedupeClassification) {
+  switch (classification) {
+    case "ALTA":
+      return {
+        label: "Alta confiança",
+        className: "bg-[rgba(16,185,129,0.16)] text-[color:var(--color-success)]",
+      };
+    case "MEDIA":
+      return {
+        label: "Média confiança",
+        className: "bg-[rgba(245,158,11,0.18)] text-[rgb(146,95,0)]",
+      };
+    case "BAIXA":
+      return {
+        label: "Baixa confiança",
+        className: "bg-[var(--color-neutral-100)] text-[var(--color-neutral-700)]",
+      };
+  }
+}
+
+function backfillConfidenceMeta(confidence: BackfillConfidence) {
+  switch (confidence) {
+    case "ALTA":
+      return {
+        label: "Alta aderência",
+        className: "bg-[rgba(16,185,129,0.16)] text-[color:var(--color-success)]",
+      };
+    case "MEDIA":
+      return {
+        label: "Revisão sugerida",
+        className: "bg-[rgba(245,158,11,0.18)] text-[rgb(146,95,0)]",
+      };
+    case "BAIXA":
+      return {
+        label: "Baixa aderência",
+        className: "bg-[rgba(148,163,184,0.16)] text-[var(--color-neutral-700)]",
+      };
+    case "SEM_CORRESPONDENCIA":
+      return {
+        label: "Sem sugestão",
+        className: "bg-[var(--color-neutral-100)] text-[var(--color-neutral-700)]",
+      };
+  }
 }
 
 function CadastroStatusBadge({ status }: { status: string }) {
@@ -461,6 +556,7 @@ function CadastroMobileCard({
 export function CadastrosPage() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const [entity, setEntity] = useState<CadastroEntity>("itens");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | "ativo" | "inativo">("");
@@ -469,6 +565,15 @@ export function CadastrosPage() {
   const [cidade, setCidade] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [winnerBackfillPage, setWinnerBackfillPage] = useState(1);
+  const [winnerBackfillOnlyWithSuggestion, setWinnerBackfillOnlyWithSuggestion] = useState(false);
+  const [winnerLinkModal, setWinnerLinkModal] = useState<WinnerLinkModalState>(null);
+  const [winnerLinkFornecedorSearch, setWinnerLinkFornecedorSearch] = useState("");
+  const [winnerLinkFornecedorId, setWinnerLinkFornecedorId] = useState("");
+  const [winnerLinkReason, setWinnerLinkReason] = useState(
+    "Confirmação manual pela fila auditável de vencedores importados.",
+  );
+  const [winnerLinkSelectedIds, setWinnerLinkSelectedIds] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [formState, setFormState] = useState<FormState>(() => getDefaultForm("itens"));
   const [formErrors, setFormErrors] = useState<CadastroFormErrors>({});
@@ -487,6 +592,9 @@ export function CadastrosPage() {
   const [assetCrop, setAssetCrop] = useState<CropState>(cropDefaults);
   const [assetProcessing, setAssetProcessing] = useState(false);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [mergeItemSourceRow, setMergeItemSourceRow] = useState<Record<string, any> | null>(null);
+  const [mergeItemTargetId, setMergeItemTargetId] = useState("");
+  const [mergeItemSearch, setMergeItemSearch] = useState("");
   const [mergeSourceRow, setMergeSourceRow] = useState<Record<string, any> | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [mergeSearch, setMergeSearch] = useState("");
@@ -520,7 +628,55 @@ export function CadastrosPage() {
   const rows = (listQuery.data?.items ?? []) as Array<Record<string, any>>;
   const totalPages = listQuery.data?.totalPages ?? 1;
   const meta = getEntityMeta(entity);
-  const supportsMergeEntity = entity === "fornecedores" || entity === "pessoas" || entity === "servidores";
+  const supportsMergeEntity =
+    entity === "itens" || entity === "fornecedores" || entity === "pessoas" || entity === "servidores";
+  const supportsFornecedorWinnerBackfill = entity === "fornecedores";
+  const dedupeEntity = supportsMergeEntity ? entity : "fornecedores";
+  const dedupeSuggestionsQuery = trpc.cadastros.dedupeSuggestions.useQuery(
+    {
+      entity: dedupeEntity as "itens" | "fornecedores" | "pessoas" | "servidores",
+      search: deferredSearch || undefined,
+      status: status || undefined,
+      secretariaId: secretariaId ? Number(secretariaId) : undefined,
+      cidade: cidade.trim() || undefined,
+      limit: 12,
+    },
+    {
+      enabled: supportsMergeEntity,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
+  const dedupeSuggestions = (dedupeSuggestionsQuery.data?.suggestions ?? []) as DedupeSuggestion[];
+  const fornecedorWinnerBackfillQuery = trpc.cadastros.fornecedorVencedorBackfillPreview.useQuery(
+    {
+      search: deferredSearch || undefined,
+      onlyWithSuggestion: winnerBackfillOnlyWithSuggestion,
+      page: winnerBackfillPage,
+      pageSize: 8,
+    },
+    {
+      enabled: supportsFornecedorWinnerBackfill,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
+  const fornecedorWinnerBackfillRows = (fornecedorWinnerBackfillQuery.data?.items ??
+    []) as FornecedorWinnerBackfillRow[];
+  const processWinnerBackfillQuery = trpc.cadastros.fornecedorVencedorBackfillPreview.useQuery(
+    {
+      processoId: winnerLinkModal?.mode === "process" ? winnerLinkModal.processoId : undefined,
+      page: 1,
+      pageSize: 100,
+    },
+    {
+      enabled: winnerLinkModal?.mode === "process",
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
+  const processWinnerBackfillRows = (processWinnerBackfillQuery.data?.items ??
+    []) as FornecedorWinnerBackfillRow[];
   const selectedRows = useMemo(() => Object.values(selectedRowsById), [selectedRowsById]);
   const selectedIds = useMemo(() => selectedRows.map((row) => Number(row.id)), [selectedRows]);
   const allVisibleSelected = rows.length > 0 && rows.every((row) => Boolean(selectedRowsById[row.id]));
@@ -574,6 +730,51 @@ export function CadastrosPage() {
         (item) => item.id === Number(mergeTargetId),
       ) ?? null,
     [mergeTargetId, optionsQuery.data?.fornecedores],
+  );
+  const mergeItemCandidates = useMemo(() => {
+    if (!mergeItemSourceRow) {
+      return [];
+    }
+
+    const sourceName = normalizeLookupText(mergeItemSourceRow.nome);
+    const sourceUnit = normalizeLookupText(mergeItemSourceRow.unidade);
+    const queryText = normalizeLookupText(mergeItemSearch);
+
+    return (optionsQuery.data?.itens ?? [])
+      .filter((item) => item.id !== mergeItemSourceRow.id)
+      .map((item) => {
+        const candidateName = normalizeLookupText(item.descricao);
+        const candidateUnit = normalizeLookupText(item.unidadePadrao);
+        const matchesQuery =
+          !queryText ||
+          candidateName.includes(queryText) ||
+          candidateUnit.includes(queryText);
+
+        if (!matchesQuery) {
+          return null;
+        }
+
+        let score = 0;
+        if (sourceName && candidateName === sourceName) score += 100;
+        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 35;
+        if (sourceUnit && candidateUnit && sourceUnit === candidateUnit) score += 18;
+        if (queryText && candidateName.includes(queryText)) score += 12;
+
+        return {
+          ...item,
+          score,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.score - left.score || left.descricao.localeCompare(right.descricao, "pt-BR"))
+      .slice(0, 80);
+  }, [mergeItemSearch, mergeItemSourceRow, optionsQuery.data?.itens]);
+  const selectedMergeItemTarget = useMemo(
+    () =>
+      (optionsQuery.data?.itens ?? []).find(
+        (item) => item.id === Number(mergeItemTargetId),
+      ) ?? null,
+    [mergeItemTargetId, optionsQuery.data?.itens],
   );
   const mergePessoaCandidates = useMemo(() => {
     if (!mergePessoaSourceRow) {
@@ -648,6 +849,77 @@ export function CadastrosPage() {
       bulkMergeCandidates.find((row) => row.id === Number(bulkMergeTargetId)) ?? null,
     [bulkMergeCandidates, bulkMergeTargetId],
   );
+  const winnerLinkBaseRow = useMemo(() => {
+    if (!winnerLinkModal) return null;
+    if (winnerLinkModal.mode === "single") {
+      return winnerLinkModal.row;
+    }
+    return (
+      processWinnerBackfillRows[0] ??
+      winnerLinkModal.seedRow
+    );
+  }, [processWinnerBackfillRows, winnerLinkModal]);
+  const winnerLinkFornecedorCandidates = useMemo(() => {
+    const searchText = normalizeLookupText(winnerLinkFornecedorSearch);
+    const searchDigits = winnerLinkFornecedorSearch.replace(/\D/g, "");
+    const referenceName = normalizeLookupText(
+      winnerLinkBaseRow?.fornecedorSugeridoNome ??
+        winnerLinkBaseRow?.fornecedorVencedorNome,
+    );
+    const referenceDigits = String(
+      winnerLinkBaseRow?.fornecedorSugeridoCnpj ??
+        winnerLinkBaseRow?.fornecedorVencedorCnpj ??
+        "",
+    ).replace(/\D/g, "");
+
+    return (optionsQuery.data?.fornecedores ?? [])
+      .map((item) => {
+        const candidateName = normalizeLookupText(item.razaoSocial);
+        const candidateDigits = String(item.cnpj ?? "").replace(/\D/g, "");
+        const matchesQuery =
+          !searchText ||
+          candidateName.includes(searchText) ||
+          (searchDigits ? candidateDigits.includes(searchDigits) : false);
+
+        if (!matchesQuery) {
+          return null;
+        }
+
+        let score = 0;
+        if (referenceDigits && candidateDigits === referenceDigits) score += 120;
+        if (referenceName && candidateName === referenceName) score += 80;
+        if (
+          referenceName &&
+          (candidateName.includes(referenceName) || referenceName.includes(candidateName))
+        ) {
+          score += 35;
+        }
+        if (searchText && candidateName.includes(searchText)) score += 15;
+        if (searchDigits && candidateDigits.includes(searchDigits)) score += 20;
+
+        return {
+          ...item,
+          score,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => right.score - left.score || left.razaoSocial.localeCompare(right.razaoSocial, "pt-BR"))
+      .slice(0, 40);
+  }, [
+    optionsQuery.data?.fornecedores,
+    winnerLinkBaseRow?.fornecedorSugeridoCnpj,
+    winnerLinkBaseRow?.fornecedorSugeridoNome,
+    winnerLinkBaseRow?.fornecedorVencedorCnpj,
+    winnerLinkBaseRow?.fornecedorVencedorNome,
+    winnerLinkFornecedorSearch,
+  ]);
+  const winnerLinkSelectedFornecedor = useMemo(
+    () =>
+      (optionsQuery.data?.fornecedores ?? []).find(
+        (item) => item.id === Number(winnerLinkFornecedorId),
+      ) ?? null,
+    [optionsQuery.data?.fornecedores, winnerLinkFornecedorId],
+  );
 
   const historyQuery = trpc.cadastros.history.useQuery(
     {
@@ -682,7 +954,13 @@ export function CadastrosPage() {
 
   const removeMutation = trpc.cadastros.remove.useMutation({
     onSuccess: async () => {
-      await Promise.all([utils.cadastros.list.invalidate(), utils.cadastros.summary.invalidate(), utils.cadastros.history.invalidate()]);
+      await Promise.all([
+        utils.cadastros.list.invalidate(),
+        utils.cadastros.summary.invalidate(),
+        utils.cadastros.history.invalidate(),
+        utils.cadastros.dedupeSuggestions.invalidate(),
+        utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      ]);
       setError(null);
       setFeedback("Registro inativado com sucesso.");
     },
@@ -698,6 +976,8 @@ export function CadastrosPage() {
         utils.cadastros.list.invalidate(),
         utils.cadastros.summary.invalidate(),
         selectedRecordId ? utils.cadastros.history.invalidate() : Promise.resolve(),
+        utils.cadastros.dedupeSuggestions.invalidate(),
+        utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
       ]);
       setSelectedRowsById({});
       setFeedback(`${result.updated} registro(s) ${variables.ativo ? "reativados" : "inativados"} em lote.`);
@@ -727,6 +1007,24 @@ export function CadastrosPage() {
       setError(mutationError.message);
     },
   });
+  const runFornecedorWinnerBackfillMutation = trpc.cadastros.runFornecedorVencedorBackfill.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
+  const confirmFornecedorWinnerBackfillMutation = trpc.cadastros.confirmFornecedorVencedorBackfillLink.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
+  const confirmFornecedorWinnerBackfillBatchMutation = trpc.cadastros.confirmFornecedorVencedorBackfillLinksBatch.useMutation({
+    onError: (mutationError) => {
+      setFeedback(null);
+      setError(mutationError.message);
+    },
+  });
 
   useEffect(() => {
     setPage(1);
@@ -738,6 +1036,13 @@ export function CadastrosPage() {
     setEditingId(null);
     setSelectedRecordId(null);
     setSelectedRowsById({});
+    setWinnerBackfillPage(1);
+    setWinnerBackfillOnlyWithSuggestion(false);
+    setWinnerLinkModal(null);
+    setWinnerLinkFornecedorSearch("");
+    setWinnerLinkFornecedorId("");
+    setWinnerLinkReason("Confirmação manual pela fila auditável de vencedores importados.");
+    setWinnerLinkSelectedIds([]);
     setAuditDetail(null);
     setAuditActionFilter("");
     setAuditSearch("");
@@ -750,6 +1055,9 @@ export function CadastrosPage() {
     setAssetCrop(cropDefaults);
     setAssetProcessing(false);
     setAssetError(null);
+    setMergeItemSourceRow(null);
+    setMergeItemTargetId("");
+    setMergeItemSearch("");
     setMergeSourceRow(null);
     setMergeTargetId("");
     setMergeSearch("");
@@ -761,6 +1069,21 @@ export function CadastrosPage() {
     setFeedback(null);
     setError(null);
   }, [entity]);
+
+  useEffect(() => {
+    setWinnerBackfillPage(1);
+  }, [deferredSearch]);
+
+  useEffect(() => {
+    setWinnerBackfillPage(1);
+  }, [winnerBackfillOnlyWithSuggestion]);
+
+  useEffect(() => {
+    if (winnerLinkModal?.mode !== "process") {
+      return;
+    }
+    setWinnerLinkSelectedIds(processWinnerBackfillRows.map((row) => row.id));
+  }, [processWinnerBackfillRows, winnerLinkModal]);
 
   useEffect(() => {
     if (!assetFile || (entity !== "itens" && entity !== "fornecedores")) {
@@ -882,6 +1205,24 @@ export function CadastrosPage() {
     setError(null);
   }
 
+  function closeMergeItemModal() {
+    setMergeItemSourceRow(null);
+    setMergeItemTargetId("");
+    setMergeItemSearch("");
+  }
+
+  function openMergeItemModal(row: Record<string, any>) {
+    if (entity !== "itens") {
+      return;
+    }
+
+    setMergeItemSourceRow(row);
+    setMergeItemTargetId("");
+    setMergeItemSearch(row.nome ?? "");
+    setFeedback(null);
+    setError(null);
+  }
+
   function closeMergeModal() {
     setMergeSourceRow(null);
     setMergeTargetId("");
@@ -966,6 +1307,8 @@ export function CadastrosPage() {
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
       utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
     ]);
 
     setSelectedRowsById((current) => {
@@ -979,6 +1322,47 @@ export function CadastrosPage() {
     setFeedback(
       `Fornecedores unificados. ${result.summary.contratosAtualizados} contrato(s), ${result.summary.cotacoesAtualizadas} cotação(ões) e ${result.summary.licitantesRemapeados + result.summary.licitantesMesclados} vínculo(s) em licitações foram preservados.`,
     );
+  }
+
+  async function handleMergeItens() {
+    if (!mergeItemSourceRow || !mergeItemTargetId) {
+      setError("Selecione o item que deve permanecer no catálogo.");
+      return;
+    }
+
+    const sourceLabel = mergeItemSourceRow.nome ?? `Item ${mergeItemSourceRow.id}`;
+    const targetLabel = selectedMergeItemTarget?.descricao ?? `Item ${mergeItemTargetId}`;
+
+    if (!window.confirm(
+      `Unificar os itens abaixo?\n\nDuplicado: ${sourceLabel}\nManter: ${targetLabel}\n\nOs vínculos em processos, contratos e catálogos importados serão transferidos para o item mantido.`,
+    )) {
+      return;
+    }
+
+    const result = await bulkMergeCadastrosMutation.mutateAsync({
+      entity: "itens",
+      targetId: Number(mergeItemTargetId),
+      sourceIds: [Number(mergeItemSourceRow.id)],
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+    ]);
+
+    setSelectedRowsById((current) => {
+      const next = { ...current };
+      delete next[Number(mergeItemSourceRow.id)];
+      return next;
+    });
+    setSelectedRecordId(Number(result.registroMantido?.id ?? mergeItemTargetId));
+    closeMergeItemModal();
+    setError(null);
+    applyBulkMergeFeedback(result, "manualmente");
   }
 
   async function handleMergePessoas() {
@@ -1008,6 +1392,8 @@ export function CadastrosPage() {
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
       utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
     ]);
 
     setSelectedRowsById((current) => {
@@ -1023,14 +1409,140 @@ export function CadastrosPage() {
     );
   }
 
+  function applyBulkMergeFeedback(result: any, contextLabel: string) {
+    if (entity === "itens") {
+      const itemSummary = result.summary as {
+        processosAtualizados: number;
+        contratoItensRemapeados: number;
+        contratoItensMesclados: number;
+        importacaoItensAtualizados: number;
+      };
+      setFeedback(
+        `${result.registrosUnificados} item(ns) unificados ${contextLabel}. ${itemSummary.processosAtualizados} vínculo(s) em processos, ${itemSummary.contratoItensRemapeados + itemSummary.contratoItensMesclados} vínculo(s) contratuais e ${itemSummary.importacaoItensAtualizados} referência(s) importadas foram preservados.`,
+      );
+      return;
+    }
+
+    if (entity === "fornecedores") {
+      const fornecedorSummary = result.summary as {
+        contratosAtualizados: number;
+        cotacoesAtualizadas: number;
+        licitantesRemapeados: number;
+        licitantesMesclados: number;
+      };
+      setFeedback(
+        `${result.registrosUnificados} fornecedor(es) unificados ${contextLabel}. ${fornecedorSummary.contratosAtualizados} contrato(s), ${fornecedorSummary.cotacoesAtualizadas} cotação(ões) e ${fornecedorSummary.licitantesRemapeados + fornecedorSummary.licitantesMesclados} vínculo(s) em licitações foram preservados.`,
+      );
+      return;
+    }
+
+    const pessoaSummary = result.summary as {
+      departamentosAtualizados: number;
+      processosAutoridadeAtualizados: number;
+      processosCondutorAtualizados: number;
+      dfdResponsaveisRemapeados: number;
+      dfdResponsaveisMesclados: number;
+    };
+    setFeedback(
+      `${result.registrosUnificados} ${entity === "servidores" ? "servidor(es)" : "pessoa(s)"} unificados ${contextLabel}. ${pessoaSummary.departamentosAtualizados} departamento(s), ${pessoaSummary.processosAutoridadeAtualizados + pessoaSummary.processosCondutorAtualizados} vínculo(s) em processos e ${pessoaSummary.dfdResponsaveisRemapeados + pessoaSummary.dfdResponsaveisMesclados} vínculo(s) em DFD foram preservados.`,
+    );
+  }
+
+  function closeWinnerLinkModal() {
+    setWinnerLinkModal(null);
+    setWinnerLinkFornecedorSearch("");
+    setWinnerLinkFornecedorId("");
+    setWinnerLinkReason("Confirmação manual pela fila auditável de vencedores importados.");
+    setWinnerLinkSelectedIds([]);
+  }
+
+  function openWinnerLinkModal(row: FornecedorWinnerBackfillRow) {
+    setWinnerLinkModal({ mode: "single", row });
+    setWinnerLinkFornecedorSearch(row.fornecedorSugeridoNome ?? row.fornecedorVencedorNome ?? "");
+    setWinnerLinkFornecedorId(row.fornecedorSugeridoId ? String(row.fornecedorSugeridoId) : "");
+    setWinnerLinkReason("Confirmação manual pela fila auditável de vencedores importados.");
+    setWinnerLinkSelectedIds([row.id]);
+    setFeedback(null);
+    setError(null);
+  }
+
+  function openWinnerLinkProcessModal(row: FornecedorWinnerBackfillRow) {
+    setWinnerLinkModal({
+      mode: "process",
+      processoId: row.processoId,
+      numeroSirel: row.numeroSirel,
+      seedRow: row,
+    });
+    setWinnerLinkFornecedorSearch(row.fornecedorSugeridoNome ?? row.fornecedorVencedorNome ?? "");
+    setWinnerLinkFornecedorId(row.fornecedorSugeridoId ? String(row.fornecedorSugeridoId) : "");
+    setWinnerLinkReason("Confirmação manual em lote pela fila auditável de vencedores importados.");
+    setWinnerLinkSelectedIds([]);
+    setFeedback(null);
+    setError(null);
+  }
+
+  function toggleWinnerLinkRowSelection(rowId: number) {
+    setWinnerLinkSelectedIds((current) =>
+      current.includes(rowId)
+        ? current.filter((id) => id !== rowId)
+        : [...current, rowId],
+    );
+  }
+
+  async function handleApplyDedupeSuggestion(suggestion: DedupeSuggestion) {
+    if (!supportsMergeEntity) {
+      return;
+    }
+
+    const sourceIds = suggestion.sourceIds.filter((id) => id !== suggestion.suggestedTargetId);
+    if (!sourceIds.length) {
+      setError("A sugestão selecionada não possui registros absorvidos válidos.");
+      return;
+    }
+
+    const targetRecord = suggestion.records.find((record) => record.id === suggestion.suggestedTargetId);
+    const targetLabel = targetRecord?.label ?? `${meta.singular} ${suggestion.suggestedTargetId}`;
+    const reasonText = suggestion.reasonSummary.length
+      ? `\nSinais: ${suggestion.reasonSummary.join(", ")}`
+      : "";
+
+    if (!window.confirm(
+      `Aplicar sugestão automática de deduplicação?\n\nClassificação: ${suggestion.classification} (${suggestion.confidenceScore}%)\nRegistro mantido: ${targetLabel}\nRegistros absorvidos: ${sourceIds.length}${reasonText}\n\nTodos os vínculos dos registros absorvidos serão transferidos para o cadastro mantido.`,
+    )) {
+      return;
+    }
+
+    const result = await bulkMergeCadastrosMutation.mutateAsync({
+      entity: entity as "itens" | "fornecedores" | "pessoas" | "servidores",
+      targetId: suggestion.suggestedTargetId,
+      sourceIds,
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+    ]);
+
+    setSelectedRowsById({});
+    setSelectedRecordId(Number(result.registroMantido?.id ?? suggestion.suggestedTargetId));
+    setError(null);
+    applyBulkMergeFeedback(result, "pela sugestão inteligente");
+  }
+
   async function handleBulkMergeCadastros() {
     if (!supportsMergeEntity || !bulkMergeTargetId) {
       setError(
-        entity === "fornecedores"
-          ? "Selecione o fornecedor que deve permanecer no cadastro."
-          : entity === "servidores"
-            ? "Selecione o servidor que deve permanecer no cadastro."
-            : "Selecione a pessoa que deve permanecer no cadastro.",
+        entity === "itens"
+          ? "Selecione o item que deve permanecer no catálogo."
+          : entity === "fornecedores"
+            ? "Selecione o fornecedor que deve permanecer no cadastro."
+            : entity === "servidores"
+              ? "Selecione o servidor que deve permanecer no cadastro."
+              : "Selecione a pessoa que deve permanecer no cadastro.",
       );
       return;
     }
@@ -1044,15 +1556,23 @@ export function CadastrosPage() {
     const targetLabel = selectedBulkMergeTarget
       ? getRowLabel(entity, selectedBulkMergeTarget)
       : `${meta.singular} ${bulkMergeTargetId}`;
+    const selectionLabel =
+      entity === "itens"
+        ? "itens"
+        : entity === "fornecedores"
+          ? "fornecedores"
+          : entity === "servidores"
+            ? "servidores"
+            : "cadastros";
 
     if (!window.confirm(
-      `Unificar ${sourceIds.length + 1} cadastros selecionados?\n\nRegistro mantido: ${targetLabel}\nCadastros absorvidos: ${sourceIds.length}\n\nTodos os vínculos dos registros absorvidos serão transferidos para o cadastro mantido.`,
+      `Unificar ${sourceIds.length + 1} ${selectionLabel} selecionados?\n\nRegistro mantido: ${targetLabel}\nRegistros absorvidos: ${sourceIds.length}\n\nTodos os vínculos dos registros absorvidos serão transferidos para o cadastro mantido.`,
     )) {
       return;
     }
 
     const result = await bulkMergeCadastrosMutation.mutateAsync({
-      entity: entity as "fornecedores" | "pessoas" | "servidores",
+      entity: entity as "itens" | "fornecedores" | "pessoas" | "servidores",
       targetId: Number(bulkMergeTargetId),
       sourceIds,
     });
@@ -1062,35 +1582,145 @@ export function CadastrosPage() {
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
       utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
     ]);
 
     setSelectedRowsById({});
     setSelectedRecordId(Number(result.registroMantido?.id ?? bulkMergeTargetId));
     closeBulkMergeModal();
     setError(null);
+    applyBulkMergeFeedback(result, "em lote");
+  }
 
-    if (entity === "fornecedores") {
-      const fornecedorSummary = result.summary as {
-        contratosAtualizados: number;
-        cotacoesAtualizadas: number;
-        licitantesRemapeados: number;
-        licitantesMesclados: number;
-      };
-      setFeedback(
-        `${result.registrosUnificados} fornecedor(es) unificados em lote. ${fornecedorSummary.contratosAtualizados} contrato(s), ${fornecedorSummary.cotacoesAtualizadas} cotação(ões) e ${fornecedorSummary.licitantesRemapeados + fornecedorSummary.licitantesMesclados} vínculo(s) em licitações foram preservados.`,
-      );
+  async function handleRunFornecedorWinnerBackfill() {
+    if (!supportsFornecedorWinnerBackfill) {
       return;
     }
 
-    const pessoaSummary = result.summary as {
-      departamentosAtualizados: number;
-      processosAutoridadeAtualizados: number;
-      processosCondutorAtualizados: number;
-      dfdResponsaveisRemapeados: number;
-      dfdResponsaveisMesclados: number;
-    };
+    const pendingTotal = fornecedorWinnerBackfillQuery.data?.pendingTotal ?? 0;
+    const resolvableNow = fornecedorWinnerBackfillQuery.data?.resolvableNow ?? 0;
+
+    if (!window.confirm(
+      `Executar o saneamento retroativo de fornecedores vencedores importados?\n\nPendências auditáveis: ${pendingTotal}\nAtualizações automáticas possíveis agora: ${resolvableNow}\n\nA rotina só atualiza vínculos quando encontra correspondência segura e marca a origem como SANEAMENTO_FORNECEDOR.`,
+    )) {
+      return;
+    }
+
+    const result = await runFornecedorWinnerBackfillMutation.mutateAsync({});
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+    ]);
+
+    setWinnerBackfillPage(1);
+    setError(null);
     setFeedback(
-      `${result.registrosUnificados} ${entity === "servidores" ? "servidor(es)" : "pessoa(s)"} unificados em lote. ${pessoaSummary.departamentosAtualizados} departamento(s), ${pessoaSummary.processosAutoridadeAtualizados + pessoaSummary.processosCondutorAtualizados} vínculo(s) em processos e ${pessoaSummary.dfdResponsaveisRemapeados + pessoaSummary.dfdResponsaveisMesclados} vínculo(s) em DFD foram preservados.`,
+      result.updated > 0
+        ? `Saneamento executado. ${result.updated} vínculo(s) de vencedor foram atualizados, com ${result.nullIdRepairs} preenchimento(s) de ID vazio e ${result.mergedIdRepairs} correção(ões) de ID legado.`
+        : "Saneamento executado sem novas atualizações automáticas. As pendências restantes continuam disponíveis para revisão assistida.",
+    );
+  }
+
+  async function handleConfirmFornecedorWinnerLink(row: FornecedorWinnerBackfillRow) {
+    const modalSelectionActive =
+      winnerLinkModal?.mode === "single" && winnerLinkModal.row.id === row.id && winnerLinkFornecedorId;
+    const supplierId = modalSelectionActive
+      ? Number(winnerLinkFornecedorId)
+      : row.fornecedorSugeridoId;
+    const supplierName = modalSelectionActive
+      ? winnerLinkSelectedFornecedor?.razaoSocial ?? null
+      : row.fornecedorSugeridoNome;
+    const supplierCnpj = modalSelectionActive
+      ? winnerLinkSelectedFornecedor?.cnpj ?? null
+      : row.fornecedorSugeridoCnpj;
+
+    if (!supplierId || !supplierName) {
+      setError("Selecione o fornecedor que deve ser vinculado a este item.");
+      return;
+    }
+
+    const targetLabel = supplierCnpj
+      ? `${supplierName} (${formatCnpj(supplierCnpj)})`
+      : supplierName;
+
+    if (!window.confirm(
+      `Confirmar manualmente o fornecedor vencedor deste item importado?\n\nProcesso: ${row.numeroSirel}\nItem: ${row.numeroItem}\nVencedor legado: ${row.fornecedorVencedorNome ?? "Sem nome"}\nCadastro a vincular: ${targetLabel}\n\nA alteração será gravada com trilha de auditoria e origem SANEAMENTO_FORNECEDOR_MANUAL.`,
+    )) {
+      return;
+    }
+
+    const result = await confirmFornecedorWinnerBackfillMutation.mutateAsync({
+      id: row.id,
+      fornecedorId: supplierId,
+      reason: winnerLinkReason.trim() || "Confirmação manual pela fila auditável de vencedores importados.",
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+    ]);
+
+    if (modalSelectionActive) {
+      closeWinnerLinkModal();
+    }
+    setError(null);
+    setFeedback(
+      `Fornecedor vencedor confirmado manualmente no processo ${result.numeroSirel}, item ${result.numeroItem}. Cadastro vinculado: ${result.fornecedorVencedorNome}.`,
+    );
+  }
+
+  async function handleConfirmFornecedorWinnerBatch() {
+    if (winnerLinkModal?.mode !== "process") {
+      return;
+    }
+    if (!winnerLinkFornecedorId) {
+      setError("Selecione o fornecedor que deve ser aplicado aos itens escolhidos.");
+      return;
+    }
+    if (!winnerLinkSelectedIds.length) {
+      setError("Selecione ao menos um item do processo para aplicar o vínculo manual.");
+      return;
+    }
+
+    const supplierLabel = winnerLinkSelectedFornecedor
+      ? `${winnerLinkSelectedFornecedor.razaoSocial}${winnerLinkSelectedFornecedor.cnpj ? ` (${formatCnpj(winnerLinkSelectedFornecedor.cnpj)})` : ""}`
+      : `Fornecedor ${winnerLinkFornecedorId}`;
+
+    if (!window.confirm(
+      `Aplicar o fornecedor selecionado em lote?\n\nProcesso: ${winnerLinkModal.numeroSirel}\nItens selecionados: ${winnerLinkSelectedIds.length}\nFornecedor: ${supplierLabel}\n\nTodos os itens escolhidos receberão o mesmo vínculo manual com trilha de auditoria.`,
+    )) {
+      return;
+    }
+
+    const result = await confirmFornecedorWinnerBackfillBatchMutation.mutateAsync({
+      ids: winnerLinkSelectedIds,
+      fornecedorId: Number(winnerLinkFornecedorId),
+      reason: winnerLinkReason.trim() || undefined,
+    });
+
+    await Promise.all([
+      utils.cadastros.list.invalidate(),
+      utils.cadastros.summary.invalidate(),
+      utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.history.invalidate(),
+      utils.cadastros.dedupeSuggestions.invalidate(),
+      utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+    ]);
+
+    closeWinnerLinkModal();
+    setError(null);
+    setFeedback(
+      `Vínculo manual em lote aplicado no processo ${result.numeroSirel}. ${result.updatedCount} item(ns) passaram a apontar para ${result.fornecedorVencedorNome}.`,
     );
   }
 
@@ -1119,7 +1749,12 @@ export function CadastrosPage() {
         setAssetPreviewUrl(resolveCadastroAssetUrl(uploadResult.assetUrl));
       }
 
-      await Promise.all([utils.cadastros.list.invalidate(), utils.cadastros.summary.invalidate()]);
+      await Promise.all([
+        utils.cadastros.list.invalidate(),
+        utils.cadastros.summary.invalidate(),
+        utils.cadastros.dedupeSuggestions.invalidate(),
+        utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      ]);
       closeModal();
       setError(null);
       setFeedback(`${meta.singular.charAt(0).toUpperCase()}${meta.singular.slice(1)} salvo com sucesso.`);
@@ -1406,9 +2041,24 @@ export function CadastrosPage() {
                 Unificar
               </Button>
             ) : null}
+            {entity === "itens" ? (
+              <Button variant="secondary" size="sm" onClick={() => openMergeItemModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
+                Unificar
+              </Button>
+            ) : null}
             {entity === "pessoas" || entity === "servidores" ? (
               <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
                 Unificar
+              </Button>
+            ) : null}
+            {entity === "itens" ? (
+              <Button variant="outline" size="sm" onClick={() => setLocation(`/dossie/item/${row.id}`)} icon={<Eye className="h-4 w-4" />}>
+                Dossie
+              </Button>
+            ) : null}
+            {entity === "fornecedores" ? (
+              <Button variant="outline" size="sm" onClick={() => setLocation(`/dossie/fornecedor/${row.id}`)} icon={<Eye className="h-4 w-4" />}>
+                Dossie
               </Button>
             ) : null}
             <Button variant="outline" size="sm" onClick={() => openEditModal(row)} icon={<Pencil className="h-4 w-4" />}>
@@ -1520,6 +2170,416 @@ export function CadastrosPage() {
       {feedback ? <Alert variant="success">{feedback}</Alert> : null}
       {error ? <Alert variant="error">{error}</Alert> : null}
       {listQuery.error ? <Alert variant="error">Falha ao carregar os cadastros da entidade selecionada.</Alert> : null}
+      {supportsMergeEntity ? (
+        <SectionCard
+          title="Detecção Inteligente de Duplicidades"
+          description={`Possíveis duplicações de ${meta.label.toLowerCase()} classificadas automaticamente para apoiar a unificação.`}
+          action={
+            <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
+              <Sparkles className="h-4 w-4" />
+              {dedupeSuggestions.length} sugestão(ões)
+            </div>
+          }
+        >
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void dedupeSuggestionsQuery.refetch()}
+              loading={dedupeSuggestionsQuery.isFetching}
+              icon={<RefreshCcw className="h-4 w-4" />}
+            >
+              Reprocessar sugestões
+            </Button>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+              {dedupeSuggestionsQuery.data?.analyzedRecords ?? 0} cadastro(s) analisado(s)
+            </span>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+              Gerado em {dedupeSuggestionsQuery.data?.generatedAt ? formatShortDateTimeBR(dedupeSuggestionsQuery.data.generatedAt) : "-"}
+            </span>
+          </div>
+
+          {dedupeSuggestionsQuery.error ? (
+            <Alert variant="error">
+              Não foi possível gerar sugestões automáticas de duplicidade para os filtros atuais.
+            </Alert>
+          ) : null}
+
+          {dedupeSuggestionsQuery.isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-32 w-full rounded-[24px]" />)}
+            </div>
+          ) : dedupeSuggestions.length ? (
+            <div className="space-y-3">
+              {dedupeSuggestions.map((suggestion) => {
+                const classificationMeta = dedupeClassificationMeta(suggestion.classification);
+                const targetRecord = suggestion.records.find((record) => record.id === suggestion.suggestedTargetId) ?? null;
+                return (
+                  <Card key={suggestion.groupKey} className="space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <span className={["inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.16em]", classificationMeta.className].join(" ")}>
+                          {classificationMeta.label}
+                        </span>
+                        <p className="text-sm font-semibold text-[var(--color-primary-900)]">
+                          Confiança estimada: {suggestion.confidenceScore}%
+                        </p>
+                        <p className="text-sm text-[var(--color-neutral-600)]">
+                          {suggestion.reasonSummary.length
+                            ? suggestion.reasonSummary.join(" • ")
+                            : "Sem sinais detalhados para esta sugestão."}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => void handleApplyDedupeSuggestion(suggestion)}
+                        loading={bulkMergeCadastrosMutation.isPending}
+                        icon={<RefreshCcw className="h-4 w-4" />}
+                      >
+                        Aplicar sugestão
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {suggestion.records.map((record) => (
+                        <div
+                          key={`${suggestion.groupKey}-${record.id}`}
+                          className={[
+                            "rounded-2xl border px-3 py-2",
+                            record.id === suggestion.suggestedTargetId
+                              ? "border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)]"
+                              : "border-[rgba(204,225,255,0.92)] bg-white",
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-[var(--color-primary-900)]">{record.label}</p>
+                              <p className="text-xs text-[var(--color-neutral-500)]">{record.documento ?? "Sem documento"}</p>
+                            </div>
+                            <span className="rounded-full bg-[var(--color-neutral-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-neutral-700)]">
+                              {record.id === suggestion.suggestedTargetId ? "Mantido" : "Absorvido"}
+                            </span>
+                          </div>
+                          {record.subtitle ? (
+                            <p className="mt-2 text-xs text-[var(--color-neutral-600)]">{record.subtitle}</p>
+                          ) : null}
+                          <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+                            Vínculos: <span className="font-semibold text-[var(--color-primary-900)]">{record.vinculos}</span>
+                            {record.atualizadoEm ? ` • Atualizado em ${formatShortDateTimeBR(record.atualizadoEm)}` : ""}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {targetRecord ? (
+                      <p className="text-xs text-[var(--color-neutral-600)]">
+                        Sugestão de cadastro mantido: <span className="font-semibold text-[var(--color-primary-900)]">{targetRecord.label}</span>.
+                      </p>
+                    ) : null}
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Alert variant="info">
+              Nenhuma possível duplicação encontrada com os filtros atuais.
+            </Alert>
+          )}
+
+          {dedupeSuggestionsQuery.data?.truncated ? (
+            <Alert variant="info">
+              A análise foi limitada para manter o desempenho. Reforce os filtros para obter sugestões mais precisas.
+            </Alert>
+          ) : null}
+        </SectionCard>
+      ) : null}
+
+      {supportsFornecedorWinnerBackfill ? (
+        <SectionCard
+          title="Saneamento de Vencedores Importados"
+          description="Fila auditável dos vencedores legados que ainda exigem revisão assistida ou nova tentativa de conciliação automática."
+          action={
+            <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
+              <RefreshCcw className="h-4 w-4" />
+              {fornecedorWinnerBackfillQuery.data?.pendingTotal ?? 0} pendência(s)
+            </div>
+          }
+        >
+          <Alert variant="info">
+            Esta rotina revisa apenas itens importados com vencedor textual ou vínculo legado inconsistente. O sistema só grava alterações quando encontra correspondência segura e preserva a origem como <code>SANEAMENTO_FORNECEDOR</code>.
+          </Alert>
+
+          <div className="mt-4 mb-4 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void fornecedorWinnerBackfillQuery.refetch()}
+              loading={fornecedorWinnerBackfillQuery.isFetching}
+              icon={<RefreshCcw className="h-4 w-4" />}
+            >
+              Reprocessar fila
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleRunFornecedorWinnerBackfill()}
+              loading={runFornecedorWinnerBackfillMutation.isPending}
+              icon={<CheckCheck className="h-4 w-4" />}
+            >
+              Executar saneamento
+            </Button>
+            <Button
+              variant={winnerBackfillOnlyWithSuggestion ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => setWinnerBackfillOnlyWithSuggestion((current) => !current)}
+              icon={<Sparkles className="h-4 w-4" />}
+            >
+              {winnerBackfillOnlyWithSuggestion ? "Mostrando só com sugestão" : "Somente com sugestão"}
+            </Button>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+              {fornecedorWinnerBackfillQuery.data?.resolvableNow ?? 0} atualizável(is) agora
+            </span>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+              {fornecedorWinnerBackfillQuery.data?.filteredTotal ?? 0} pendência(s) na visão atual
+            </span>
+            <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+              Gerado em {fornecedorWinnerBackfillQuery.data?.generatedAt ? formatShortDateTimeBR(fornecedorWinnerBackfillQuery.data.generatedAt) : "-"}
+            </span>
+          </div>
+
+          {fornecedorWinnerBackfillQuery.error ? (
+            <Alert variant="error">
+              Não foi possível montar a fila auditável de vencedores importados.
+            </Alert>
+          ) : null}
+
+          {fornecedorWinnerBackfillQuery.isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-28 w-full rounded-[24px]" />
+              ))}
+            </div>
+          ) : fornecedorWinnerBackfillRows.length ? (
+            <>
+              <div className="space-y-3 md:hidden">
+                {fornecedorWinnerBackfillRows.map((row) => {
+                  const confidenceMeta = backfillConfidenceMeta(row.confidence);
+                  return (
+                    <Card key={row.id} className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-[var(--color-primary-900)]">
+                            Processo {row.numeroSirel}
+                          </p>
+                          <p className="text-sm text-[var(--color-neutral-600)]">
+                            Item {row.numeroItem} • {row.itemDescricao}
+                          </p>
+                        </div>
+                        <span className={["inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", confidenceMeta.className].join(" ")}>
+                          {confidenceMeta.label}
+                        </span>
+                      </div>
+                      <div className="space-y-2 text-sm text-[var(--color-neutral-600)]">
+                        <p>
+                          <span className="font-semibold text-[var(--color-primary-900)]">Vencedor legado:</span>{" "}
+                          {row.fornecedorVencedorNome ?? "Sem nome"} {row.fornecedorVencedorCnpj ? `• ${formatCnpj(row.fornecedorVencedorCnpj)}` : ""}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-[var(--color-primary-900)]">Sugestão:</span>{" "}
+                          {row.fornecedorSugeridoNome ?? "Sem correspondência segura"}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-[var(--color-primary-900)]">Situação:</span>{" "}
+                          {row.situacaoItem}{row.dataHomologacao ? ` • ${formatShortDateTimeBR(row.dataHomologacao)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLocation(`/dossie/${row.processoId}`)}
+                          icon={<Eye className="h-4 w-4" />}
+                        >
+                          Processo
+                        </Button>
+                        {row.fornecedorSugeridoId ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setLocation(`/dossie/fornecedor/${row.fornecedorSugeridoId}`)}
+                            icon={<Building2 className="h-4 w-4" />}
+                          >
+                            Dossie sugerido
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openWinnerLinkModal(row)}
+                          icon={<Building2 className="h-4 w-4" />}
+                        >
+                          Escolher fornecedor
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openWinnerLinkProcessModal(row)}
+                          icon={<FolderTree className="h-4 w-4" />}
+                        >
+                          Revisão em lote
+                        </Button>
+                        {row.fornecedorSugeridoId ? (
+                          <Button
+                            size="sm"
+                            onClick={() => void handleConfirmFornecedorWinnerLink(row)}
+                            loading={confirmFornecedorWinnerBackfillMutation.isPending}
+                            icon={<CheckCheck className="h-4 w-4" />}
+                          >
+                            Confirmar vínculo
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="rounded-2xl bg-[var(--color-neutral-50)] px-3 py-2 text-xs text-[var(--color-neutral-600)]">
+                        {row.reasonSummary.join(" • ")}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_14px_30px_-26px_rgba(15,26,109,0.22)] md:block">
+                <Table className="min-w-[1180px]">
+                  <TableHead>
+                    <tr>
+                      <TableHeaderCell>Processo</TableHeaderCell>
+                      <TableHeaderCell>Item</TableHeaderCell>
+                      <TableHeaderCell>Vencedor legado</TableHeaderCell>
+                      <TableHeaderCell>Sugestão</TableHeaderCell>
+                      <TableHeaderCell>Motivos</TableHeaderCell>
+                      <TableHeaderCell className="text-right">Ações</TableHeaderCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {fornecedorWinnerBackfillRows.map((row) => {
+                      const confidenceMeta = backfillConfidenceMeta(row.confidence);
+                      return (
+                        <TableRow key={row.id}>
+                          <TableCell>
+                            <div className="font-semibold text-[var(--color-primary-900)]">{row.numeroSirel}</div>
+                            <div className="text-xs text-[var(--color-neutral-500)]">
+                              {row.numeroEdital ?? row.numeroAdministrativo ?? "Sem referência complementar"}
+                            </div>
+                            <div className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                              {row.situacaoItem}
+                              {row.dataHomologacao ? ` • ${formatShortDateTimeBR(row.dataHomologacao)}` : ""}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-semibold text-[var(--color-primary-900)]">Item {row.numeroItem}</div>
+                            <div className="text-sm text-[var(--color-neutral-600)]">{row.itemDescricao}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-semibold text-[var(--color-primary-900)]">{row.fornecedorVencedorNome ?? "Sem nome"}</div>
+                            <div className="text-xs text-[var(--color-neutral-500)]">
+                              {row.fornecedorVencedorCnpj ? formatCnpj(row.fornecedorVencedorCnpj) : "Sem CNPJ"}
+                            </div>
+                            {row.fornecedorAtualNome ? (
+                              <div className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                                ID atual correlato: {row.fornecedorAtualNome}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <span className={["mb-2 inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", confidenceMeta.className].join(" ")}>
+                              {confidenceMeta.label}
+                            </span>
+                            <div className="font-semibold text-[var(--color-primary-900)]">
+                              {row.fornecedorSugeridoNome ?? "Sem sugestão segura"}
+                            </div>
+                            <div className="text-xs text-[var(--color-neutral-500)]">
+                              {row.fornecedorSugeridoCnpj ? formatCnpj(row.fornecedorSugeridoCnpj) : "Sem documento sugerido"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-[320px] text-sm text-[var(--color-neutral-600)]">
+                              {row.reasonSummary.join(" • ")}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setLocation(`/dossie/${row.processoId}`)}
+                                icon={<Eye className="h-4 w-4" />}
+                              >
+                                Processo
+                              </Button>
+                              {row.fornecedorSugeridoId ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => setLocation(`/dossie/fornecedor/${row.fornecedorSugeridoId}`)}
+                                  icon={<Building2 className="h-4 w-4" />}
+                                >
+                                  Dossie do fornecedor
+                                </Button>
+                              ) : null}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openWinnerLinkModal(row)}
+                                icon={<Building2 className="h-4 w-4" />}
+                              >
+                                Escolher fornecedor
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openWinnerLinkProcessModal(row)}
+                                icon={<FolderTree className="h-4 w-4" />}
+                              >
+                                Em lote
+                              </Button>
+                              {row.fornecedorSugeridoId ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => void handleConfirmFornecedorWinnerLink(row)}
+                                  loading={confirmFornecedorWinnerBackfillMutation.isPending}
+                                  icon={<CheckCheck className="h-4 w-4" />}
+                                >
+                                  Confirmar
+                                </Button>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[var(--color-neutral-600)]">
+                  Exibindo <span className="font-bold text-[var(--color-primary-900)]">{fornecedorWinnerBackfillRows.length}</span> de{" "}
+                  <span className="font-bold text-[var(--color-primary-900)]">{fornecedorWinnerBackfillQuery.data?.filteredTotal ?? 0}</span> pendência(s) auditáveis.
+                </p>
+                <Pagination
+                  page={winnerBackfillPage}
+                  totalPages={fornecedorWinnerBackfillQuery.data?.totalPages ?? 1}
+                  onPageChange={setWinnerBackfillPage}
+                />
+              </div>
+            </>
+          ) : (
+            <Alert variant="success">
+              {winnerBackfillOnlyWithSuggestion
+                ? "Nenhuma pendência com sugestão segura encontrada para os filtros atuais. Desative o filtro para revisar todos os casos remanescentes."
+                : "Nenhuma pendência auditável encontrada para os filtros atuais. Se necessário, reprocesse a fila para revisar novas importações ou efeitos de unificações recentes."}
+            </Alert>
+          )}
+        </SectionCard>
+      ) : null}
 
       <SectionCard title={`Lista de ${meta.label}`} description="Listagem paginada com ações de edição, inativação e atualização rápida.">
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.64))] p-4">
@@ -1572,7 +2632,9 @@ export function CadastrosPage() {
                   onOpenAudit={() => setSelectedRecordId(row.id)}
                   onDuplicate={entity === "itens" || entity === "fornecedores" ? () => openDuplicateModal(row) : undefined}
                   onMerge={
-                    entity === "fornecedores"
+                    entity === "itens"
+                      ? () => openMergeItemModal(row)
+                      : entity === "fornecedores"
                       ? () => openMergeModal(row)
                       : entity === "pessoas" || entity === "servidores"
                         ? () => openMergePessoaModal(row)
@@ -1654,6 +2716,11 @@ export function CadastrosPage() {
                 ) : null}
                 {entity === "fornecedores" ? (
                   <Button variant="secondary" size="sm" onClick={() => openMergeModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                    Unificar cadastro
+                  </Button>
+                ) : null}
+                {entity === "itens" ? (
+                  <Button variant="secondary" size="sm" onClick={() => openMergeItemModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
                     Unificar cadastro
                   </Button>
                 ) : null}
@@ -1742,7 +2809,9 @@ export function CadastrosPage() {
           <FormField label="Cadastro mantido">
             <Select value={bulkMergeTargetId} onChange={(event) => setBulkMergeTargetId(event.target.value)}>
               <option value="">
-                {entity === "fornecedores"
+                {entity === "itens"
+                  ? "Selecione o item mantido"
+                  : entity === "fornecedores"
                   ? "Selecione o fornecedor mantido"
                   : entity === "servidores"
                     ? "Selecione o servidor mantido"
@@ -1751,7 +2820,9 @@ export function CadastrosPage() {
               {bulkMergeCandidates.map((row) => (
                 <option key={row.id} value={row.id}>
                   {getRowLabel(entity, row)}
-                  {entity === "fornecedores"
+                  {entity === "itens"
+                    ? ` • ${row.unidade ?? "-"}`
+                    : entity === "fornecedores"
                     ? ` • ${formatCnpj(row.cnpj)}`
                     : entity === "pessoas" || entity === "servidores"
                       ? ` • ${formatCpf(row.cpf)}`
@@ -1779,7 +2850,9 @@ export function CadastrosPage() {
                 <div>
                   <p className="text-sm font-semibold text-[var(--color-primary-900)]">{getRowLabel(entity, row)}</p>
                   <p className="text-xs text-[var(--color-neutral-500)]">
-                    {entity === "fornecedores"
+                    {entity === "itens"
+                      ? `${row.unidade ?? "-"}${row.valorReferencia ? ` • ${formatCurrencyBRL(row.valorReferencia)}` : ""}`
+                      : entity === "fornecedores"
                       ? formatCnpj(row.cnpj)
                       : entity === "pessoas" || entity === "servidores"
                         ? formatCpf(row.cpf)
@@ -1880,6 +2953,92 @@ export function CadastrosPage() {
                 onClick={() => void handleMergeFornecedores()}
                 loading={mergeFornecedoresMutation.isPending}
                 disabled={!mergeTargetId}
+                icon={<RefreshCcw className="h-4 w-4" />}
+              >
+                Unificar cadastros
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(mergeItemSourceRow)}
+        onClose={closeMergeItemModal}
+        size="md"
+        title="Unificar itens duplicados"
+        description="Escolha qual cadastro do catálogo deve permanecer. O sistema vai transferir vínculos em processos, contratos e referências importadas para o item mantido."
+      >
+        {mergeItemSourceRow ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro duplicado</p>
+                <p className="text-base font-black text-[var(--color-primary-900)]">{mergeItemSourceRow.nome}</p>
+                <p className="text-sm text-[var(--color-neutral-600)]">
+                  {mergeItemSourceRow.unidade ?? "-"}
+                  {mergeItemSourceRow.valorReferencia ? ` • ${formatCurrencyBRL(mergeItemSourceRow.valorReferencia)}` : ""}
+                </p>
+                <p className="text-sm text-[var(--color-neutral-500)]">
+                  Código {mergeItemSourceRow.codigo}
+                </p>
+              </Card>
+              <Card className="space-y-2">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">Cadastro que será mantido</p>
+                {selectedMergeItemTarget ? (
+                  <>
+                    <p className="text-base font-black text-[var(--color-primary-900)]">{selectedMergeItemTarget.descricao}</p>
+                    <p className="text-sm text-[var(--color-neutral-600)]">
+                      {selectedMergeItemTarget.unidadePadrao ?? "-"}
+                      {selectedMergeItemTarget.valorReferencia ? ` • ${formatCurrencyBRL(selectedMergeItemTarget.valorReferencia)}` : ""}
+                    </p>
+                    <p className="text-sm text-[var(--color-neutral-500)]">
+                      ID interno: {selectedMergeItemTarget.id}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-[var(--color-neutral-500)]">Selecione abaixo o item que deve permanecer ativo no catálogo.</p>
+                )}
+              </Card>
+            </div>
+
+            <FormField label="Buscar item de destino">
+              <Input
+                value={mergeItemSearch}
+                onChange={(event) => setMergeItemSearch(event.target.value)}
+                placeholder="Descrição ou unidade"
+              />
+            </FormField>
+
+            <FormField label="Item mantido">
+              <Select value={mergeItemTargetId} onChange={(event) => setMergeItemTargetId(event.target.value)}>
+                <option value="">Selecione um item</option>
+                {mergeItemCandidates.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.descricao} • {item.unidadePadrao}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            {!mergeItemCandidates.length ? (
+              <Alert variant="info">
+                Nenhum item candidato encontrado com esse filtro. Ajuste a busca para localizar o cadastro correto.
+              </Alert>
+            ) : null}
+
+            <Alert variant="info">
+              O item duplicado será removido do catálogo principal ao final da operação, mas os vínculos operacionais serão preservados no item mantido.
+            </Alert>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={closeMergeItemModal}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => void handleMergeItens()}
+                loading={bulkMergeCadastrosMutation.isPending}
+                disabled={!mergeItemTargetId}
                 icon={<RefreshCcw className="h-4 w-4" />}
               >
                 Unificar cadastros
@@ -2236,6 +3395,247 @@ export function CadastrosPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(winnerLinkModal)}
+        onClose={closeWinnerLinkModal}
+        size="xl"
+        title={
+          winnerLinkModal?.mode === "process"
+            ? `Revisão em lote do processo ${winnerLinkModal.numeroSirel}`
+            : winnerLinkModal
+              ? `Vincular fornecedor do item ${winnerLinkModal.row.numeroItem}`
+              : "Vincular fornecedor"
+        }
+        description={
+          winnerLinkModal?.mode === "process"
+            ? "Selecione os itens pendentes do mesmo processo, escolha o cadastro correto do fornecedor e confirme a atualização em lote."
+            : winnerLinkModal?.mode === "single"
+              ? "Escolha manualmente o cadastro do fornecedor vencedor para este item importado."
+              : undefined
+        }
+      >
+        {winnerLinkModal ? (
+          <div className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+              <Card className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                    Seleção do fornecedor
+                  </p>
+                  <FormField
+                    label="Buscar fornecedor"
+                    description="Pesquise por razão social ou CNPJ para localizar o cadastro correto."
+                  >
+                    <Input
+                      value={winnerLinkFornecedorSearch}
+                      onChange={(event) => setWinnerLinkFornecedorSearch(event.target.value)}
+                      placeholder="Ex.: HF Suzarte ou 12.345.678/0001-90"
+                    />
+                  </FormField>
+                </div>
+
+                <div className="max-h-[360px] space-y-2 overflow-auto rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-3">
+                  {winnerLinkFornecedorCandidates.length ? (
+                    winnerLinkFornecedorCandidates.map((item) => {
+                      const selected = Number(winnerLinkFornecedorId) === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setWinnerLinkFornecedorId(String(item.id))}
+                          className={[
+                            "w-full rounded-2xl border px-3 py-3 text-left transition",
+                            selected
+                              ? "border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)]"
+                              : "border-[rgba(204,225,255,0.92)] bg-white hover:border-[rgba(47,84,196,0.22)]",
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-[var(--color-primary-900)]">{item.razaoSocial}</p>
+                              <p className="text-xs text-[var(--color-neutral-500)]">
+                                {item.cnpj ? formatCnpj(item.cnpj) : "Sem CNPJ"}
+                              </p>
+                            </div>
+                            {selected ? (
+                              <span className="rounded-full bg-[var(--color-primary-100)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
+                                Selecionado
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <Alert variant="info">
+                      Nenhum fornecedor encontrado com este filtro. Ajuste a busca para localizar o cadastro correto.
+                    </Alert>
+                  )}
+                </div>
+
+                <FormField
+                  label="Observação de auditoria"
+                  description="Texto livre curto para explicar a decisão manual."
+                >
+                  <Textarea
+                    value={winnerLinkReason}
+                    onChange={(event) => setWinnerLinkReason(event.target.value)}
+                    className="border-[rgba(204,225,255,0.92)] text-[var(--color-neutral-800)] focus:border-[var(--color-primary-400)]"
+                  />
+                </FormField>
+              </Card>
+
+              <Card className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                    Contexto da revisão
+                  </p>
+                  {winnerLinkModal.mode === "single" ? (
+                    <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-4">
+                      <p className="font-semibold text-[var(--color-primary-900)]">
+                        Processo {winnerLinkModal.row.numeroSirel}
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                        Item {winnerLinkModal.row.numeroItem} • {winnerLinkModal.row.itemDescricao}
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                        Vencedor legado:{" "}
+                        <span className="font-semibold text-[var(--color-primary-900)]">
+                          {winnerLinkModal.row.fornecedorVencedorNome ?? "Sem nome"}
+                        </span>
+                      </p>
+                      {winnerLinkModal.row.reasonSummary.length ? (
+                        <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
+                          {winnerLinkModal.row.reasonSummary.join(" • ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
+                          Processo {winnerLinkModal.numeroSirel}
+                        </span>
+                        <span className="rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-semibold text-[var(--color-neutral-700)]">
+                          {winnerLinkSelectedIds.length} item(ns) selecionado(s)
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setWinnerLinkSelectedIds(processWinnerBackfillRows.map((row) => row.id))}
+                          disabled={!processWinnerBackfillRows.length}
+                        >
+                          Selecionar todos
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setWinnerLinkSelectedIds([])}
+                          disabled={!winnerLinkSelectedIds.length}
+                        >
+                          Limpar seleção
+                        </Button>
+                      </div>
+
+                      {processWinnerBackfillQuery.isLoading ? (
+                        <div className="space-y-2">
+                          {Array.from({ length: 3 }).map((_, index) => (
+                            <Skeleton key={index} className="h-16 w-full rounded-[20px]" />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="max-h-[360px] overflow-auto rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)]">
+                          <Table className="min-w-[560px]">
+                            <TableHead>
+                              <tr>
+                                <TableHeaderCell className="w-12">Sel.</TableHeaderCell>
+                                <TableHeaderCell>Item</TableHeaderCell>
+                                <TableHeaderCell>Vencedor legado</TableHeaderCell>
+                              </tr>
+                            </TableHead>
+                            <TableBody>
+                              {processWinnerBackfillRows.map((row) => (
+                                <TableRow key={row.id}>
+                                  <TableCell>
+                                    <input
+                                      type="checkbox"
+                                      checked={winnerLinkSelectedIds.includes(row.id)}
+                                      onChange={() => toggleWinnerLinkRowSelection(row.id)}
+                                      className="h-4 w-4 rounded border-[var(--color-neutral-300)]"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="font-semibold text-[var(--color-primary-900)]">
+                                      Item {row.numeroItem}
+                                    </div>
+                                    <div className="text-sm text-[var(--color-neutral-600)]">
+                                      {row.itemDescricao}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="font-semibold text-[var(--color-primary-900)]">
+                                      {row.fornecedorVencedorNome ?? "Sem nome"}
+                                    </div>
+                                    <div className="text-xs text-[var(--color-neutral-500)]">
+                                      {row.fornecedorVencedorCnpj ? formatCnpj(row.fornecedorVencedorCnpj) : "Sem CNPJ"}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                    Fornecedor escolhido
+                  </p>
+                  <p className="mt-2 font-semibold text-[var(--color-primary-900)]">
+                    {winnerLinkSelectedFornecedor?.razaoSocial ?? "Nenhum fornecedor selecionado"}
+                  </p>
+                  <p className="text-xs text-[var(--color-neutral-500)]">
+                    {winnerLinkSelectedFornecedor?.cnpj
+                      ? formatCnpj(winnerLinkSelectedFornecedor.cnpj)
+                      : winnerLinkSelectedFornecedor
+                        ? "Sem CNPJ"
+                        : "Use a busca ao lado para localizar o cadastro correto."}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2 border-t border-[rgba(204,225,255,0.92)] pt-4">
+                  <Button variant="outline" onClick={closeWinnerLinkModal}>
+                    Cancelar
+                  </Button>
+                  {winnerLinkModal.mode === "process" ? (
+                    <Button
+                      onClick={() => void handleConfirmFornecedorWinnerBatch()}
+                      loading={confirmFornecedorWinnerBackfillBatchMutation.isPending}
+                      icon={<CheckCheck className="h-4 w-4" />}
+                    >
+                      Aplicar em lote
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => void handleConfirmFornecedorWinnerLink(winnerLinkModal.row)}
+                      loading={confirmFornecedorWinnerBackfillMutation.isPending}
+                      icon={<CheckCheck className="h-4 w-4" />}
+                    >
+                      Confirmar vínculo
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       <Modal

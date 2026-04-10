@@ -1,6 +1,7 @@
 ﻿import { and, count, countDistinct, desc, eq, gte, lte, sql, sum } from "drizzle-orm";
 
 import { relatorioTipoLabels } from "@sirel/shared/const";
+import { ataSessaoProcessInputSchema } from "@sirel/shared/schemas/ata-sessao";
 import { relatorioRunInputSchema } from "@sirel/shared/schemas/relatorios";
 
 import { requireDb } from "../db/client.js";
@@ -15,6 +16,7 @@ import {
   workflowProcesso,
   modalidades,
 } from "../db/schema.js";
+import { generateAtaSessaoReports } from "../lib/ata-sessao-reports.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 function formatDateString(date: Date) {
@@ -28,6 +30,10 @@ function parseDate(value?: string) {
 }
 
 export const relatoriosRouter = router({
+  processAtaSessao: protectedProcedure
+    .input(ataSessaoProcessInputSchema)
+    .mutation(async ({ input }) => generateAtaSessaoReports(input)),
+
   run: protectedProcedure.input(relatorioRunInputSchema).query(async ({ input }) => {
     const db = requireDb();
     const dataInicial = parseDate(input.dataInicial);

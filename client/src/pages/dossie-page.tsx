@@ -42,6 +42,92 @@ function summarizeIdentifiers(detail: DossieDetail) {
     .join(" • ");
 }
 
+type CriticalStatusDateKey =
+  | "HOMOLOGACAO"
+  | "FRACASSADO"
+  | "SUSPENSAO"
+  | "REVOGACAO"
+  | "ANULACAO"
+  | "DESERTO";
+
+const criticalStatusDateCatalog: Array<{
+  key: CriticalStatusDateKey;
+  label: string;
+}> = [
+  { key: "HOMOLOGACAO", label: "Homologação" },
+  { key: "FRACASSADO", label: "Fracassado" },
+  { key: "SUSPENSAO", label: "Suspensão" },
+  { key: "REVOGACAO", label: "Revogação" },
+  { key: "ANULACAO", label: "Anulação" },
+  { key: "DESERTO", label: "Deserto" },
+];
+
+function normalizeStatusToken(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+}
+
+function detectCriticalStatusKey(
+  label: string | null | undefined,
+): CriticalStatusDateKey | null {
+  const token = normalizeStatusToken(label);
+  if (!token) return null;
+  if (token.includes("HOMOLOG")) return "HOMOLOGACAO";
+  if (token.includes("FRACASS")) return "FRACASSADO";
+  if (token.includes("SUSPENS")) return "SUSPENSAO";
+  if (token.includes("REVOG")) return "REVOGACAO";
+  if (token.includes("ANUL")) return "ANULACAO";
+  if (token.includes("DESERT")) return "DESERTO";
+  return null;
+}
+
+function parseCriticalStatusFromObservacao(observacao: string | null) {
+  if (!observacao) return null;
+  const match = observacao.match(
+    /Data do status\s+([^:]+):\s*(\d{4}-\d{2}-\d{2})/i,
+  );
+  if (!match) return null;
+  const key = detectCriticalStatusKey(match[1]);
+  if (!key) return null;
+  return { key, date: match[2] };
+}
+
+function buildCriticalStatusDates(detail: DossieDetail) {
+  const byKey = new Map<CriticalStatusDateKey, string>();
+
+  const dataHomologacao = detail.licitacao.cabecalho?.dataHomologacao;
+  if (dataHomologacao) {
+    byKey.set("HOMOLOGACAO", dataHomologacao);
+  }
+
+  for (const movimentacao of detail.workflow.movimentacoes) {
+    const parsed = parseCriticalStatusFromObservacao(movimentacao.observacao);
+    if (parsed && !byKey.has(parsed.key)) {
+      byKey.set(parsed.key, parsed.date);
+    }
+  }
+
+  const fallbackStatusKey = detectCriticalStatusKey(
+    detail.processo.statusAtual?.nome ?? detail.processo.statusAtual?.codigo,
+  );
+  if (
+    fallbackStatusKey &&
+    detail.processo.dataEncerramento &&
+    !byKey.has(fallbackStatusKey)
+  ) {
+    byKey.set(fallbackStatusKey, detail.processo.dataEncerramento);
+  }
+
+  return criticalStatusDateCatalog.map((item) => ({
+    ...item,
+    date: byKey.get(item.key) ?? null,
+  }));
+}
+
 function StatCard({
   label,
   value,
@@ -146,6 +232,10 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
         }
       : null,
   ].filter(Boolean) as Array<{ label: string; href: string }>;
+  const criticalStatusDates = useMemo(
+    () => (detailQuery.data ? buildCriticalStatusDates(detailQuery.data) : []),
+    [detailQuery.data],
+  );
 
   return (
     <div className="space-y-6">
@@ -376,6 +466,18 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
               />
             </section>
 
+            <SectionCard title="Datas criticas de status">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                {criticalStatusDates.map((item) => (
+                  <StatCard
+                    key={item.key}
+                    label={item.label}
+                    value={formatShortDateBR(item.date)}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+
             <SectionCard title="Itens e valores">
               <div className="overflow-x-auto rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)]">
                 <Table className="min-w-[1380px]">
@@ -403,11 +505,29 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                               : "-"}
                         </TableCell>
                         <TableCell>
-                          <div className="font-semibold text-[var(--text-primary)]">
-                            Item {item.numeroItem}
-                          </div>
+                          {item.catalogoItemId ? (
+                            <Link
+                              href={`/dossie/item/${item.catalogoItemId}`}
+                              className="font-semibold text-[var(--accent-color)]"
+                            >
+                              Item {item.numeroItem}
+                            </Link>
+                          ) : (
+                            <div className="font-semibold text-[var(--text-primary)]">
+                              Item {item.numeroItem}
+                            </div>
+                          )}
                           <div className="text-xs text-[var(--text-muted)]">
-                            {cleanDisplayText(item.descricao)}
+                            {item.catalogoItemId ? (
+                              <Link
+                                href={`/dossie/item/${item.catalogoItemId}`}
+                                className="text-[var(--accent-color)]"
+                              >
+                                {cleanDisplayText(item.descricao)}
+                              </Link>
+                            ) : (
+                              cleanDisplayText(item.descricao)
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -499,9 +619,18 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                           key={`${row.fornecedorId ?? row.nome}-${row.cnpj ?? ""}`}
                         >
                           <TableCell>
-                            <div className="font-semibold text-[var(--text-primary)]">
-                              {row.nome}
-                            </div>
+                            {row.fornecedorId ? (
+                              <Link
+                                href={`/dossie/fornecedor/${row.fornecedorId}`}
+                                className="font-semibold text-[var(--accent-color)]"
+                              >
+                                {row.nome}
+                              </Link>
+                            ) : (
+                              <div className="font-semibold text-[var(--text-primary)]">
+                                {row.nome}
+                              </div>
+                            )}
                             <div className="text-xs text-[var(--text-muted)]">
                               {formatCnpjBR(row.cnpj)}
                             </div>
@@ -561,7 +690,18 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                               {row.origem}
                             </span>
                           </TableCell>
-                          <TableCell>{row.fornecedorNome}</TableCell>
+                          <TableCell>
+                            {row.fornecedorId ? (
+                              <Link
+                                href={`/dossie/fornecedor/${row.fornecedorId}`}
+                                className="font-semibold text-[var(--accent-color)]"
+                              >
+                                {row.fornecedorNome}
+                              </Link>
+                            ) : (
+                              row.fornecedorNome
+                            )}
+                          </TableCell>
                           <TableCell>
                             {formatShortDateBR(row.dataVigenciaInicio)} até{" "}
                             {formatShortDateBR(row.dataVigenciaFim)}
@@ -751,10 +891,9 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
               </div>
             </SectionCard>
 
-            <SectionCard title="Workflow e trilha recente">
+            <SectionCard title="Workflow e trilha completa">
               <div className="space-y-3">
                 {detailQuery.data.workflow.movimentacoes
-                  .slice(0, 12)
                   .map((row) => (
                     <article
                       key={row.id}
@@ -777,6 +916,11 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                           {formatShortDateTimeBR(row.criadoEm)}
                         </div>
                       </div>
+                    {row.observacao ? (
+                      <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                        {cleanDisplayText(row.observacao)}
+                      </p>
+                    ) : null}
                     </article>
                   ))}
                 {!detailQuery.data.workflow.movimentacoes.length ? (
@@ -792,3 +936,4 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
     </div>
   );
 }
+

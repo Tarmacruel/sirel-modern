@@ -1,4 +1,4 @@
-﻿import {
+import {
   useEffect,
   useMemo,
   useRef,
@@ -82,6 +82,10 @@ import {
   maskCurrencyInputBR,
   normalizeCurrencyInputBR,
 } from "@/lib/formatters";
+import {
+  getCriticalStatusKind,
+  getCriticalStatusKindLabel,
+} from "@/lib/process-status-critical";
 import { cleanDisplayText } from "@/lib/text";
 import { trpc } from "@/lib/trpc";
 
@@ -178,6 +182,7 @@ const initialRecursoForm = {
 const initialHomologacaoForm = {
   dataHomologacao: "",
   statusId: "",
+  dataStatus: "",
   observacao: "",
 };
 
@@ -474,6 +479,7 @@ export function LicitacaoProcessoPage({
   const [publishForm, setPublishForm] = useState({
     condutorProcessoId: "",
     statusId: "",
+    dataStatus: "",
     dataPublicacaoEdital: "",
     horaDisputa: "08:30",
     linkBllPublico: "",
@@ -547,6 +553,7 @@ export function LicitacaoProcessoPage({
       statusId: detail.processo.statusId
         ? String(detail.processo.statusId)
         : "",
+      dataStatus: "",
       dataPublicacaoEdital: toDateInputValue(
         detail.licitacao.dataPublicacaoEdital,
       ),
@@ -554,8 +561,8 @@ export function LicitacaoProcessoPage({
       linkBllPublico: detail.licitacao.linkBllPublico ?? "",
       linkPncpPublico: detail.licitacao.linkPncpPublico ?? "",
       descricao: detail.processo.numeroEdital
-        ? `Publicação do edital ${detail.processo.numeroEdital}`
-        : `Publicação do processo ${detail.processo.numeroSirel}`,
+        ? `Publicacao do edital ${detail.processo.numeroEdital}`
+        : `Publicacao do processo ${detail.processo.numeroSirel}`,
       observacao: detail.licitacao.observacoes ?? "",
     });
 
@@ -601,6 +608,7 @@ export function LicitacaoProcessoPage({
       dataHomologacao:
         current.dataHomologacao ||
         toDateInputValue(detail.licitacao.dataHomologacao),
+      dataStatus: "",
     }));
 
     setChecklistNaoAplicavelForm((current) => {
@@ -636,7 +644,7 @@ export function LicitacaoProcessoPage({
         utils.processos.overview.invalidate({ processoId }),
       ]);
       setErrorMessage(null);
-      setFeedback("Configuração interna da Licitação salva com sucesso.");
+      setFeedback("Configuracao interna da Licitacao salva com sucesso.");
     },
     onError: (error) => {
       setFeedback(null);
@@ -682,7 +690,7 @@ export function LicitacaoProcessoPage({
   const saveLicitanteMutation = trpc.licitacao.saveLicitante.useMutation({
     onSuccess: async () => {
       await refreshAll();
-      setFeedback("Licitante vinculado à Licitação com sucesso.");
+      setFeedback("Licitante vinculado a Licitacao com sucesso.");
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -735,7 +743,7 @@ export function LicitacaoProcessoPage({
   const saveHabilitacaoMutation = trpc.licitacao.saveHabilitacao.useMutation({
     onSuccess: async () => {
       await refreshAll();
-      setFeedback("Situação de habilitação atualizada.");
+      setFeedback("Situacao de habilitacao atualizada.");
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -761,7 +769,7 @@ export function LicitacaoProcessoPage({
   const advanceStageMutation = trpc.licitacao.advanceStage.useMutation({
     onSuccess: async () => {
       await refreshAll();
-      setFeedback("Etapa da Licitação atualizada.");
+      setFeedback("Etapa da Licitacao atualizada.");
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -772,7 +780,7 @@ export function LicitacaoProcessoPage({
   const homologarMutation = trpc.licitacao.homologar.useMutation({
     onSuccess: async () => {
       await refreshAll();
-      setFeedback("Licitação homologada com sucesso.");
+      setFeedback("Licitacao homologada com sucesso.");
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -977,7 +985,7 @@ export function LicitacaoProcessoPage({
         statusOrigem: concluidoPorDocumento
           ? "Documento anexado"
           : concluidoPorSistema
-            ? "Evidência sistêmica"
+            ? "Evidencia sistemica"
             : "Pendente",
       };
     });
@@ -999,7 +1007,7 @@ export function LicitacaoProcessoPage({
     const map = new Map<number, string>();
     auditoriaItems.forEach((item) => {
       if (!item.usuarioId) return;
-      map.set(item.usuarioId, item.usuarioNome ?? `Usuário #${item.usuarioId}`);
+      map.set(item.usuarioId, item.usuarioNome ?? `Usuario #${item.usuarioId}`);
     });
     return Array.from(map, ([id, nome]) => ({ id, nome })).sort((a, b) =>
       a.nome.localeCompare(b.nome),
@@ -1049,6 +1057,49 @@ export function LicitacaoProcessoPage({
     manualScheduleForm.dataAberturaPropostas &&
     new Date(manualScheduleForm.dataAberturaPropostas).getTime() <
       legalScheduleWindow.dataMinimaLegal.getTime(),
+  );
+  const selectedPublishStatusId = publishForm.statusId
+    ? Number(publishForm.statusId)
+    : null;
+  const selectedPublishStatus = useMemo(
+    () =>
+      selectedPublishStatusId
+        ? (catalogsQuery.data?.statusProcesso.find(
+            (item) => item.id === selectedPublishStatusId,
+          ) ?? null)
+        : null,
+    [catalogsQuery.data?.statusProcesso, selectedPublishStatusId],
+  );
+  const selectedPublishCriticalStatusKind = useMemo(
+    () => getCriticalStatusKind(selectedPublishStatus),
+    [selectedPublishStatus],
+  );
+  const publishCriticalStatusDateRequired = Boolean(
+    selectedPublishStatus &&
+      selectedPublishCriticalStatusKind &&
+      selectedPublishStatus.id !== detalhe?.processo.statusId,
+  );
+  const selectedHomologStatusId = homologacaoForm.statusId
+    ? Number(homologacaoForm.statusId)
+    : null;
+  const selectedHomologStatus = useMemo(
+    () =>
+      selectedHomologStatusId
+        ? (catalogsQuery.data?.statusProcesso.find(
+            (item) => item.id === selectedHomologStatusId,
+          ) ?? null)
+        : null,
+    [catalogsQuery.data?.statusProcesso, selectedHomologStatusId],
+  );
+  const selectedHomologCriticalStatusKind = useMemo(
+    () => getCriticalStatusKind(selectedHomologStatus),
+    [selectedHomologStatus],
+  );
+  const homologCriticalStatusDateRequired = Boolean(
+    selectedHomologStatus &&
+      selectedHomologCriticalStatusKind &&
+      selectedHomologCriticalStatusKind !== "HOMOLOGACAO" &&
+      selectedHomologStatus.id !== detalhe?.processo.statusId,
   );
 
   useEffect(() => {
@@ -1137,7 +1188,7 @@ export function LicitacaoProcessoPage({
       !state.departamentoResponsavel.trim()
     ) {
       setFeedback(null);
-      setErrorMessage("Informe o departamento responsável pelo documento.");
+      setErrorMessage("Informe o departamento responsavel pelo documento.");
       return;
     }
     if (
@@ -1145,7 +1196,7 @@ export function LicitacaoProcessoPage({
       !state.localArquivamento.trim()
     ) {
       setFeedback(null);
-      setErrorMessage("Informe o local de arquivamento do processo físico.");
+      setErrorMessage("Informe o local de arquivamento do processo fisico.");
       return;
     }
 
@@ -1302,17 +1353,17 @@ export function LicitacaoProcessoPage({
       !configForm.inversaoFasesJustificativa.trim()
     ) {
       setFeedback(null);
-      setErrorMessage("Informe a justificativa para a inversão de fases.");
+      setErrorMessage("Informe a justificativa para a inversao de fases.");
       return;
     }
-    if (!ensureAuditJustification("salvar a configuração interna")) return;
+    if (!ensureAuditJustification("salvar a configuracao interna")) return;
     if (
       manualScheduleViolatesLegalMinimum &&
       !legalDateOverrideJustification.trim()
     ) {
       setFeedback(null);
       setErrorMessage(
-        "Informe a justificativa do prazo extemporâneo para salvar o cronograma manual abaixo do mínimo legal.",
+        "Informe a justificativa do prazo extemporaneo para salvar o cronograma manual abaixo do minimo legal.",
       );
       return;
     }
@@ -1326,6 +1377,13 @@ export function LicitacaoProcessoPage({
       setErrorMessage("Selecione o condutor do processo antes de publicar.");
       return;
     }
+    if (publishCriticalStatusDateRequired && !publishForm.dataStatus) {
+      setFeedback(null);
+      setErrorMessage(
+        `Informe a data do status critico (${getCriticalStatusKindLabel(selectedPublishCriticalStatusKind!)}).`,
+      );
+      return;
+    }
     if (!ensureAuditJustification("publicar o processo")) return;
     if (
       isForaDoFluxo &&
@@ -1335,7 +1393,7 @@ export function LicitacaoProcessoPage({
     ) {
       setFeedback(null);
       setErrorMessage(
-        "Informe as datas manuais de publicação, recebimento final e abertura para publicar o processo fora do fluxo.",
+        "Informe as datas manuais de publicacao, recebimento final e abertura para publicar o processo fora do fluxo.",
       );
       return;
     }
@@ -1345,7 +1403,7 @@ export function LicitacaoProcessoPage({
     ) {
       setFeedback(null);
       setErrorMessage(
-        "Informe a justificativa do prazo extemporâneo antes de publicar com data inferior ao mínimo legal.",
+        "Informe a justificativa do prazo extemporaneo antes de publicar com data inferior ao minimo legal.",
       );
       return;
     }
@@ -1360,6 +1418,7 @@ export function LicitacaoProcessoPage({
       processoId,
       condutorProcessoId: Number(publishForm.condutorProcessoId),
       statusId: publishForm.statusId ? Number(publishForm.statusId) : undefined,
+      dataStatus: publishForm.dataStatus || undefined,
       justificativaAuditoria: isForaDoFluxo
         ? legalOverrideAudit || undefined
         : undefined,
@@ -1384,7 +1443,7 @@ export function LicitacaoProcessoPage({
         [
           publishForm.observacao,
           manualScheduleViolatesLegalMinimum
-            ? `Prazo extemporâneo: ${legalDateOverrideJustification.trim()}`
+            ? `Prazo extemporaneo: ${legalDateOverrideJustification.trim()}`
             : null,
         ]
           .filter(Boolean)
@@ -1412,7 +1471,7 @@ export function LicitacaoProcessoPage({
       !propostaForm.valorUnitarioProposto
     ) {
       setFeedback(null);
-      setErrorMessage("Informe licitante, item e valor unitário da proposta.");
+      setErrorMessage("Informe licitante, item e valor unitario da proposta.");
       return;
     }
     const valorUnitarioProposto = normalizeCurrencyInputBR(
@@ -1420,7 +1479,7 @@ export function LicitacaoProcessoPage({
     );
     if (valorUnitarioProposto === undefined) {
       setFeedback(null);
-      setErrorMessage("Informe um valor unitário válido para a proposta.");
+      setErrorMessage("Informe um valor unitario valido para a proposta.");
       return;
     }
     await savePropostaMutation.mutateAsync({
@@ -1450,7 +1509,7 @@ export function LicitacaoProcessoPage({
     const valorLance = normalizeCurrencyInputBR(lanceForm.valorLance);
     if (valorLance === undefined) {
       setFeedback(null);
-      setErrorMessage("Informe um valor de lance válido.");
+      setErrorMessage("Informe um valor de lance valido.");
       return;
     }
     await saveLanceMutation.mutateAsync({
@@ -1465,7 +1524,7 @@ export function LicitacaoProcessoPage({
     event.preventDefault();
     if (!habilitacaoForm.licitanteId) {
       setFeedback(null);
-      setErrorMessage("Selecione o licitante para atualizar a habilitação.");
+      setErrorMessage("Selecione o licitante para atualizar a habilitacao.");
       return;
     }
     await saveHabilitacaoMutation.mutateAsync({
@@ -1512,7 +1571,7 @@ export function LicitacaoProcessoPage({
     etapaAtual: string,
     observacao: string,
   ) {
-    if (!ensureAuditJustification("alterar a etapa da licitação")) return;
+    if (!ensureAuditJustification("alterar a etapa da licitacao")) return;
     await advanceStageMutation.mutateAsync({
       processoId,
       statusLicitacao,
@@ -1526,10 +1585,25 @@ export function LicitacaoProcessoPage({
 
   async function handleHomologar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!homologacaoForm.dataHomologacao) {
+      setFeedback(null);
+      setErrorMessage(
+        "Informe a data de homologacao antes de concluir a homologacao.",
+      );
+      return;
+    }
+    if (homologCriticalStatusDateRequired && !homologacaoForm.dataStatus) {
+      setFeedback(null);
+      setErrorMessage(
+        `Informe a data do status critico (${getCriticalStatusKindLabel(selectedHomologCriticalStatusKind!)}).`,
+      );
+      return;
+    }
     if (!ensureAuditJustification("homologar o processo")) return;
     await homologarMutation.mutateAsync({
       processoId,
       dataHomologacao: homologacaoForm.dataHomologacao || undefined,
+      dataStatus: homologacaoForm.dataStatus || undefined,
       observacao: homologacaoForm.observacao || undefined,
       statusId: homologacaoForm.statusId
         ? Number(homologacaoForm.statusId)
@@ -1542,11 +1616,11 @@ export function LicitacaoProcessoPage({
 
   const navItems = (() => {
     const items = [
-      { key: "overview", label: "Visão geral", ref: overviewRef },
+      { key: "overview", label: "Visao geral", ref: overviewRef },
       { key: "internal", label: "Fase interna", ref: internalRef },
       { key: "external", label: "Fase externa", ref: externalRef },
       { key: "docs", label: "Documentos do processo", ref: docsRef },
-      { key: "publication", label: "Publicação", ref: publicationRef },
+      { key: "publication", label: "Publicacao", ref: publicationRef },
       ...(showCompetitivoSteps
         ? [{ key: "licitantes", label: "Licitantes", ref: licitantesRef }]
         : []),
@@ -1559,15 +1633,15 @@ export function LicitacaoProcessoPage({
       ...(showCompetitivoSteps
         ? [{ key: "julgamento", label: "Julgamento", ref: julgamentoRef }]
         : []),
-      { key: "habilitacao", label: "Habilitação", ref: habilitacaoRef },
+      { key: "habilitacao", label: "Habilitacao", ref: habilitacaoRef },
       ...(showRecursos
         ? [{ key: "recursos", label: "Recursos", ref: recursosRef }]
         : []),
-      { key: "homologacao", label: "Homologação", ref: homologacaoRef },
+      { key: "homologacao", label: "Homologacao", ref: homologacaoRef },
       ...(isForaDoFluxo
         ? [{ key: "auditoria", label: "Auditoria", ref: auditoriaRef }]
         : []),
-      { key: "history", label: "Movimentações", ref: historyRef },
+      { key: "history", label: "Movimentacoes", ref: historyRef },
     ];
 
     if (inversaoFasesAtiva) {
@@ -1624,12 +1698,12 @@ export function LicitacaoProcessoPage({
   };
   const currentSubphaseLabel =
     currentSubphase === "FASE_INTERNA"
-      ? "Licitação > Fase interna"
+      ? "Licitacao > Fase interna"
       : currentSubphase === "FASE_EXTERNA"
-        ? "Licitação > Fase externa"
-        : "Licitação > Cronograma";
+        ? "Licitacao > Fase externa"
+        : "Licitacao > Cronograma";
   const responsavelAtual =
-    detalhe?.processo.condutorProcesso?.nome ?? "Responsável em definição";
+    detalhe?.processo.condutorProcesso?.nome ?? "Responsavel em definicao";
   const nextTransitionTitle =
     currentSubphase === "FASE_INTERNA"
       ? "Transicao: Fase interna -> Fase externa"
@@ -1679,8 +1753,8 @@ export function LicitacaoProcessoPage({
   const habilitacaoSection = (
     <section ref={habilitacaoRef}>
       <CollapsibleSectionCard
-        title="Habilitação"
-        description="Registro da situação documental do licitante classificado e observações da comissão."
+        title="Habilitacao"
+        description="Registro da situacao documental do licitante classificado e observacoes da comissao."
         open={sectionOpen.habilitacao}
         onToggle={(nextOpen) =>
           setSectionOpen((current) => ({ ...current, habilitacao: nextOpen }))
@@ -1693,8 +1767,8 @@ export function LicitacaoProcessoPage({
             onClick={() =>
               void handleAdvanceStage(
                 "HABILITACAO",
-                "Licitação / habilitação",
-                "Verificação documental do licitante classificado.",
+                "Licitacao / habilitacao",
+                "Verificacao documental do licitante classificado.",
               )
             }
             disabled={advanceStageMutation.isPending}
@@ -1705,7 +1779,7 @@ export function LicitacaoProcessoPage({
         collapsedSummary={
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-              {detalhe?.licitantes.length ?? 0} licitante(s) para conferência
+              {detalhe?.licitantes.length ?? 0} licitante(s) para conferencia
             </span>
           </div>
         }
@@ -1732,7 +1806,7 @@ export function LicitacaoProcessoPage({
               ))}
             </Select>
           </FormField>
-          <FormField label="Status da habilitação">
+          <FormField label="Status da habilitacao">
             <Select
               value={habilitacaoForm.statusHabilitacao}
               onChange={(event) =>
@@ -1749,7 +1823,7 @@ export function LicitacaoProcessoPage({
               ))}
             </Select>
           </FormField>
-          <FormField label="Observação" className="2xl:col-span-2">
+          <FormField label="Observacao" className="2xl:col-span-2">
             <Textarea
               rows={3}
               value={habilitacaoForm.observacaoHabilitacao}
@@ -1765,7 +1839,7 @@ export function LicitacaoProcessoPage({
             <Button type="submit" disabled={saveHabilitacaoMutation.isPending}>
               {saveHabilitacaoMutation.isPending
                 ? "Salvando..."
-                : "Salvar habilitação"}
+                : "Salvar habilitacao"}
             </Button>
           </div>
         </form>
@@ -1776,7 +1850,7 @@ export function LicitacaoProcessoPage({
               <tr>
                 <TableHeaderCell>Licitante</TableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Observação</TableHeaderCell>
+                <TableHeaderCell>Observacao</TableHeaderCell>
               </tr>
             </TableHead>
             <TableBody>
@@ -1798,7 +1872,7 @@ export function LicitacaoProcessoPage({
                     colSpan={3}
                     className="text-[var(--color-neutral-500)]"
                   >
-                    Nenhum licitante cadastrado para habilitação.
+                    Nenhum licitante cadastrado para habilitacao.
                   </TableCell>
                 </TableRow>
               )}
@@ -1822,7 +1896,7 @@ export function LicitacaoProcessoPage({
   if (detailQuery.error || !detalhe) {
     return (
       <Alert variant="error">
-        Não foi possível carregar a etapa da Licitação para este processo.
+        Nao foi possivel carregar a etapa da Licitacao para este processo.
       </Alert>
     );
   }
@@ -1831,16 +1905,24 @@ export function LicitacaoProcessoPage({
     <div className="space-y-6">
       <Breadcrumb
         items={[
-          { label: "Licitação", href: "/licitacao" },
+          { label: "Licitacao", href: "/licitacao" },
           { label: detalhe.processo.numeroSirel },
         ]}
       />
 
       <SectionCard
-        title={`Licitação do processo ${detalhe.processo.numeroSirel}`}
-        description="Tela operacional da fase licitatória com checklist documental interno, acervo completo do processo e cronograma automático de publicação."
+        title={`Licitacao do processo ${detalhe.processo.numeroSirel}`}
+        description="Tela operacional da fase licitatoria com checklist documental interno, acervo completo do processo e cronograma automatico de publicacao."
         action={
           <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLocation(`/dossie/${processoId}`)}
+            >
+              <FileCheck2 className="h-4 w-4" />
+              Dossiê do processo
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -1855,7 +1937,7 @@ export function LicitacaoProcessoPage({
               onClick={() => setLocation("/licitacao")}
             >
               <ArrowLeft className="h-4 w-4" />
-              Voltar à fila
+              Voltar a fila
             </Button>
           </div>
         }
@@ -1866,22 +1948,22 @@ export function LicitacaoProcessoPage({
               Processo fora do fluxo
             </div>
             <div className="mt-2 text-sm text-amber-900">
-              Auditoria reforçada ativa. Alterações críticas exigem
+              Auditoria reforcada ativa. Alteracoes criticas exigem
               justificativa e ficam registradas campo a campo.
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-              <FormField label="Justificativa de auditoria (obrigatória)">
+              <FormField label="Justificativa de auditoria (obrigatoria)">
                 <Textarea
                   rows={3}
                   value={auditJustification}
                   onChange={(event) =>
                     setAuditJustification(event.target.value)
                   }
-                  placeholder="Explique o motivo das alterações extemporâneas."
+                  placeholder="Explique o motivo das alteracoes extemporaneas."
                 />
               </FormField>
               <div className="flex items-end text-xs text-amber-700">
-                Use esta justificativa para as próximas ações críticas.
+                Use esta justificativa para as proximas acoes criticas.
               </div>
             </div>
           </div>
@@ -1897,7 +1979,7 @@ export function LicitacaoProcessoPage({
                   </span>
                   {isForaDoFluxo ? (
                     <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
-                      Modo extemporâneo
+                      Modo extemporaneo
                     </span>
                   ) : null}
                 </div>
@@ -1910,7 +1992,7 @@ export function LicitacaoProcessoPage({
                       {detalhe.processo.numeroSirel}
                     </div>
                     <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      {detalhe.processo.modalidade ?? "Modalidade em definição"}
+                      {detalhe.processo.modalidade ?? "Modalidade em definicao"}
                     </div>
                   </div>
                   <div>
@@ -1930,7 +2012,7 @@ export function LicitacaoProcessoPage({
                 </div>
                 <div>
                   <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                    Responsável
+                    Responsavel
                   </div>
                   <div className="mt-1 text-sm font-semibold text-[var(--color-primary-900)]">
                     {responsavelAtual}
@@ -2050,8 +2132,8 @@ export function LicitacaoProcessoPage({
                         {status === "current"
                           ? "Atual"
                           : status === "done"
-                            ? "Concluída"
-                            : "Próxima"}
+                            ? "Concluida"
+                            : "Proxima"}
                       </span>
                     </div>
                     <p className="mt-2 text-sm leading-6 opacity-80">
@@ -2117,7 +2199,7 @@ export function LicitacaoProcessoPage({
                 Modalidade
               </div>
               <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {detalhe.processo.modalidade ?? "Não definida"}
+                {detalhe.processo.modalidade ?? "Nao definida"}
               </div>
             </div>
             <div>
@@ -2137,15 +2219,15 @@ export function LicitacaoProcessoPage({
                   ? showLances
                     ? "Com disputa"
                     : "Sem disputa"
-                  : "Não se aplica"}
+                  : "Nao se aplica"}
               </div>
             </div>
             <div>
               <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Inversão de fases
+                Inversao de fases
               </div>
               <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {inversaoFasesAtiva ? "Ativada" : "Não"}
+                {inversaoFasesAtiva ? "Ativada" : "Nao"}
               </div>
             </div>
           </div>
@@ -2167,7 +2249,7 @@ export function LicitacaoProcessoPage({
             <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.74))] p-4 shadow-[0_12px_24px_-22px_rgba(15,26,109,0.2)]">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                  Navegação
+                  Navegacao
                 </p>
                 <Button
                   type="button"
@@ -2226,7 +2308,7 @@ export function LicitacaoProcessoPage({
               <div className="mt-3 grid gap-2 text-sm text-[var(--color-neutral-600)] sm:grid-cols-3 xl:grid-cols-1">
                 <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
                   <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                    Status da Licitação
+                    Status da Licitacao
                   </div>
                   <div className="mt-1 font-bold text-[var(--color-primary-900)]">
                     {detalhe.licitacao.statusLicitacao}
@@ -2237,7 +2319,7 @@ export function LicitacaoProcessoPage({
                     Checklist interno
                   </div>
                   <div className="mt-1 font-bold text-[var(--color-primary-900)]">
-                    {progressCount}/{checklistItems.length} concluídos
+                    {progressCount}/{checklistItems.length} concluidos
                   </div>
                 </div>
                 <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
@@ -2259,8 +2341,8 @@ export function LicitacaoProcessoPage({
             ) : null}
             <section ref={overviewRef}>
               <CollapsibleSectionCard
-                title="Visão geral da Licitação"
-                description="Resumo do processo, da fase atual e das próximas etapas da Lei nº 14.133/2021."
+                title="Visao geral da Licitacao"
+                description="Resumo do processo, da fase atual e das proximas etapas da Lei no 14.133/2021."
                 open={sectionOpen.overview}
                 onToggle={(nextOpen) =>
                   setSectionOpen((current) => ({
@@ -2276,7 +2358,7 @@ export function LicitacaoProcessoPage({
                         {detalhe.processo.numeroSirel}
                       </span>
                       <div className="text-[var(--color-neutral-500)]">
-                        {detalhe.processo.modalidade ?? "Licitação"}
+                        {detalhe.processo.modalidade ?? "Licitacao"}
                       </div>
                     </div>
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
@@ -2300,7 +2382,7 @@ export function LicitacaoProcessoPage({
                         {formatShortDateBR(detalhe.processo.dataEntradaLicitacao)}
                       </span>
                       <div className="text-[var(--color-neutral-500)]">
-                        Entrada na licitação
+                        Entrada na licitacao
                       </div>
                     </div>
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
@@ -2331,26 +2413,26 @@ export function LicitacaoProcessoPage({
                       Modalidade
                     </p>
                     <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.processo.modalidade ?? "Não definida"}
+                      {detalhe.processo.modalidade ?? "Nao definida"}
                     </p>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
                       {detalhe.processo.numeroEdital ??
-                        "Edital ainda não gerado"}
+                        "Edital ainda nao gerado"}
                     </p>
                   </article>
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Critério / modo
+                      Criterio / modo
                     </p>
                     <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.processo.criterioJulgamento ?? "Não informado"}
+                      {detalhe.processo.criterioJulgamento ?? "Nao informado"}
                     </p>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
                       {modoDisputaLabels[
                         (detalhe.processo
                           .modoDisputa as keyof typeof modoDisputaLabels) ??
                           "NAO_SE_APLICA"
-                      ] ?? "Não se aplica"}
+                      ] ?? "Nao se aplica"}
                     </p>
                   </article>
                   <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
@@ -2363,7 +2445,7 @@ export function LicitacaoProcessoPage({
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
                       Condutor:{" "}
                       {detalhe.processo.condutorProcesso?.nome ??
-                        "Definido na publicação"}
+                        "Definido na publicacao"}
                     </p>
                   </article>
                 </div>
@@ -2462,8 +2544,8 @@ export function LicitacaoProcessoPage({
                 title="Fase interna documental"
                 description={
                   isForaDoFluxo
-                    ? "Checklist orientativo com auditoria reforçada para processos fora do fluxo."
-                    : "Todos os documentos obrigatórios antes da publicidade. O processo só pode ser publicado quando o checklist estiver completo."
+                    ? "Checklist orientativo com auditoria reforcada para processos fora do fluxo."
+                    : "Todos os documentos obrigatorios antes da publicidade. O processo so pode ser publicado quando o checklist estiver completo."
                 }
                 open={sectionOpen.internal}
                 onToggle={(nextOpen) =>
@@ -2475,7 +2557,7 @@ export function LicitacaoProcessoPage({
                 action={
                   <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
                     <ShieldCheck className="h-4 w-4" />
-                    {progressCount}/{checklistItems.length} concluídos
+                    {progressCount}/{checklistItems.length} concluidos
                   </div>
                 }
                 collapsedSummary={
@@ -2487,17 +2569,17 @@ export function LicitacaoProcessoPage({
                       Pendentes: {pendingRequired.length}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      DOU: {configForm.publicarNoDou ? "Sim" : "Não"}
+                      DOU: {configForm.publicarNoDou ? "Sim" : "Nao"}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Jornal: {configForm.publicarEmJornal ? "Sim" : "Não"}
+                      Jornal: {configForm.publicarEmJornal ? "Sim" : "Nao"}
                     </span>
                   </div>
                 }
               >
                 <form className="space-y-5" onSubmit={handleSalvarConfiguracao}>
                   <div className="grid gap-3 lg:grid-cols-2">
-                    <FormField label="Critério de julgamento">
+                    <FormField label="Criterio de julgamento">
                       <Input
                         value={configForm.criterioJulgamento}
                         onChange={(event) =>
@@ -2506,7 +2588,7 @@ export function LicitacaoProcessoPage({
                             criterioJulgamento: event.target.value,
                           }))
                         }
-                        placeholder="Ex.: Menor preço por lote"
+                        placeholder="Ex.: Menor preco por lote"
                       />
                     </FormField>
                     <FormField label="Modo de disputa">
@@ -2542,7 +2624,7 @@ export function LicitacaoProcessoPage({
                           }))
                         }
                       />
-                      Exigir declaração de não fracionamento
+                      Exigir declaracao de nao fracionamento
                     </label>
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
@@ -2554,7 +2636,7 @@ export function LicitacaoProcessoPage({
                           }))
                         }
                       />
-                      Publicar também no DOU
+                      Publicar tambem no DOU
                     </label>
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
@@ -2566,14 +2648,14 @@ export function LicitacaoProcessoPage({
                           }))
                         }
                       />
-                      Publicar também em jornal
+                      Publicar tambem em jornal
                     </label>
                   </div>
 
                   {showCompetitivoSteps ? (
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                       <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                        Configuração de fluxo
+                        Configuracao de fluxo
                       </div>
                       <label className="mt-3 inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                         <Checkbox
@@ -2585,11 +2667,11 @@ export function LicitacaoProcessoPage({
                             }))
                           }
                         />
-                        Inverter ordem das fases (habilitação antes da disputa)
+                        Inverter ordem das fases (habilitacao antes da disputa)
                       </label>
                       {configForm.inversaoFasesHabilitada ? (
                         <FormField
-                          label="Justificativa da inversão"
+                          label="Justificativa da inversao"
                           className="mt-3"
                         >
                           <Textarea
@@ -2601,19 +2683,19 @@ export function LicitacaoProcessoPage({
                                 inversaoFasesJustificativa: event.target.value,
                               }))
                             }
-                            placeholder="Explique o motivo e o impacto esperado da inversão."
+                            placeholder="Explique o motivo e o impacto esperado da inversao."
                           />
                         </FormField>
                       ) : null}
                       <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                        Ao ativar a inversão, o sistema reordena a navegação
-                        para iniciar a habilitação antes das fases competitivas.
+                        Ao ativar a inversao, o sistema reordena a navegacao
+                        para iniciar a habilitacao antes das fases competitivas.
                       </div>
                     </div>
                   ) : null}
 
                   <div className="grid gap-3">
-                    <FormField label="Observações internas">
+                    <FormField label="Observacoes internas">
                       <Textarea
                         rows={3}
                         value={configForm.observacoes}
@@ -2638,7 +2720,7 @@ export function LicitacaoProcessoPage({
                     >
                       {saveConfiguracaoMutation.isPending
                         ? "Salvando..."
-                        : "Salvar configuração interna"}
+                        : "Salvar configuracao interna"}
                     </Button>
                   </div>
                 </form>
@@ -2653,13 +2735,13 @@ export function LicitacaoProcessoPage({
                     }
                   >
                     {isForaDoFluxo
-                      ? `Há documentos pendentes nesta fase, mas o processo fora do fluxo pode seguir com justificativa registrada. Pendências: ${pendingRequired.map((item) => item.label).join(", ")}.`
-                      : `Ainda faltam documentos obrigatórios antes da publicação: ${pendingRequired.map((item) => item.label).join(", ")}.`}
+                      ? `Ha documentos pendentes nesta fase, mas o processo fora do fluxo pode seguir com justificativa registrada. Pendencias: ${pendingRequired.map((item) => item.label).join(", ")}.`
+                      : `Ainda faltam documentos obrigatorios antes da publicacao: ${pendingRequired.map((item) => item.label).join(", ")}.`}
                   </Alert>
                 ) : (
                   <Alert variant="success">
-                    Checklist interno concluído. O processo está apto para
-                    seguir ao cronograma de publicação.
+                    Checklist interno concluido. O processo esta apto para
+                    seguir ao cronograma de publicacao.
                   </Alert>
                 )}
 
@@ -2824,7 +2906,7 @@ export function LicitacaoProcessoPage({
                               {naoAplicavelState.statusFlexivel ===
                               "OUTRO_SETOR" ? (
                                 <div className="grid gap-3 md:grid-cols-2">
-                                  <FormField label="Departamento responsável">
+                                  <FormField label="Departamento responsavel">
                                     <Input
                                       value={
                                         naoAplicavelState.departamentoResponsavel
@@ -2839,10 +2921,10 @@ export function LicitacaoProcessoPage({
                                           }),
                                         )
                                       }
-                                      placeholder="Ex.: Orçamento, PGM, Controladoria"
+                                      placeholder="Ex.: Orcamento, PGM, Controladoria"
                                     />
                                   </FormField>
-                                  <FormField label="Previsão de recebimento">
+                                  <FormField label="Previsao de recebimento">
                                     <Input
                                       type="date"
                                       value={
@@ -2866,7 +2948,7 @@ export function LicitacaoProcessoPage({
                               {naoAplicavelState.statusFlexivel ===
                               "CONCLUIDO_FISICO" ? (
                                 <div className="grid gap-3 md:grid-cols-2">
-                                  <FormField label="Número do processo físico">
+                                  <FormField label="Numero do processo fisico">
                                     <Input
                                       value={
                                         naoAplicavelState.processoFisicoNumero
@@ -2881,7 +2963,7 @@ export function LicitacaoProcessoPage({
                                           }),
                                         )
                                       }
-                                      placeholder="Ex.: 0045/2026-FÍSICO"
+                                      placeholder="Ex.: 0045/2026-FISICO"
                                     />
                                   </FormField>
                                   <FormField label="Local de arquivamento">
@@ -2899,7 +2981,7 @@ export function LicitacaoProcessoPage({
                                           }),
                                         )
                                       }
-                                      placeholder="Informe o setor, armário ou caixa"
+                                      placeholder="Informe o setor, armario ou caixa"
                                     />
                                   </FormField>
                                   <div className="md:col-span-2">
@@ -2920,7 +3002,7 @@ export function LicitacaoProcessoPage({
                                         }
                                       />
                                       <span className="text-sm font-semibold text-[var(--color-neutral-800)]">
-                                        Documento físico ainda será digitalizado
+                                        Documento fisico ainda sera digitalizado
                                         depois
                                       </span>
                                     </div>
@@ -2933,7 +3015,7 @@ export function LicitacaoProcessoPage({
                                   label={
                                     naoAplicavelState.statusFlexivel ===
                                     "NAO_APLICAVEL"
-                                      ? "Justificativa (obrigatória)"
+                                      ? "Justificativa (obrigatoria)"
                                       : "Contexto operacional e justificativa"
                                   }
                                 >
@@ -2952,11 +3034,11 @@ export function LicitacaoProcessoPage({
                                     placeholder={
                                       naoAplicavelState.statusFlexivel ===
                                       "NAO_APLICAVEL"
-                                        ? "Explique por que este item não se aplica ao processo."
+                                        ? "Explique por que este item nao se aplica ao processo."
                                         : naoAplicavelState.statusFlexivel ===
                                             "OUTRO_SETOR"
-                                          ? "Informe o setor que está com o documento e a previsão de retorno."
-                                          : "Descreva a referência do processo físico e qualquer pendência de digitalização."
+                                          ? "Informe o setor que esta com o documento e a previsao de retorno."
+                                          : "Descreva a referencia do processo fisico e qualquer pendencia de digitalizacao."
                                     }
                                   />
                                 </FormField>
@@ -2973,16 +3055,16 @@ export function LicitacaoProcessoPage({
                                   ]
                                 }
                                 {item.departamentoResponsavel
-                                  ? ` • setor: ${item.departamentoResponsavel}`
+                                  ? ` | setor: ${item.departamentoResponsavel}`
                                   : ""}
                                 {item.previsaoRecebimento
-                                  ? ` • previsão: ${formatShortDateBR(item.previsaoRecebimento)}`
+                                  ? ` | previsao: ${formatShortDateBR(item.previsaoRecebimento)}`
                                   : ""}
                                 {item.localArquivamento
-                                  ? ` • arquivo físico: ${item.localArquivamento}`
+                                  ? ` | arquivo fisico: ${item.localArquivamento}`
                                   : ""}
                                 {item.digitalizarDepois
-                                  ? " • digitalização pendente"
+                                  ? " | digitalizacao pendente"
                                   : ""}
                                 <div className="mt-1">
                                   Justificativa:{" "}
@@ -3013,7 +3095,7 @@ export function LicitacaoProcessoPage({
                         ) : null}
 
                         <div className="mt-4 grid gap-3 2xl:grid-cols-2">
-                          <FormField label="Título">
+                          <FormField label="Titulo">
                             <Input
                               value={uploadState.titulo}
                               onChange={(event) =>
@@ -3025,7 +3107,7 @@ export function LicitacaoProcessoPage({
                               placeholder={item.label}
                             />
                           </FormField>
-                          <FormField label="Descrição">
+                          <FormField label="Descricao">
                             <Input
                               value={uploadState.descricao}
                               onChange={(event) =>
@@ -3072,7 +3154,7 @@ export function LicitacaoProcessoPage({
             <section ref={externalRef}>
               <CollapsibleSectionCard
                 title="Fase externa e rito operacional"
-                description="Checklist contextual da fase externa, com evidências documentais e leitura do andamento da sessão."
+                description="Checklist contextual da fase externa, com evidencias documentais e leitura do andamento da sessao."
                 open={sectionOpen.external}
                 onToggle={(nextOpen) =>
                   setSectionOpen((current) => ({
@@ -3087,7 +3169,7 @@ export function LicitacaoProcessoPage({
                       externalChecklistItems.filter((item) => item.concluido)
                         .length
                     }
-                    /{externalChecklistItems.length} concluídos
+                    /{externalChecklistItems.length} concluidos
                   </div>
                 }
                 collapsedSummary={
@@ -3104,7 +3186,7 @@ export function LicitacaoProcessoPage({
                       Pendentes: {externalPendingRequired.length}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Publicado: {detalhe.processo.publicado ? "Sim" : "Não"}
+                      Publicado: {detalhe.processo.publicado ? "Sim" : "Nao"}
                     </span>
                   </div>
                 }
@@ -3112,14 +3194,14 @@ export function LicitacaoProcessoPage({
                 <div className="grid gap-3 xl:grid-cols-4">
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                     <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Sessão oficial
+                      Sessao oficial
                     </div>
                     <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                       {detalhe.licitacao.dataAberturaPropostas
                         ? formatShortDateTimeBR(
                             detalhe.licitacao.dataAberturaPropostas,
                           )
-                        : "Ainda não definida"}
+                        : "Ainda nao definida"}
                     </div>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
                       Data da abertura e disputa vinculada ao processo.
@@ -3133,12 +3215,12 @@ export function LicitacaoProcessoPage({
                       {detalhe.propostas.length}
                     </div>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Registros operacionais já associados à fase externa.
+                      Registros operacionais ja associados a fase externa.
                     </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                     <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Habilitação
+                      Habilitacao
                     </div>
                     <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                       {
@@ -3149,7 +3231,7 @@ export function LicitacaoProcessoPage({
                       /{detalhe.licitantes.length}
                     </div>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Licitantes com análise documental já registrada.
+                      Licitantes com analise documental ja registrada.
                     </p>
                   </article>
                   <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
@@ -3162,14 +3244,14 @@ export function LicitacaoProcessoPage({
                         : "Em andamento"}
                     </div>
                     <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Ata, termo e envio à Controladoria para encerramento.
+                      Ata, termo e envio a Controladoria para encerramento.
                     </p>
                   </article>
                 </div>
 
                 {externalPendingRequired.length ? (
-                  <Alert variant="warning" title="Pendências da fase externa">
-                    Ainda faltam evidências obrigatórias para concluir a fase
+                  <Alert variant="warning" title="Pendencias da fase externa">
+                    Ainda faltam evidencias obrigatorias para concluir a fase
                     externa:{" "}
                     {externalPendingRequired
                       .map((item) => item.label)
@@ -3178,7 +3260,7 @@ export function LicitacaoProcessoPage({
                   </Alert>
                 ) : (
                   <Alert variant="success">
-                    A fase externa possui evidências suficientes para seguir
+                    A fase externa possui evidencias suficientes para seguir
                     para contrato e fechamento administrativo.
                   </Alert>
                 )}
@@ -3217,9 +3299,9 @@ export function LicitacaoProcessoPage({
                                 className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}
                               >
                                 {item.concluido
-                                  ? "Concluído"
+                                  ? "Concluido"
                                   : item.obrigatorio
-                                    ? "Obrigatório"
+                                    ? "Obrigatorio"
                                     : "Opcional"}
                               </span>
                             </div>
@@ -3244,7 +3326,7 @@ export function LicitacaoProcessoPage({
                                 {latestDocumento.titulo}
                               </div>
                               <div className="mt-1 text-[var(--color-neutral-600)]">
-                                Última evidência anexada em{" "}
+                                Ultima evidencia anexada em{" "}
                                 {formatShortDateTimeBR(
                                   latestDocumento.criadoEm,
                                 )}
@@ -3253,7 +3335,7 @@ export function LicitacaoProcessoPage({
                           ) : (
                             <div className="font-semibold text-[var(--color-neutral-700)]">
                               {item.statusOrigem ??
-                                "Sem evidência anexada até o momento."}
+                                "Sem evidencia anexada ate o momento."}
                             </div>
                           )}
                           {item.completionHint ? (
@@ -3264,7 +3346,7 @@ export function LicitacaoProcessoPage({
                         </div>
 
                         <div className="mt-4 grid gap-3 2xl:grid-cols-2">
-                          <FormField label="Título da evidência">
+                          <FormField label="Titulo da evidencia">
                             <Input
                               value={uploadState.titulo}
                               onChange={(event) =>
@@ -3276,7 +3358,7 @@ export function LicitacaoProcessoPage({
                               placeholder={item.label}
                             />
                           </FormField>
-                          <FormField label="Descrição">
+                          <FormField label="Descricao">
                             <Input
                               value={uploadState.descricao}
                               onChange={(event) =>
@@ -3285,7 +3367,7 @@ export function LicitacaoProcessoPage({
                                   descricao: event.target.value,
                                 }))
                               }
-                              placeholder="Ex.: exportação da plataforma, comprovante, ata assinada"
+                              placeholder="Ex.: exportacao da plataforma, comprovante, ata assinada"
                             />
                           </FormField>
                           <FormField label="Arquivo" className="2xl:col-span-2">
@@ -3319,7 +3401,7 @@ export function LicitacaoProcessoPage({
                                 variant="outline"
                                 disabled={!latestDocumento.arquivoUrl}
                               >
-                                Abrir evidência
+                                Abrir evidencia
                               </Button>
                             </a>
                           ) : null}
@@ -3330,7 +3412,7 @@ export function LicitacaoProcessoPage({
                             }
                           >
                             <Upload className="h-4 w-4" />
-                            Anexar evidência
+                            Anexar evidencia
                           </Button>
                         </div>
                       </article>
@@ -3365,7 +3447,7 @@ export function LicitacaoProcessoPage({
                     </span>
                     {documentos[0] ? (
                       <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        Último: {documentos[0].titulo}
+                        Ultimo: {documentos[0].titulo}
                       </span>
                     ) : null}
                   </div>
@@ -3373,7 +3455,7 @@ export function LicitacaoProcessoPage({
               >
                 {!documentos.length ? (
                   <Alert variant="info">
-                    Este processo ainda não possui documentos vinculados.
+                    Este processo ainda nao possui documentos vinculados.
                   </Alert>
                 ) : (
                   <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
@@ -3381,7 +3463,7 @@ export function LicitacaoProcessoPage({
                       <TableHead>
                         <tr>
                           <TableHeaderCell>#</TableHeaderCell>
-                          <TableHeaderCell>Título</TableHeaderCell>
+                          <TableHeaderCell>Titulo</TableHeaderCell>
                           <TableHeaderCell>Tipo</TableHeaderCell>
                           <TableHeaderCell>Categoria</TableHeaderCell>
                           <TableHeaderCell>Adicionado em</TableHeaderCell>
@@ -3399,7 +3481,7 @@ export function LicitacaoProcessoPage({
                                 {item.titulo}
                               </div>
                               <div className="text-xs text-[var(--color-neutral-500)]">
-                                Versão {item.versao}
+                                Versao {item.versao}
                               </div>
                             </TableCell>
                             <TableCell>{item.tipo}</TableCell>
@@ -3439,12 +3521,12 @@ export function LicitacaoProcessoPage({
                 title={
                   isForaDoFluxo
                     ? "Cronograma manual (processo fora do fluxo)"
-                    : "Publicação e cronograma automático"
+                    : "Publicacao e cronograma automatico"
                 }
                 description={
                   isForaDoFluxo
-                    ? "Edite manualmente todas as datas críticas e registre a justificativa no modo fora do fluxo."
-                    : "Depois de concluir a fase interna, o sistema calcula automaticamente o cronograma de publicação e prazos com o acréscimo municipal adotado em Teixeira de Freitas."
+                    ? "Edite manualmente todas as datas criticas e registre a justificativa no modo fora do fluxo."
+                    : "Depois de concluir a fase interna, o sistema calcula automaticamente o cronograma de publicacao e prazos com o acrescimo municipal adotado em Teixeira de Freitas."
                 }
                 open={sectionOpen.publication}
                 onToggle={(nextOpen) =>
@@ -3456,7 +3538,7 @@ export function LicitacaoProcessoPage({
                 action={
                   <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
                     <CalendarClock className="h-4 w-4" />
-                    {isForaDoFluxo ? "Modo manual" : "Contador automático"}
+                    {isForaDoFluxo ? "Modo manual" : "Contador automatico"}
                   </div>
                 }
                 collapsedSummary={
@@ -3473,7 +3555,7 @@ export function LicitacaoProcessoPage({
                             : "Sem data"}
                         </span>
                         <div className="text-amber-700">
-                          Publicação (manual)
+                          Publicacao (manual)
                         </div>
                       </div>
                       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
@@ -3524,7 +3606,7 @@ export function LicitacaoProcessoPage({
                           )}
                         </span>
                         <div className="text-[var(--color-neutral-500)]">
-                          Publicação
+                          Publicacao
                         </div>
                       </div>
                       <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
@@ -3560,8 +3642,8 @@ export function LicitacaoProcessoPage({
                     </div>
                   ) : (
                     <Alert variant="info">
-                      Informe a data de publicação e a hora da disputa para
-                      gerar o cronograma automático.
+                      Informe a data de publicacao e a hora da disputa para
+                      gerar o cronograma automatico.
                     </Alert>
                   )
                 }
@@ -3591,10 +3673,10 @@ export function LicitacaoProcessoPage({
                         ? manualScheduleForm.dataAberturaPropostas
                         : schedulePreview?.dataAberturaPropostas
                     }
-                    comparisonLabel="Sessão / disputa"
+                    comparisonLabel="Sessao / disputa"
                     justificationValue={legalDateOverrideJustification}
                     onJustificationChange={setLegalDateOverrideJustification}
-                    label="Data de publicação no PNCP"
+                    label="Data de publicacao no PNCP"
                   />
 
                   <div className="grid gap-3 xl:grid-cols-3 2xl:grid-cols-4">
@@ -3649,19 +3731,37 @@ export function LicitacaoProcessoPage({
                         ))}
                       </Select>
                     </FormField>
-                    <FormField label="Número do edital">
+                    <FormField label="Numero do edital">
                       <Input
                         value={
                           detalhe.processo.numeroEdital ??
-                          "Gerado automaticamente no ato da publicação"
+                          "Gerado automaticamente no ato da publicacao"
                         }
                         disabled
                       />
                     </FormField>
                   </div>
 
+                  {publishCriticalStatusDateRequired ? (
+                    <FormField
+                      label={`Data do status critico (${selectedPublishStatus!.nome ?? selectedPublishStatus!.codigo})`}
+                    >
+                      <Input
+                        type="date"
+                        value={publishForm.dataStatus}
+                        required={publishCriticalStatusDateRequired}
+                        onChange={(event) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            dataStatus: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                  ) : null}
+
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Link público da BLL">
+                    <FormField label="Link publico da BLL">
                       <div className="space-y-2">
                         <Input
                           type="url"
@@ -3682,12 +3782,12 @@ export function LicitacaoProcessoPage({
                             className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir página pública da BLL
+                            Abrir pagina publica da BLL
                           </a>
                         ) : null}
                       </div>
                     </FormField>
-                    <FormField label="Link público do PNCP">
+                    <FormField label="Link publico do PNCP">
                       <div className="space-y-2">
                         <Input
                           type="url"
@@ -3708,7 +3808,7 @@ export function LicitacaoProcessoPage({
                             className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir publicação do PNCP
+                            Abrir publicacao do PNCP
                           </a>
                         ) : null}
                       </div>
@@ -3716,7 +3816,7 @@ export function LicitacaoProcessoPage({
                   </div>
 
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Descrição da movimentação">
+                    <FormField label="Descricao da movimentacao">
                       <Input
                         value={publishForm.descricao}
                         onChange={(event) =>
@@ -3727,7 +3827,7 @@ export function LicitacaoProcessoPage({
                         }
                       />
                     </FormField>
-                    <FormField label="Observação operacional">
+                    <FormField label="Observacao operacional">
                       <Textarea
                         rows={3}
                         value={publishForm.observacao}
@@ -3743,9 +3843,9 @@ export function LicitacaoProcessoPage({
 
                   {inversaoFasesAtiva ? (
                     <Alert variant="info">
-                      Inversão de fases ativa: a habilitação é priorizada antes
+                      Inversao de fases ativa: a habilitacao e priorizada antes
                       das etapas competitivas. Ajuste o cronograma conforme
-                      necessário.
+                      necessario.
                     </Alert>
                   ) : null}
 
@@ -3796,7 +3896,7 @@ export function LicitacaoProcessoPage({
                             }
                           />
                         </FormField>
-                        <FormField label="Início dos lances">
+                        <FormField label="Inicio dos lances">
                           <Input
                             type="datetime-local"
                             value={manualScheduleForm.dataInicioLances}
@@ -3838,19 +3938,19 @@ export function LicitacaoProcessoPage({
                   {isForaDoFluxo ? (
                     <div className="space-y-3">
                       <Alert variant="warning">
-                        Cronograma manual ativo. As datas acima serão usadas
-                        para auditoria e publicação.
+                        Cronograma manual ativo. As datas acima serao usadas
+                        para auditoria e publicacao.
                       </Alert>
                       {manualScheduleViolatesLegalMinimum &&
                       legalScheduleWindow ? (
                         <Alert variant="warning">
-                          A sessão manual está anterior ao mínimo legal
+                          A sessao manual esta anterior ao minimo legal
                           calculado para{" "}
                           {formatShortDateBR(
                             legalScheduleWindow.dataMinimaLegal,
                           )}
-                          . O SIREL permitirá o registro extemporâneo, mas
-                          exigirá justificativa e manterá o rastreio reforçado.
+                          . O SIREL permitira o registro extemporaneo, mas
+                          exigira justificativa e mantera o rastreio reforcado.
                         </Alert>
                       ) : null}
                     </div>
@@ -3858,7 +3958,7 @@ export function LicitacaoProcessoPage({
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
                         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Publicação
+                          Publicacao
                         </p>
                         <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                           {formatShortDateBR(
@@ -3879,8 +3979,8 @@ export function LicitacaoProcessoPage({
                           )}
                         </p>
                         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          {schedulePreview.startOffset} dias úteis após a
-                          publicação
+                          {schedulePreview.startOffset} dias uteis apos a
+                          publicacao
                         </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
@@ -3898,7 +3998,7 @@ export function LicitacaoProcessoPage({
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
                         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Sessão / disputa
+                          Sessao / disputa
                         </p>
                         <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                           {formatShortDateTimeBR(
@@ -3906,12 +4006,12 @@ export function LicitacaoProcessoPage({
                           )}
                         </p>
                         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Horário definido para a disputa
+                          Horario definido para a disputa
                         </p>
                       </article>
                       <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
                         <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Acréscimos
+                          Acrescimos
                         </p>
                         <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
                           +{schedulePreview.municipioExtra}
@@ -3920,13 +4020,13 @@ export function LicitacaoProcessoPage({
                             : ""}
                         </p>
                         <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Município / canais extras (DOU ou jornal)
+                          Municipio / canais extras (DOU ou jornal)
                         </p>
                       </article>
                     </div>
                   ) : (
                     <Alert variant="info">
-                      Defina a data prevista de publicação e a hora da disputa
+                      Defina a data prevista de publicacao e a hora da disputa
                       para calcular automaticamente o cronograma.
                     </Alert>
                   )}
@@ -3955,7 +4055,7 @@ export function LicitacaoProcessoPage({
               <section ref={licitantesRef}>
                 <CollapsibleSectionCard
                   title="Licitantes"
-                  description="Controle dos participantes habilitados a apresentar propostas nesta licitação."
+                  description="Controle dos participantes habilitados a apresentar propostas nesta licitacao."
                   open={sectionOpen.licitantes}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -3970,7 +4070,7 @@ export function LicitacaoProcessoPage({
                       </span>
                       {detalhe.licitantes[0] ? (
                         <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Último: {detalhe.licitantes[0].razaoSocial}
+                          Ultimo: {detalhe.licitantes[0].razaoSocial}
                         </span>
                       ) : null}
                     </div>
@@ -4012,10 +4112,10 @@ export function LicitacaoProcessoPage({
                         <tr>
                           <TableHeaderCell>Licitante</TableHeaderCell>
                           <TableHeaderCell>CNPJ</TableHeaderCell>
-                          <TableHeaderCell>Habilitação</TableHeaderCell>
+                          <TableHeaderCell>Habilitacao</TableHeaderCell>
                           <TableHeaderCell>Cadastro</TableHeaderCell>
                           <TableHeaderCell className="text-right">
-                            Ações
+                            Acoes
                           </TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -4024,9 +4124,23 @@ export function LicitacaoProcessoPage({
                           detalhe.licitantes.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell>
-                                <div className="font-semibold text-[var(--color-primary-900)]">
-                                  {item.razaoSocial}
-                                </div>
+                                {item.fornecedorId ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[var(--accent-color)]"
+                                    onClick={() =>
+                                      setLocation(
+                                        `/dossie/fornecedor/${item.fornecedorId}`,
+                                      )
+                                    }
+                                  >
+                                    {item.razaoSocial}
+                                  </button>
+                                ) : (
+                                  <div className="font-semibold text-[var(--color-primary-900)]">
+                                    {item.razaoSocial}
+                                  </div>
+                                )}
                                 <div className="text-xs text-[var(--color-neutral-500)]">
                                   {item.ativo ? "Participando" : "Inativo"}
                                 </div>
@@ -4081,7 +4195,7 @@ export function LicitacaoProcessoPage({
               <section ref={propostasRef}>
                 <CollapsibleSectionCard
                   title="Propostas"
-                  description="Recebimento, classificação inicial e situação das propostas por item e por licitante."
+                  description="Recebimento, classificacao inicial e situacao das propostas por item e por licitante."
                   open={sectionOpen.propostas}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -4097,7 +4211,7 @@ export function LicitacaoProcessoPage({
                       onClick={() =>
                         void handleAdvanceStage(
                           "RECEBIMENTO_PROPOSTAS",
-                          "Licitação / recebimento de propostas",
+                          "Licitacao / recebimento de propostas",
                           "Recebimento de propostas em andamento.",
                         )
                       }
@@ -4113,7 +4227,7 @@ export function LicitacaoProcessoPage({
                       </span>
                       {detalhe.propostas[0] ? (
                         <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Última: item {detalhe.propostas[0].itemNumero}
+                          Ultima: item {detalhe.propostas[0].itemNumero}
                         </span>
                       ) : null}
                     </div>
@@ -4161,7 +4275,7 @@ export function LicitacaoProcessoPage({
                         ))}
                       </Select>
                     </FormField>
-                    <FormField label="Valor unitário proposto">
+                    <FormField label="Valor unitario proposto">
                       <Input
                         value={propostaForm.valorUnitarioProposto}
                         onChange={(event) =>
@@ -4187,7 +4301,7 @@ export function LicitacaoProcessoPage({
                         }
                       />
                     </FormField>
-                    <FormField label="Classificação">
+                    <FormField label="Classificacao">
                       <Input
                         type="number"
                         min={1}
@@ -4201,7 +4315,7 @@ export function LicitacaoProcessoPage({
                         placeholder="1"
                       />
                     </FormField>
-                    <FormField label="Situação">
+                    <FormField label="Situacao">
                       <Select
                         value={propostaForm.situacao}
                         onChange={(event) =>
@@ -4248,10 +4362,10 @@ export function LicitacaoProcessoPage({
                         <tr>
                           <TableHeaderCell>Item</TableHeaderCell>
                           <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>Valor unitário</TableHeaderCell>
+                          <TableHeaderCell>Valor unitario</TableHeaderCell>
                           <TableHeaderCell>Valor atual</TableHeaderCell>
-                          <TableHeaderCell>Classificação</TableHeaderCell>
-                          <TableHeaderCell>Situação</TableHeaderCell>
+                          <TableHeaderCell>Classificacao</TableHeaderCell>
+                          <TableHeaderCell>Situacao</TableHeaderCell>
                           <TableHeaderCell>Data</TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -4260,14 +4374,44 @@ export function LicitacaoProcessoPage({
                           detalhe.propostas.map((item) => (
                             <TableRow key={item.id}>
                               <TableCell>
-                                <div className="font-semibold text-[var(--color-primary-900)]">
-                                  Item {item.itemNumero}
-                                </div>
+                                {item.itemCatalogoId ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[var(--accent-color)]"
+                                    onClick={() =>
+                                      setLocation(
+                                        `/dossie/item/${item.itemCatalogoId}`,
+                                      )
+                                    }
+                                  >
+                                    Item {item.itemNumero}
+                                  </button>
+                                ) : (
+                                  <div className="font-semibold text-[var(--color-primary-900)]">
+                                    Item {item.itemNumero}
+                                  </div>
+                                )}
                                 <div className="text-xs text-[var(--color-neutral-500)]">
                                   {item.itemDescricao}
                                 </div>
                               </TableCell>
-                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell>
+                                {item.fornecedorId ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[var(--accent-color)]"
+                                    onClick={() =>
+                                      setLocation(
+                                        `/dossie/fornecedor/${item.fornecedorId}`,
+                                      )
+                                    }
+                                  >
+                                    {item.licitanteNome}
+                                  </button>
+                                ) : (
+                                  item.licitanteNome
+                                )}
+                              </TableCell>
                               <TableCell>
                                 {formatCurrencyBRL(
                                   Number(item.valorUnitarioProposto ?? 0),
@@ -4310,7 +4454,7 @@ export function LicitacaoProcessoPage({
               <section ref={lancesRef}>
                 <CollapsibleSectionCard
                   title="Lances"
-                  description="Registro operacional dos lances apresentados durante a sessão pública."
+                  description="Registro operacional dos lances apresentados durante a sessao publica."
                   open={sectionOpen.lances}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -4326,8 +4470,8 @@ export function LicitacaoProcessoPage({
                       onClick={() =>
                         void handleAdvanceStage(
                           "LANCES",
-                          "Licitação / fase de lances",
-                          "Sessão de lances em andamento.",
+                          "Licitacao / fase de lances",
+                          "Sessao de lances em andamento.",
                         )
                       }
                       disabled={advanceStageMutation.isPending}
@@ -4342,7 +4486,7 @@ export function LicitacaoProcessoPage({
                       </span>
                       {detalhe.lances[0] ? (
                         <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Último em{" "}
+                          Ultimo em{" "}
                           {formatShortDateTimeBR(detalhe.lances[0].dataLance)}
                         </span>
                       ) : null}
@@ -4395,7 +4539,7 @@ export function LicitacaoProcessoPage({
                         }
                       />
                     </FormField>
-                    <FormField label="Observação">
+                    <FormField label="Observacao">
                       <Textarea
                         rows={3}
                         value={lanceForm.observacao}
@@ -4426,8 +4570,8 @@ export function LicitacaoProcessoPage({
                           <TableHeaderCell>Proposta</TableHeaderCell>
                           <TableHeaderCell>Valor</TableHeaderCell>
                           <TableHeaderCell>Registrado em</TableHeaderCell>
-                          <TableHeaderCell>Usuário</TableHeaderCell>
-                          <TableHeaderCell>Observação</TableHeaderCell>
+                          <TableHeaderCell>Usuario</TableHeaderCell>
+                          <TableHeaderCell>Observacao</TableHeaderCell>
                         </tr>
                       </TableHead>
                       <TableBody>
@@ -4470,7 +4614,7 @@ export function LicitacaoProcessoPage({
               <section ref={julgamentoRef}>
                 <CollapsibleSectionCard
                   title="Julgamento"
-                  description="Definição visual da etapa de julgamento e conferência da classificação das propostas."
+                  description="Definicao visual da etapa de julgamento e conferencia da classificacao das propostas."
                   open={sectionOpen.julgamento}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -4486,8 +4630,8 @@ export function LicitacaoProcessoPage({
                       onClick={() =>
                         void handleAdvanceStage(
                           "JULGAMENTO",
-                          "Licitação / julgamento",
-                          "Classificação e julgamento das propostas.",
+                          "Licitacao / julgamento",
+                          "Classificacao e julgamento das propostas.",
                         )
                       }
                       disabled={advanceStageMutation.isPending}
@@ -4508,9 +4652,9 @@ export function LicitacaoProcessoPage({
                   }
                 >
                   <Alert variant="info">
-                    Use as classificações e situações lançadas em propostas para
-                    registrar o julgamento. Esta seção define visualmente a
-                    etapa atual e permite conferência consolidada.
+                    Use as classificacoes e situacoes lancadas em propostas para
+                    registrar o julgamento. Esta secao define visualmente a
+                    etapa atual e permite conferencia consolidada.
                   </Alert>
                   <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
                     <Table className="min-w-[1040px]">
@@ -4518,8 +4662,8 @@ export function LicitacaoProcessoPage({
                         <tr>
                           <TableHeaderCell>Item</TableHeaderCell>
                           <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>Classificação</TableHeaderCell>
-                          <TableHeaderCell>Situação</TableHeaderCell>
+                          <TableHeaderCell>Classificacao</TableHeaderCell>
+                          <TableHeaderCell>Situacao</TableHeaderCell>
                           <TableHeaderCell>Valor atual</TableHeaderCell>
                           <TableHeaderCell>Justificativa</TableHeaderCell>
                         </tr>
@@ -4528,8 +4672,40 @@ export function LicitacaoProcessoPage({
                         {detalhe.propostas.length ? (
                           detalhe.propostas.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell>{item.itemNumero}</TableCell>
-                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell>
+                                {item.itemCatalogoId ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[var(--accent-color)]"
+                                    onClick={() =>
+                                      setLocation(
+                                        `/dossie/item/${item.itemCatalogoId}`,
+                                      )
+                                    }
+                                  >
+                                    {item.itemNumero}
+                                  </button>
+                                ) : (
+                                  item.itemNumero
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {item.fornecedorId ? (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[var(--accent-color)]"
+                                    onClick={() =>
+                                      setLocation(
+                                        `/dossie/fornecedor/${item.fornecedorId}`,
+                                      )
+                                    }
+                                  >
+                                    {item.licitanteNome}
+                                  </button>
+                                ) : (
+                                  item.licitanteNome
+                                )}
+                              </TableCell>
                               <TableCell>{item.classificacao ?? "-"}</TableCell>
                               <TableCell>
                                 {propostaSituacaoLabels[
@@ -4567,7 +4743,7 @@ export function LicitacaoProcessoPage({
               <section ref={recursosRef}>
                 <CollapsibleSectionCard
                   title="Recursos"
-                  description="Registro de interposição, julgamento e resultado recursal dentro da fase licitatória."
+                  description="Registro de interposicao, julgamento e resultado recursal dentro da fase licitatoria."
                   open={sectionOpen.recursos}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -4583,7 +4759,7 @@ export function LicitacaoProcessoPage({
                       onClick={() =>
                         void handleAdvanceStage(
                           "RECURSOS",
-                          "Licitação / recursos administrativos",
+                          "Licitacao / recursos administrativos",
                           "Abertura da fase recursal.",
                         )
                       }
@@ -4639,7 +4815,7 @@ export function LicitacaoProcessoPage({
                         ))}
                       </Select>
                     </FormField>
-                    <FormField label="Data de interposição">
+                    <FormField label="Data de interposicao">
                       <Input
                         type="date"
                         value={recursoForm.dataInterposicao}
@@ -4663,7 +4839,7 @@ export function LicitacaoProcessoPage({
                         }
                       />
                     </FormField>
-                    <FormField label="Descrição" className="2xl:col-span-2">
+                    <FormField label="Descricao" className="2xl:col-span-2">
                       <Textarea
                         rows={4}
                         value={recursoForm.descricao}
@@ -4675,7 +4851,7 @@ export function LicitacaoProcessoPage({
                         }
                       />
                     </FormField>
-                    <FormField label="Decisão" className="2xl:col-span-2">
+                    <FormField label="Decisao" className="2xl:col-span-2">
                       <Textarea
                         rows={4}
                         value={recursoForm.decisao}
@@ -4704,10 +4880,10 @@ export function LicitacaoProcessoPage({
                       <TableHead>
                         <tr>
                           <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>Interposição</TableHeaderCell>
+                          <TableHeaderCell>Interposicao</TableHeaderCell>
                           <TableHeaderCell>Julgamento</TableHeaderCell>
                           <TableHeaderCell>Resultado</TableHeaderCell>
-                          <TableHeaderCell>Descrição</TableHeaderCell>
+                          <TableHeaderCell>Descricao</TableHeaderCell>
                         </tr>
                       </TableHead>
                       <TableBody>
@@ -4735,7 +4911,7 @@ export function LicitacaoProcessoPage({
                               colSpan={5}
                               className="text-[var(--color-neutral-500)]"
                             >
-                              Nenhum recurso registrado até o momento.
+                              Nenhum recurso registrado ate o momento.
                             </TableCell>
                           </TableRow>
                         )}
@@ -4748,8 +4924,8 @@ export function LicitacaoProcessoPage({
 
             <section ref={homologacaoRef}>
               <CollapsibleSectionCard
-                title="Homologação"
-                description="Encerramento formal da fase licitatória com atualização do status final do processo."
+                title="Homologacao"
+                description="Encerramento formal da fase licitatoria com atualizacao do status final do processo."
                 open={sectionOpen.homologacao}
                 onToggle={(nextOpen) =>
                   setSectionOpen((current) => ({
@@ -4762,7 +4938,7 @@ export function LicitacaoProcessoPage({
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
                       {detalhe.processo.homologado
                         ? "Processo homologado"
-                        : "Homologação pendente"}
+                        : "Homologacao pendente"}
                     </span>
                   </div>
                 }
@@ -4771,7 +4947,7 @@ export function LicitacaoProcessoPage({
                   className="grid gap-4 2xl:grid-cols-2"
                   onSubmit={handleHomologar}
                 >
-                  <FormField label="Data da homologação">
+                  <FormField label="Data da homologacao">
                     <Input
                       type="date"
                       value={homologacaoForm.dataHomologacao}
@@ -4783,7 +4959,7 @@ export function LicitacaoProcessoPage({
                       }
                     />
                   </FormField>
-                  <FormField label="Status do processo após homologação">
+                  <FormField label="Status do processo apos homologacao">
                     <Select
                       value={homologacaoForm.statusId}
                       onChange={(event) =>
@@ -4801,7 +4977,25 @@ export function LicitacaoProcessoPage({
                       ))}
                     </Select>
                   </FormField>
-                  <FormField label="Observação" className="2xl:col-span-2">
+                  {homologCriticalStatusDateRequired ? (
+                    <FormField
+                      label={`Data do status critico (${selectedHomologStatus!.nome ?? selectedHomologStatus!.codigo})`}
+                      className="2xl:col-span-2"
+                    >
+                      <Input
+                        type="date"
+                        value={homologacaoForm.dataStatus}
+                        required={homologCriticalStatusDateRequired}
+                        onChange={(event) =>
+                          setHomologacaoForm((current) => ({
+                            ...current,
+                            dataStatus: event.target.value,
+                          }))
+                        }
+                      />
+                    </FormField>
+                  ) : null}
+                  <FormField label="Observacao" className="2xl:col-span-2">
                     <Textarea
                       rows={4}
                       value={homologacaoForm.observacao}
@@ -4820,7 +5014,7 @@ export function LicitacaoProcessoPage({
                     >
                       {homologarMutation.isPending
                         ? "Homologando..."
-                        : "Homologar licitação"}
+                        : "Homologar licitacao"}
                     </Button>
                   </div>
                 </form>
@@ -4830,8 +5024,8 @@ export function LicitacaoProcessoPage({
             {isForaDoFluxo ? (
               <section ref={auditoriaRef}>
                 <CollapsibleSectionCard
-                  title="Auditoria reforçada"
-                  description="Log detalhado de alterações campo a campo para processos fora do fluxo."
+                  title="Auditoria reforcada"
+                  description="Log detalhado de alteracoes campo a campo para processos fora do fluxo."
                   open={sectionOpen.auditoria}
                   onToggle={(nextOpen) =>
                     setSectionOpen((current) => ({
@@ -4857,7 +5051,7 @@ export function LicitacaoProcessoPage({
                   }
                 >
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Ação">
+                    <FormField label="Acao">
                       <Select
                         value={auditActionFilter}
                         onChange={(event) =>
@@ -4870,7 +5064,7 @@ export function LicitacaoProcessoPage({
                         <option value="DELETE">DELETE</option>
                       </Select>
                     </FormField>
-                    <FormField label="Usuário">
+                    <FormField label="Usuario">
                       <Select
                         value={auditUserFilter}
                         onChange={(event) =>
@@ -4899,13 +5093,13 @@ export function LicitacaoProcessoPage({
                         <TableHead>
                           <tr>
                             <TableHeaderCell>Data</TableHeaderCell>
-                            <TableHeaderCell>Usuário</TableHeaderCell>
-                            <TableHeaderCell>Ação</TableHeaderCell>
+                            <TableHeaderCell>Usuario</TableHeaderCell>
+                            <TableHeaderCell>Acao</TableHeaderCell>
                             <TableHeaderCell>Tabela</TableHeaderCell>
                             <TableHeaderCell>Campo</TableHeaderCell>
                             <TableHeaderCell>Valor anterior</TableHeaderCell>
                             <TableHeaderCell>Valor novo</TableHeaderCell>
-                            <TableHeaderCell>Descrição</TableHeaderCell>
+                            <TableHeaderCell>Descricao</TableHeaderCell>
                           </tr>
                         </TableHead>
                         <TableBody>
@@ -4966,8 +5160,8 @@ export function LicitacaoProcessoPage({
 
             <section ref={historyRef}>
               <CollapsibleSectionCard
-                title="Movimentações recentes"
-                description="Rastro operacional da fase licitatória para acompanhamento do setor e da gestão."
+                title="Movimentacoes recentes"
+                description="Rastro operacional da fase licitatoria para acompanhamento do setor e da gestao."
                 open={sectionOpen.history}
                 onToggle={(nextOpen) =>
                   setSectionOpen((current) => ({
@@ -4987,7 +5181,7 @@ export function LicitacaoProcessoPage({
                     </div>
                   ) : (
                     <Alert variant="info">
-                      Ainda não há movimentações registradas para esta etapa.
+                      Ainda nao ha movimentacoes registradas para esta etapa.
                     </Alert>
                   )
                 }
@@ -5005,7 +5199,7 @@ export function LicitacaoProcessoPage({
                               {cleanDisplayText(item.descricao)}
                             </div>
                             <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                              Registro operacional da Licitação
+                              Registro operacional da Licitacao
                             </div>
                           </div>
                           <span className="text-xs text-[var(--color-neutral-500)]">
@@ -5021,8 +5215,8 @@ export function LicitacaoProcessoPage({
                     ))
                   ) : (
                     <Alert variant="info">
-                      Ainda não há movimentações registradas para esta etapa da
-                      Licitação.
+                      Ainda nao ha movimentacoes registradas para esta etapa da
+                      Licitacao.
                     </Alert>
                   )}
                 </div>
@@ -5054,12 +5248,12 @@ export function LicitacaoProcessoPage({
         open={showAllDocsModal}
         onClose={() => setShowAllDocsModal(false)}
         title={`Documentos do processo ${detalhe.processo.numeroSirel}`}
-        description="Conferência integral do acervo do processo, em ordem de inclusão."
+        description="Conferencia integral do acervo do processo, em ordem de inclusao."
         size="xl"
       >
         {!documentos.length ? (
           <Alert variant="info">
-            Este processo ainda não possui documentos vinculados.
+            Este processo ainda nao possui documentos vinculados.
           </Alert>
         ) : (
           <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
@@ -5067,10 +5261,10 @@ export function LicitacaoProcessoPage({
               <TableHead>
                 <tr>
                   <TableHeaderCell>#</TableHeaderCell>
-                  <TableHeaderCell>Título</TableHeaderCell>
+                  <TableHeaderCell>Titulo</TableHeaderCell>
                   <TableHeaderCell>Tipo</TableHeaderCell>
                   <TableHeaderCell>Categoria</TableHeaderCell>
-                  <TableHeaderCell>Data de referência</TableHeaderCell>
+                  <TableHeaderCell>Data de referencia</TableHeaderCell>
                   <TableHeaderCell>Adicionado em</TableHeaderCell>
                   <TableHeaderCell className="text-right">
                     Arquivo
@@ -5116,3 +5310,4 @@ export function LicitacaoProcessoPage({
     </div>
   );
 }
+

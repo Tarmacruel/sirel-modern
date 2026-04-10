@@ -27,8 +27,8 @@ export function SimpleLineChart({ items }: { items: SimpleLineChartItem[] }) {
   const pointStyle = { fill: "var(--chart-3)" } as CSSProperties;
 
   return (
-    <div className="space-y-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full overflow-visible rounded-3xl bg-[var(--surface-soft)] p-2">
+    <div className="min-w-0 space-y-4">
+      <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full overflow-hidden rounded-3xl bg-[var(--surface-soft)] p-2">
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} style={axisStyle} strokeWidth="1.5" />
         <line x1={padding} y1={padding} x2={padding} y2={height - padding} style={axisStyle} strokeWidth="1.5" />
         <path d={path} fill="none" style={pathStyle} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -39,7 +39,7 @@ export function SimpleLineChart({ items }: { items: SimpleLineChartItem[] }) {
           </g>
         ))}
       </svg>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {items.map((item) => (
           <div key={item.label} className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3 text-sm">
             <p className="font-semibold text-[var(--text-secondary)]">{item.label}</p>

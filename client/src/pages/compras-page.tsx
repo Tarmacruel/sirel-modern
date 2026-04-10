@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight, FileSpreadsheet, Search } from "lucide-react";
 
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
+import { PageIntro } from "@/components/shared/page-intro";
 import { ProcessMacroPanel } from "@/components/shared/process-macro-panel";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -103,6 +104,26 @@ export function ComprasPage() {
       {feedback ? <Alert variant="success">{feedback}</Alert> : null}
       {errorMessage ? <Alert variant="error">{errorMessage}</Alert> : null}
 
+      <PageIntro
+        eyebrow="Ciclo principal"
+        title="Compras com foco em consolidacao e ritmo."
+        description="Acompanhamento operacional para fechar a base estimada, validar a documentacao critica e preparar o processo para a fase licitatoria sem perder contexto."
+        dataTourId="compras-intro"
+        meta={[
+          { label: "Em Compras", value: String(total) },
+          { label: "Com valor consolidado", value: String(rows.filter((item) => Number(item.valorEstimado ?? 0) > 0).length) },
+          { label: "Parados ha 7+ dias", value: String(rows.filter((item) => item.diasParado >= 7).length) },
+        ]}
+        aside={
+          <div className="rounded-[24px] border border-white/12 bg-white/[0.08] p-4 text-white backdrop-blur-sm xl:max-w-[340px]">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-sky-100/70">Leitura orientada a decisao</p>
+            <p className="mt-3 text-sm leading-7 text-slate-200">
+              Use este modulo para enxergar rapidamente o que ja esta pronto para seguir e o que ainda depende de consolidacao ou ajuste documental.
+            </p>
+          </div>
+        }
+      />
+
       {selectedRow ? (
         <ProcessMacroPanel
           moduleLabel="Compras"
@@ -152,15 +173,16 @@ export function ComprasPage() {
           </div>
         }
       >
-        {listQuery.isLoading ? (
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
-              {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="h-28" />)}
+        <div data-tour-id="compras-list" className="space-y-4">
+          {listQuery.isLoading ? (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                {[0, 1, 2, 3].map((item) => <Skeleton key={item} className="h-28" />)}
+              </div>
+              <Skeleton className="h-80" />
             </div>
-            <Skeleton className="h-80" />
-          </div>
-        ) : (
-          <>
+          ) : (
+            <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <article className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">Em Compras</p>
@@ -245,8 +267,9 @@ export function ComprasPage() {
                 Compras concentra a consolidacao final do valor estimado, o fechamento do mapa comparativo e a preparacao documental para abertura da Licitacao. Se houver urgencia operacional, o avanco pode ser liberado com bypass auditado.
               </Alert>
             </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </SectionCard>
 
       <MacroTransitionModal

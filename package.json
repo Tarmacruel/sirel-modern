@@ -30,7 +30,8 @@
     "format": "prettier --write .",
     "test": "npm run test --workspace client",
     "test:server": "npm run test --workspace server",
-    "test:all": "npm run test --workspace server && npm run test --workspace client"
+    "test:all": "npm run test --workspace server && npm run test --workspace client",
+    "ata-sessao:process": "npm run ata-sessao:process --workspace server --"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

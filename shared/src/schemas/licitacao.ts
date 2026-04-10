@@ -51,6 +51,7 @@ export const licitacaoPublishInputSchema = z.object({
   processoId: z.number().int().positive(),
   condutorProcessoId: z.number().int().positive(),
   statusId: z.number().int().positive().optional(),
+  dataStatus: optionalDateString,
   justificativaAuditoria: z.string().trim().max(4000).optional(),
   linkBllPublico: z.string().trim().max(500).optional(),
   linkPncpPublico: z.string().trim().max(500).optional(),
@@ -143,6 +144,7 @@ export const licitacaoAdvanceStageInputSchema = z.object({
 export const licitacaoHomologarInputSchema = z.object({
   processoId: z.number().int().positive(),
   dataHomologacao: optionalDateString,
+  dataStatus: optionalDateString,
   observacao: z.string().trim().max(2000).optional(),
   statusId: z.number().int().positive().optional(),
   justificativaAuditoria: z.string().trim().max(4000).optional(),

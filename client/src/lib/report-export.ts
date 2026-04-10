@@ -1,13 +1,21 @@
 import { getRuntimeBrandingSnapshot, systemFullName } from "@/lib/branding";
 
-interface ReportColumn {
+export interface ReportColumn {
   key: string;
   label: string;
 }
 
-interface ReportSummaryItem {
+export interface ReportSummaryItem {
   label: string;
   value: unknown;
+}
+
+export interface WorkbookSheet {
+  name: string;
+  title?: string;
+  columns: ReportColumn[];
+  rows: Record<string, unknown>[];
+  summary?: ReportSummaryItem[];
 }
 
 function toText(value: unknown) {
@@ -39,6 +47,52 @@ function downloadBlob(filename: string, blob: Blob) {
 
 function buildSummaryLines(summary: ReportSummaryItem[]) {
   return summary.map((item) => `${item.label}: ${toText(item.value)}`);
+}
+
+function buildSheetData(
+  title: string,
+  columns: ReportColumn[],
+  rows: Record<string, unknown>[],
+  summary: ReportSummaryItem[] = [],
+) {
+  const branding = getRuntimeBrandingSnapshot();
+  const summaryLines = buildSummaryLines(summary);
+
+  return [
+    [branding.prefeituraLines[0]],
+    [branding.prefeituraLines[1]],
+    [branding.prefeituraLines[2]],
+    [branding.prefeituraLines[3]],
+    [systemFullName],
+    [],
+    [title],
+    [`Gerado em ${new Date().toLocaleString("pt-BR")}`],
+    [],
+    ...summaryLines.map((line) => [line]),
+    ...(summaryLines.length ? [[]] : []),
+    columns.map((column) => column.label),
+    ...rows.map((row) => columns.map((column) => toText(row[column.key]))),
+    [],
+    [branding.systemFooterText],
+  ];
+}
+
+function sanitizeSheetName(name: string, usedNames: Set<string>) {
+  const base =
+    name
+      .replace(/[\\/*?:[\]]/g, " ")
+      .trim()
+      .slice(0, 31) || "Planilha";
+
+  let candidate = base;
+  let counter = 2;
+  while (usedNames.has(candidate)) {
+    const suffix = ` ${counter}`;
+    candidate = `${base.slice(0, Math.max(1, 31 - suffix.length))}${suffix}`;
+    counter += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
 }
 
 export function exportReportToCsv(filename: string, columns: ReportColumn[], rows: Record<string, unknown>[]) {
@@ -74,26 +128,8 @@ export async function exportReportToXlsx(
   rows: Record<string, unknown>[],
   summary: ReportSummaryItem[] = [],
 ) {
-  const branding = getRuntimeBrandingSnapshot();
   const XLSX = await import("xlsx");
-  const summaryLines = buildSummaryLines(summary);
-  const sheetData = [
-    [branding.prefeituraLines[0]],
-    [branding.prefeituraLines[1]],
-    [branding.prefeituraLines[2]],
-    [branding.prefeituraLines[3]],
-    [systemFullName],
-    [],
-    [title],
-    [`Gerado em ${new Date().toLocaleString("pt-BR")}`],
-    [],
-    ...summaryLines.map((line) => [line]),
-    ...(summaryLines.length ? [[]] : []),
-    columns.map((column) => column.label),
-    ...rows.map((row) => columns.map((column) => toText(row[column.key]))),
-    [],
-    [branding.systemFooterText],
-  ];
+  const sheetData = buildSheetData(title, columns, rows, summary);
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
   worksheet["!cols"] = columns.map((column) => ({
@@ -102,6 +138,58 @@ export async function exportReportToXlsx(
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório");
+  XLSX.writeFile(workbook, filename);
+}
+
+export async function exportWorkbookToXlsx(
+  filename: string,
+  title: string,
+  sheets: WorkbookSheet[],
+  summary: ReportSummaryItem[] = [],
+) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+  const usedNames = new Set<string>();
+
+  if (summary.length) {
+    const resumoColumns: ReportColumn[] = [
+      { key: "label", label: "Indicador" },
+      { key: "value", label: "Valor" },
+    ];
+    const resumoRows = summary.map((item) => ({
+      label: item.label,
+      value: toText(item.value),
+    }));
+    const resumoSheet = XLSX.utils.aoa_to_sheet(
+      buildSheetData(`${title} - Resumo`, resumoColumns, resumoRows),
+    );
+    resumoSheet["!cols"] = [{ wch: 34 }, { wch: 42 }];
+    XLSX.utils.book_append_sheet(
+      workbook,
+      resumoSheet,
+      sanitizeSheetName("Resumo", usedNames),
+    );
+  }
+
+  sheets.forEach((sheet) => {
+    const worksheet = XLSX.utils.aoa_to_sheet(
+      buildSheetData(
+        sheet.title ?? `${title} - ${sheet.name}`,
+        sheet.columns,
+        sheet.rows,
+        sheet.summary ?? [],
+      ),
+    );
+    worksheet["!cols"] = sheet.columns.map((column) => ({
+      wch: Math.max(column.label.length + 4, 20),
+    }));
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      sanitizeSheetName(sheet.name, usedNames),
+    );
+  });
+
   XLSX.writeFile(workbook, filename);
 }
 

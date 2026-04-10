@@ -11,6 +11,7 @@ export * from "./schemas/cadastros.js";
 export * from "./schemas/licitacao.js";
 export * from "./schemas/importacoes.js";
 export * from "./schemas/dossie.js";
+export * from "./schemas/ata-sessao.js";
 export * from "./schemas/parametros.js";
 export * from "./document-templates/planejamento.js";
 export * from "./document-templates/dossie.js";

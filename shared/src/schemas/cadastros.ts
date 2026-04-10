@@ -202,7 +202,7 @@ export const pessoaMergeInputSchema = z.object({
 });
 
 export const cadastroBulkMergeInputSchema = z.object({
-  entity: z.enum(["fornecedores", "pessoas", "servidores"]),
+  entity: z.enum(["itens", "fornecedores", "pessoas", "servidores"]),
   targetId: z.number().int().positive(),
   sourceIds: z.array(z.number().int().positive()).min(1).max(200),
 }).superRefine((value, ctx) => {
@@ -213,6 +213,37 @@ export const cadastroBulkMergeInputSchema = z.object({
       message: "O cadastro mantido não pode estar na lista de registros a unificar.",
     });
   }
+});
+
+export const cadastroDedupeSuggestionsInputSchema = z.object({
+  entity: z.enum(["itens", "fornecedores", "pessoas", "servidores"]),
+  search: z.string().trim().optional(),
+  status: z.enum(cadastroStatusOptions).optional(),
+  secretariaId: z.number().int().positive().optional(),
+  cidade: z.string().trim().optional(),
+  limit: z.number().int().positive().max(100).default(20),
+});
+
+export const cadastroFornecedorVencedorBackfillPreviewInputSchema = z.object({
+  search: z.string().trim().optional(),
+  onlyWithSuggestion: z.boolean().default(false),
+  processoId: z.number().int().positive().optional(),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(200).default(10),
+});
+
+export const cadastroFornecedorVencedorBackfillRunInputSchema = z.object({});
+
+export const cadastroFornecedorVencedorBackfillConfirmInputSchema = z.object({
+  id: z.number().int().positive(),
+  fornecedorId: z.number().int().positive(),
+  reason: z.string().trim().max(240).optional(),
+});
+
+export const cadastroFornecedorVencedorBackfillBulkConfirmInputSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(1).max(100),
+  fornecedorId: z.number().int().positive(),
+  reason: z.string().trim().max(240).optional(),
 });
 
 export const cadastroDeleteInputSchema = z.object({
@@ -248,6 +279,21 @@ export type CadastroSaveInput = z.infer<typeof cadastroSaveInputSchema>;
 export type FornecedorMergeInput = z.infer<typeof fornecedorMergeInputSchema>;
 export type PessoaMergeInput = z.infer<typeof pessoaMergeInputSchema>;
 export type CadastroBulkMergeInput = z.infer<typeof cadastroBulkMergeInputSchema>;
+export type CadastroDedupeSuggestionsInput = z.infer<
+  typeof cadastroDedupeSuggestionsInputSchema
+>;
+export type CadastroFornecedorVencedorBackfillPreviewInput = z.infer<
+  typeof cadastroFornecedorVencedorBackfillPreviewInputSchema
+>;
+export type CadastroFornecedorVencedorBackfillRunInput = z.infer<
+  typeof cadastroFornecedorVencedorBackfillRunInputSchema
+>;
+export type CadastroFornecedorVencedorBackfillConfirmInput = z.infer<
+  typeof cadastroFornecedorVencedorBackfillConfirmInputSchema
+>;
+export type CadastroFornecedorVencedorBackfillBulkConfirmInput = z.infer<
+  typeof cadastroFornecedorVencedorBackfillBulkConfirmInputSchema
+>;
 export type CadastroDeleteInput = z.infer<typeof cadastroDeleteInputSchema>;
 export type CadastroHistoryInput = z.infer<typeof cadastroHistoryInputSchema>;
 export type CadastroBulkStatusInput = z.infer<typeof cadastroBulkStatusInputSchema>;

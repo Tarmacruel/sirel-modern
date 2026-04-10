@@ -337,6 +337,13 @@
       "when": 1775091602000,
       "tag": "0047_licitacao_links_publicos",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1775606400000,
+      "tag": "0048_dossie_entity_indexes",
+      "breakpoints": true
     }
   ]
 }

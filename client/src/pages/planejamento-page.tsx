@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight, Search, ShoppingCart } from "lucide-react";
 
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
+import { PageIntro } from "@/components/shared/page-intro";
 import { ProcessMacroPanel } from "@/components/shared/process-macro-panel";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -97,6 +98,26 @@ export function PlanejamentoPage() {
       {feedback ? <Alert variant="success">{feedback}</Alert> : null}
       {errorMessage ? <Alert variant="error">{errorMessage}</Alert> : null}
 
+      <PageIntro
+        eyebrow="Ciclo principal"
+        title="Planejamento com leitura mais direta da fila e da base técnica."
+        description="O topo da página agora destaca o tamanho da fila, maturidade documental e o que ainda falta para empurrar cada processo com segurança para Compras."
+        dataTourId="planejamento-intro"
+        meta={[
+          { label: "Na fila", value: String(rows.length) },
+          { label: "Sem DFD", value: String(rows.filter((item) => !item.dfdId).length) },
+          { label: "Sem ETP", value: String(rows.filter((item) => !item.etpId).length) },
+        ]}
+        aside={
+          <div className="rounded-[24px] border border-white/12 bg-white/[0.06] p-4 text-white">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-sky-100/70">Ritmo da fase</p>
+            <p className="mt-3 text-sm leading-7 text-slate-200">
+              Planejamento concentra consistência da demanda, base técnica e cotação preliminar antes da passagem para Compras.
+            </p>
+          </div>
+        }
+      />
+
       {selectedRow ? (
         <ProcessMacroPanel
           moduleLabel="Planejamento"
@@ -152,6 +173,7 @@ export function PlanejamentoPage() {
           </div>
         }
       >
+        <div data-tour-id="planejamento-list">
         {listQuery.isLoading ? (
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-4">
@@ -261,6 +283,7 @@ export function PlanejamentoPage() {
             </div>
           </>
         )}
+        </div>
       </SectionCard>
 
       <MacroTransitionModal

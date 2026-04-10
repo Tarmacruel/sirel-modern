@@ -1,4 +1,4 @@
-﻿import { Search, FolderOpen, ArrowRight } from "lucide-react";
+import { ArrowRight, FileText, FolderOpen, Search } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { Link } from "wouter";
 
@@ -185,6 +185,12 @@ export function ConsultasPage() {
                         <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{row.ultimaMovimentacao?.criadoEm ? formatShortDateTimeBR(row.ultimaMovimentacao.criadoEm) : "Sem data registrada"}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        <Link href={`/dossie/${row.id}`}>
+                          <Button size="sm" variant="outline">
+                            <FileText className="mr-2 h-4 w-4" />
+                            Dossiê
+                          </Button>
+                        </Link>
                         <Link href={resolveModuloHref(row.moduloAtual)}>
                           <Button size="sm">
                             <FolderOpen className="mr-2 h-4 w-4" />

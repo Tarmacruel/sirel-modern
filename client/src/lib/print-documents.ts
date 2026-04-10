@@ -4,12 +4,18 @@
   buildPrintableShell,
   buildTrHtml,
 } from "@sirel/shared/document-templates/planejamento";
-import { buildDossieHtml } from "@sirel/shared/document-templates/dossie";
+import {
+  buildDossieFornecedorHtml,
+  buildDossieHtml,
+  buildDossieItemHtml,
+} from "@sirel/shared/document-templates/dossie";
 import { getRuntimeBrandingSnapshot, systemName } from "@/lib/branding";
 import { resolveServerAssetUrl } from "@/lib/document-upload";
 
 export {
+  buildDossieFornecedorHtml,
   buildDossieHtml,
+  buildDossieItemHtml,
   buildDfdHtml,
   buildMapaComparativoHtml,
   buildPrintableShell,

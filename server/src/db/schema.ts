@@ -931,28 +931,36 @@ export const fornecedores = pgTable(
   }),
 );
 
-export const cotacoes = pgTable("cotacoes", {
-  id: serial("id").primaryKey(),
-  processoId: integer("processo_id")
-    .notNull()
-    .references(() => processos.id, { onDelete: "cascade" }),
-  itemId: integer("item_id").references(() => itensProcesso.id, {
-    onDelete: "cascade",
+export const cotacoes = pgTable(
+  "cotacoes",
+  {
+    id: serial("id").primaryKey(),
+    processoId: integer("processo_id")
+      .notNull()
+      .references(() => processos.id, { onDelete: "cascade" }),
+    itemId: integer("item_id").references(() => itensProcesso.id, {
+      onDelete: "cascade",
+    }),
+    fornecedorId: integer("fornecedor_id")
+      .notNull()
+      .references(() => fornecedores.id),
+    valorUnitario: numeric("valor_unitario", { precision: 14, scale: 2 }),
+    valorTotal: numeric("valor_total", { precision: 14, scale: 2 }),
+    dataCotacao: date("data_cotacao"),
+    status: cotacaoStatusEnum("status").notNull().default("ATIVA"),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxProcesso: index("cotacoes_processo_idx").on(table.processoId),
+    idxItem: index("cotacoes_item_idx").on(table.itemId),
+    idxFornecedor: index("cotacoes_fornecedor_idx").on(table.fornecedorId),
   }),
-  fornecedorId: integer("fornecedor_id")
-    .notNull()
-    .references(() => fornecedores.id),
-  valorUnitario: numeric("valor_unitario", { precision: 14, scale: 2 }),
-  valorTotal: numeric("valor_total", { precision: 14, scale: 2 }),
-  dataCotacao: date("data_cotacao"),
-  status: cotacaoStatusEnum("status").notNull().default("ATIVA"),
-  criadoEm: timestamp("criado_em", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+);
 
 export const licitacoes = pgTable(
   "licitacoes",
@@ -1326,6 +1334,7 @@ export const contratos = pgTable(
   },
   (table) => ({
     idxProcesso: index("contratos_processo_idx").on(table.processoId),
+    idxFornecedor: index("contratos_fornecedor_idx").on(table.fornecedorId),
     idxStatus: index("contratos_status_idx").on(table.status),
   }),
 );
@@ -2443,6 +2452,7 @@ export const contratosPncp = pgTable(
       table.pncpContractId,
     ),
     idxProcesso: index("contratos_pncp_processo_idx").on(table.processoId),
+    idxFornecedor: index("contratos_pncp_fornecedor_idx").on(table.fornecedorId),
     idxFornecedorCnpj: index("contratos_pncp_fornecedor_cnpj_idx").on(
       table.fornecedorCnpj,
     ),
@@ -2526,5 +2536,10 @@ export const auditoriaLog = pgTable(
   (table) => ({
     idxUsuario: index("auditoria_usuario_idx").on(table.usuarioId),
     idxTabela: index("auditoria_tabela_idx").on(table.tabela),
+    idxTabelaRegistroCriado: index("auditoria_tabela_registro_criado_idx").on(
+      table.tabela,
+      table.registroId,
+      table.criadoEm,
+    ),
   }),
 );

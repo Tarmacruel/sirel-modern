@@ -15,6 +15,29 @@ export interface UploadProcessoDocumentoInput {
   arquivo: File;
 }
 
+export interface AtaSessaoStandaloneArtifact {
+  label: string;
+  path: string;
+  relativePath: string;
+  type: "pdf" | "xlsx" | "json" | "log";
+  downloadUrl: string;
+}
+
+export interface AtaSessaoStandaloneProcessResult {
+  sourceFile: string;
+  outputDir: string;
+  generatedAt: string;
+  originalFileName?: string;
+  summary: {
+    totalLotes: number;
+    adjudicados: number;
+    malsucedidos: number;
+    warnings: number;
+    parsingErrors: number;
+  };
+  artifacts: AtaSessaoStandaloneArtifact[];
+}
+
 export function resolveServerBaseUrl() {
   const configuredUrl = String(import.meta.env.VITE_API_URL ?? "").trim();
   if (configuredUrl) {
@@ -101,6 +124,23 @@ export async function deleteProcessoDocumento(documentoId: number) {
   }
 
   return response.json();
+}
+
+export async function processAtaSessaoDocumento(arquivo: File): Promise<AtaSessaoStandaloneProcessResult> {
+  const formData = new FormData();
+  formData.append("arquivo", arquivo);
+
+  const response = await fetch(`${resolveServerBaseUrl()}/api/relatorios/ata-sessao/processar`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<AtaSessaoStandaloneProcessResult>;
 }
 
 export const uploadPlanejamentoDocumento = uploadProcessoDocumento;

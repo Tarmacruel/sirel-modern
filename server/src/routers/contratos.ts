@@ -53,6 +53,8 @@ export const contratosRouter = router({
     const internalRows = await db
       .select({
         id: contratos.id,
+        processoId: contratos.processoId,
+        fornecedorId: contratos.fornecedorId,
         numeroContrato: contratos.numeroContrato,
         processoNumeroSirel: processos.numeroSirel,
         fornecedor: fornecedores.razaoSocial,
@@ -72,6 +74,8 @@ export const contratosRouter = router({
     const pncpRows = await db
       .select({
         id: contratosPncp.id,
+        processoId: contratosPncp.processoId,
+        fornecedorId: contratosPncp.fornecedorId,
         numeroContrato: contratosPncp.numeroContrato,
         processoNumeroSirel: processos.numeroSirel,
         fornecedor: contratosPncp.fornecedorNome,

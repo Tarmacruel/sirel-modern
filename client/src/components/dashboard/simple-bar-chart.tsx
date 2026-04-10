@@ -18,7 +18,7 @@ export function SimpleBarChart({
   const max = Math.max(...items.map((item) => item.value), 1);
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {items.map((item, index) => {
         const width = `${Math.max(8, (item.value / max) * 100)}%`;
         const isSelected = selected !== undefined && selected !== null && item.id === selected;
@@ -27,7 +27,7 @@ export function SimpleBarChart({
             key={`${item.label}-${index}`}
             type="button"
             onClick={() => onBarClick?.(item)}
-            className={`w-full rounded-2xl border px-3 py-2 text-left transition ${isSelected ? "border-[var(--accent-color)] bg-[var(--surface-highlight)]" : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)]"}`}
+            className={`w-full min-w-0 rounded-2xl border px-3 py-2 text-left transition ${isSelected ? "border-[var(--accent-color)] bg-[var(--surface-highlight)]" : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)]"}`}
           >
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="truncate font-medium text-[var(--text-secondary)]">{item.label}</span>

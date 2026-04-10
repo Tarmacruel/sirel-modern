@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Boxes, PencilLine, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { useLocation } from "wouter";
 
 import { SectionCard } from "@/components/shared/section-card";
 import { AlertDialog } from "@/components/ui/alert-dialog";
@@ -37,6 +38,7 @@ const initialControleForm: ContratoItemFormState = {
 
 export function ItensPage() {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
@@ -428,6 +430,7 @@ export function ItensPage() {
           description="Informações completas, relacionamentos e histórico."
           action={selectedItem?.item ? (
             <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setLocation(`/dossie/item/${selectedItem.item.id}`)}>Dossie</Button>
               <Button variant="outline" size="sm" onClick={startEditingSelectedItem}><PencilLine className="h-4 w-4" />Editar</Button>
               <Button variant={selectedItem.item.ativo ? "secondary" : "default"} size="sm" onClick={() => toggleItemMutation.mutate({ itemId: selectedItem.item.id, ativo: !selectedItem.item.ativo })}>{selectedItem.item.ativo ? "Desativar" : "Reativar"}</Button>
               <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}><Trash2 className="h-4 w-4" /></Button>
@@ -441,7 +444,7 @@ export function ItensPage() {
           ) : detailQuery.error ? (
             <Alert variant="error">Erro ao carregar detalhes do item.</Alert>
           ) : !selectedItem ? (
-            <Alert variant="warning">Item não encontrado.</Alert>
+            <Alert variant="warning">Item nao encontrado.</Alert>
           ) : (
             <Tabs items={detailTabs} value={detailTabValue} onValueChange={setDetailTabValue} />
           )}
@@ -450,9 +453,9 @@ export function ItensPage() {
 
       {/* EDIT/CREATE FORM */}
       {editingItemId || (selectedItemId && !selectedItem?.item) ? (
-        <SectionCard title={editingItemId ? "Editar item" : "Novo item"} description="Cadastro mestre em catálogo centralizado.">
+        <SectionCard title={editingItemId ? "Editar item" : "Novo item"} description="Cadastro mestre em catalogo centralizado.">
           <form className="space-y-4" onSubmit={handleSubmitItem}>
-            <FormField label="Descrição" error={itemErrors.descricao}>
+            <FormField label="Descricao" error={itemErrors.descricao}>
               <Textarea rows={4} value={itemForm.descricao} error={Boolean(itemErrors.descricao)} onChange={(event) => setItemForm((current) => ({ ...current, descricao: event.target.value }))} />
             </FormField>
             <div className="grid gap-3 md:grid-cols-3">

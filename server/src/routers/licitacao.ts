@@ -33,6 +33,10 @@ import { logAuditoria } from "../db/auditoria.js";
 import { requireDb } from "../db/client.js";
 import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import {
+  getCriticalStatusKind,
+  getCriticalStatusKindLabel,
+} from "../lib/process-status-critical.js";
+import {
   documentos,
   fornecedores,
   itensProcesso,
@@ -116,6 +120,20 @@ function parseOptionalDate(value?: string | null) {
     });
   }
   return value;
+}
+
+async function findStatusProcessoById(db: DbClient, statusId: number) {
+  const [status] = await db
+    .select({
+      id: statusProcesso.id,
+      codigo: statusProcesso.codigo,
+      nome: statusProcesso.nome,
+    })
+    .from(statusProcesso)
+    .where(eq(statusProcesso.id, statusId))
+    .limit(1);
+
+  return status ?? null;
 }
 
 function nowDateString() {
@@ -697,6 +715,7 @@ async function getBaseProcesso(db: DbClient, processoId: number) {
       modalidade: modalidades.nome,
       modalidadeCodigo: modalidades.codigo,
       statusId: processos.statusId,
+      statusCodigo: statusProcesso.codigo,
       statusProcesso: statusProcesso.nome,
       criterioJulgamento: processos.criterioJulgamento,
       modoDisputa: processos.modoDisputa,
@@ -706,6 +725,7 @@ async function getBaseProcesso(db: DbClient, processoId: number) {
       publicado: processos.publicado,
       condutorProcessoId: processos.condutorProcessoId,
       homologado: processos.homologado,
+      dataEncerramento: processos.dataEncerramento,
     })
     .from(processos)
     .innerJoin(secretarias, eq(secretarias.id, processos.secretariaId))
@@ -941,6 +961,7 @@ export const licitacaoRouter = router({
       const itens = await db
         .select({
           id: itensProcesso.id,
+          catalogoItemId: itensProcesso.catalogoItemId,
           numeroItem: itensProcesso.numeroItem,
           descricao: itensProcesso.descricao,
           quantidade: itensProcesso.quantidade,
@@ -986,8 +1007,10 @@ export const licitacaoRouter = router({
               situacao: propostasLicitacao.situacao,
               justificativa: propostasLicitacao.justificativa,
               licitanteNome: fornecedores.razaoSocial,
+              fornecedorId: fornecedores.id,
               itemDescricao: itensProcesso.descricao,
               itemNumero: itensProcesso.numeroItem,
+              itemCatalogoId: itensProcesso.catalogoItemId,
               quantidadeItem: itensProcesso.quantidade,
               unidadeItem: itensProcesso.unidade,
             })
@@ -1695,6 +1718,26 @@ export const licitacaoRouter = router({
           processo.anoReferencia,
           processo.modalidadeCodigo,
         ));
+      const statusChanged =
+        Boolean(input.statusId) && input.statusId !== processo.statusId;
+      const selectedStatus = statusChanged
+        ? await findStatusProcessoById(db, Number(input.statusId))
+        : null;
+      if (statusChanged && !selectedStatus) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Status do processo inválido para publicação.",
+        });
+      }
+      const selectedCriticalStatusKind = getCriticalStatusKind(selectedStatus);
+      const dataStatusCritico = parseOptionalDate(input.dataStatus);
+      if (statusChanged && selectedCriticalStatusKind && !dataStatusCritico) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Informe a data do status crítico (${getCriticalStatusKindLabel(selectedCriticalStatusKind)}) antes de alterar o status do processo.`,
+        });
+      }
+
       const licitacaoPatch = {
         statusLicitacao: "RECEBIMENTO_PROPOSTAS" as LicitacaoStatus,
         dataPublicacaoEdital,
@@ -1713,6 +1756,21 @@ export const licitacaoRouter = router({
         linkPncpPublico: normalizePublicUrl(input.linkPncpPublico),
         atualizadoEm: new Date(),
       };
+      const processoPatch: Record<string, unknown> = {
+        numeroEdital,
+        condutorProcessoId: input.condutorProcessoId,
+        publicado: true,
+        statusId: input.statusId ?? processo.statusId,
+        atualizadoEm: new Date(),
+      };
+      if (
+        statusChanged &&
+        selectedCriticalStatusKind &&
+        selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+        dataStatusCritico
+      ) {
+        processoPatch.dataEncerramento = dataStatusCritico;
+      }
 
       await db
         .update(licitacoes)
@@ -1720,13 +1778,7 @@ export const licitacaoRouter = router({
         .where(eq(licitacoes.id, licitacao.id));
       await db
         .update(processos)
-        .set({
-          numeroEdital,
-          condutorProcessoId: input.condutorProcessoId,
-          publicado: true,
-          statusId: input.statusId ?? processo.statusId,
-          atualizadoEm: new Date(),
-        })
+        .set(processoPatch)
         .where(eq(processos.id, input.processoId));
       await syncWorkflowStep(
         db,
@@ -1748,6 +1800,9 @@ export const licitacaoRouter = router({
         observacao:
           [
             toNullableText(input.observacao),
+            statusChanged && selectedStatus && selectedCriticalStatusKind
+              ? `Data do status ${selectedStatus.nome ?? selectedStatus.codigo}: ${dataStatusCritico}`
+              : null,
             processo.foraDoFluxo ? justificativaAuditoria : null,
           ]
             .filter(Boolean)
@@ -1763,8 +1818,15 @@ export const licitacaoRouter = router({
           numeroEdital,
           condutorProcessoId: input.condutorProcessoId,
           publicado: true,
+          statusId: input.statusId ?? processo.statusId,
           dataRecebimentoPropostasFim,
           dataAberturaPropostas,
+          ...(statusChanged &&
+          selectedCriticalStatusKind &&
+          selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+          dataStatusCritico
+            ? { dataEncerramento: dataStatusCritico }
+            : {}),
         },
         descricao: `Processo ${processo.numeroSirel} publicado na fase de licitação`,
       });
@@ -1777,6 +1839,12 @@ export const licitacaoRouter = router({
           condutorProcessoId: input.condutorProcessoId,
           publicado: true,
           statusId: input.statusId ?? processo.statusId,
+          ...(statusChanged &&
+          selectedCriticalStatusKind &&
+          selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+          dataStatusCritico
+            ? { dataEncerramento: dataStatusCritico }
+            : {}),
         };
         await logAuditoriaDetalhada(ctx, {
           tabela: "licitacoes",
@@ -1810,6 +1878,7 @@ export const licitacaoRouter = router({
             { key: "condutorProcessoId", label: "Condutor do processo" },
             { key: "publicado", label: "Processo publicado" },
             { key: "statusId", label: "Status do processo" },
+            { key: "dataEncerramento", label: "Data do status crítico" },
           ]),
           justificativa: justificativaAuditoria,
           prefixo: "Publicação fora do fluxo",
@@ -2398,24 +2467,62 @@ export const licitacaoRouter = router({
         });
       }
       const dataHomologacao = parseOptionalDate(input.dataHomologacao);
+      if (!dataHomologacao) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Informe a data de homologação antes de concluir a homologação.",
+        });
+      }
+      const statusChanged =
+        Boolean(input.statusId) && input.statusId !== processo.statusId;
+      const selectedStatus = statusChanged
+        ? await findStatusProcessoById(db, Number(input.statusId))
+        : null;
+      if (statusChanged && !selectedStatus) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Status do processo inválido para homologação.",
+        });
+      }
+      const selectedCriticalStatusKind = getCriticalStatusKind(selectedStatus);
+      const dataStatusCritico = parseOptionalDate(input.dataStatus);
+      if (
+        statusChanged &&
+        selectedCriticalStatusKind &&
+        selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+        !dataStatusCritico
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Informe a data do status crítico (${getCriticalStatusKindLabel(selectedCriticalStatusKind)}) antes de alterar o status do processo.`,
+        });
+      }
+      const processoPatch: Record<string, unknown> = {
+        homologado: true,
+        statusId: input.statusId ?? processo.statusId,
+        atualizadoEm: new Date(),
+      };
+      if (
+        statusChanged &&
+        selectedCriticalStatusKind &&
+        selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+        dataStatusCritico
+      ) {
+        processoPatch.dataEncerramento = dataStatusCritico;
+      }
 
       await db
         .update(licitacoes)
         .set({
           statusLicitacao: "HOMOLOGACAO",
-          dataHomologacao: dataHomologacao
-            ? new Date(`${dataHomologacao}T12:00:00`)
-            : new Date(),
+          dataHomologacao: new Date(`${dataHomologacao}T12:00:00`),
           atualizadoEm: new Date(),
         })
         .where(eq(licitacoes.id, licitacao.id));
       await db
         .update(processos)
-        .set({
-          homologado: true,
-          statusId: input.statusId ?? processo.statusId,
-          atualizadoEm: new Date(),
-        })
+        .set(processoPatch)
         .where(eq(processos.id, input.processoId));
       await syncWorkflowStep(
         db,
@@ -2430,6 +2537,10 @@ export const licitacaoRouter = router({
         observacao:
           [
             toNullableText(input.observacao),
+            `Data da homologação: ${dataHomologacao}`,
+            statusChanged && selectedStatus && selectedCriticalStatusKind
+              ? `Data do status ${selectedStatus.nome ?? selectedStatus.codigo}: ${dataStatusCritico}`
+              : null,
             processo.foraDoFluxo ? justificativaAuditoria : null,
           ]
             .filter(Boolean)
@@ -2440,7 +2551,17 @@ export const licitacaoRouter = router({
         registroId: input.processoId,
         acao: "UPDATE",
         dadosAnteriores: processo,
-        dadosNovos: { homologado: true },
+        dadosNovos: {
+          homologado: true,
+          statusId: input.statusId ?? processo.statusId,
+          dataHomologacao,
+          ...(statusChanged &&
+          selectedCriticalStatusKind &&
+          selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+          dataStatusCritico
+            ? { dataEncerramento: dataStatusCritico }
+            : {}),
+        },
         descricao: `Processo ${processo.numeroSirel} homologado`,
       });
 
@@ -2448,14 +2569,18 @@ export const licitacaoRouter = router({
         const licitacaoAfter: typeof licitacao = {
           ...licitacao,
           statusLicitacao: "HOMOLOGACAO",
-          dataHomologacao: dataHomologacao
-            ? new Date(`${dataHomologacao}T12:00:00`)
-            : new Date(),
+          dataHomologacao: new Date(`${dataHomologacao}T12:00:00`),
         };
         const processoAfter = {
           ...processo,
           homologado: true,
           statusId: input.statusId ?? processo.statusId,
+          ...(statusChanged &&
+          selectedCriticalStatusKind &&
+          selectedCriticalStatusKind !== "HOMOLOGACAO" &&
+          dataStatusCritico
+            ? { dataEncerramento: dataStatusCritico }
+            : {}),
         };
         await logAuditoriaDetalhada(ctx, {
           tabela: "licitacoes",
@@ -2473,6 +2598,7 @@ export const licitacaoRouter = router({
           changes: buildAuditChanges(processo, processoAfter, [
             { key: "homologado", label: "Processo homologado" },
             { key: "statusId", label: "Status do processo" },
+            { key: "dataEncerramento", label: "Data do status crítico" },
           ]),
           justificativa: justificativaAuditoria,
           prefixo: "Homologação fora do fluxo",

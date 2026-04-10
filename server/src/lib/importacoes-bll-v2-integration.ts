@@ -104,7 +104,7 @@ export async function persistEnhancedNormalizedDataset(options: {
     const MAX_NUMERIC_14_2 = 999999999999.99;
 
     const formatNumeric = (
-      value: number | null | undefined,
+      value: number | string | null | undefined,
       scale: number,
       maxAbs: number,
     ) => {
@@ -114,9 +114,9 @@ export async function persistEnhancedNormalizedDataset(options: {
       return num.toFixed(scale);
     };
 
-    const safeQuantidade = (value: number | null | undefined) =>
+    const safeQuantidade = (value: number | string | null | undefined) =>
       formatNumeric(value, 4, MAX_NUMERIC_14_4);
-    const safeValor = (value: number | null | undefined) =>
+    const safeValor = (value: number | string | null | undefined) =>
       formatNumeric(value, 2, MAX_NUMERIC_14_2);
 
     const extractDocumentoFromText = (value?: string | null) => {
@@ -201,8 +201,8 @@ export async function persistEnhancedNormalizedDataset(options: {
             coordenadorNome: processo.coordenadorNome,
             autoridadeNome: processo.autoridadeNome,
             fornecedorNome: processo.fornecedorNome,
-            valorReferencia: processo.valorReferencia,
-            valorTotal: processo.valorTotal,
+            valorReferencia: safeValor(processo.valorReferencia),
+            valorTotal: safeValor(processo.valorTotal),
             publicacaoEm: processo.publicacaoEm,
             conclusaoEm: processo.conclusaoEm,
             inicioRecepcaoEm: processo.inicioRecepcaoEm,
@@ -242,8 +242,8 @@ export async function persistEnhancedNormalizedDataset(options: {
               coordenadorNome: processo.coordenadorNome,
               autoridadeNome: processo.autoridadeNome,
               fornecedorNome: processo.fornecedorNome,
-              valorReferencia: processo.valorReferencia,
-              valorTotal: processo.valorTotal,
+              valorReferencia: safeValor(processo.valorReferencia),
+              valorTotal: safeValor(processo.valorTotal),
               publicacaoEm: processo.publicacaoEm,
               conclusaoEm: processo.conclusaoEm,
               inicioRecepcaoEm: processo.inicioRecepcaoEm,
@@ -345,12 +345,12 @@ export async function persistEnhancedNormalizedDataset(options: {
                 titulo: lote.titulo,
                 tipo: lote.tipo,
                 faseAtual: lote.faseAtual,
-                intervaloMinimoLance: lote.intervaloMinimoLance,
+                intervaloMinimoLance: safeValor(lote.intervaloMinimoLance),
                 exclusivoMe: lote.exclusivoME,
                 localEntrega: lote.localEntrega,
                 garantiaExigida: lote.garantiaExigida,
-                valorReferencia: lote.valorReferencia,
-                valorHomologado: lote.valorHomologado,
+                valorReferencia: safeValor(lote.valorReferencia),
+                valorHomologado: safeValor(lote.valorHomologado),
                 vencedor: lote.vencedor,
                 vencedorFornecedorId,
                 dadosOriginais: lote.dadosOriginais,

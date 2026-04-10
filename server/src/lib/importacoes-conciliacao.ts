@@ -656,19 +656,45 @@ async function findOrCreateSupplier(
   }
 
   // Try to find by name similarity
-  const existingSuppliers = await db
-    .select({ id: fornecedores.id, razaoSocial: fornecedores.razaoSocial })
-    .from(fornecedores)
-    .where(eq(fornecedores.ativo, true))
-    .limit(10);
+  const supplierTokens = tokenizeText(supplierName).filter((token) => token.length >= 4);
+  const supplierLookupTokens = Array.from(
+    new Set(
+      [supplierTokens[0], [...supplierTokens].sort((left, right) => right.length - left.length)[0], supplierTokens[1]].filter(Boolean),
+    ),
+  ).slice(0, 3);
 
-  for (const supplier of existingSuppliers) {
-    if (
-      tokenSimilarity(supplierName, supplier.razaoSocial) >= 0.9 ||
-      normalizeText(supplierName) === normalizeText(supplier.razaoSocial)
-    ) {
-      return supplier.id;
-    }
+  const existingSuppliers = await db
+    .select({
+      id: fornecedores.id,
+      razaoSocial: fornecedores.razaoSocial,
+      cnpj: fornecedores.cnpj,
+    })
+    .from(fornecedores)
+    .where(
+      and(
+        eq(fornecedores.ativo, true),
+        supplierLookupTokens.length
+          ? or(
+              ...supplierLookupTokens.map((token) =>
+                ilike(fornecedores.razaoSocial, `%${token}%`),
+              ),
+            )
+          : ilike(fornecedores.razaoSocial, `%${normalizeText(supplierName)}%`),
+      ),
+    )
+    .limit(80);
+
+  const normalizedSupplierName = normalizeText(supplierName);
+  const bestMatch = existingSuppliers
+    .map((supplier) => ({
+      id: supplier.id,
+      exact: normalizeText(supplier.razaoSocial) === normalizedSupplierName,
+      similarity: tokenSimilarity(supplierName, supplier.razaoSocial),
+    }))
+    .sort((left, right) => Number(right.exact) - Number(left.exact) || right.similarity - left.similarity)[0];
+
+  if (bestMatch && (bestMatch.exact || bestMatch.similarity >= 0.72)) {
+    return bestMatch.id;
   }
 
   // Create a new supplier if no existing one found

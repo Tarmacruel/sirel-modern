@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "ata-sessao:process": "tsx src/scripts/generate-ata-sessao-reports.ts",
+    "backfill:fornecedor-vencedor": "tsx src/scripts/backfill-fornecedor-vencedor-ids.ts",
     "import:legacy": "tsx src/scripts/import-legacy-snapshot.ts",
     "reset:production-baseline": "tsx src/scripts/reset-production-baseline.ts",
     "db:check-seeded": "tsx src/scripts/check-seeded.ts"

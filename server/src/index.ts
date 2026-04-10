@@ -15,6 +15,7 @@ import { logAuditoria } from "./db/auditoria.js";
 import { requireDb } from "./db/client.js";
 import { catalogoItens, documentos, fornecedores } from "./db/schema.js";
 import { verifySessionToken } from "./lib/auth-session.js";
+import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
 import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
 import { appRouter } from "./routers/index.js";
@@ -27,12 +28,17 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const uploadsRoot = resolve(currentDir, "../../storage/uploads");
 const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
+const ataSessaoReportsRoot = resolve(currentDir, "../../storage/reports/atas-sessao");
+const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
 
 if (!existsSync(uploadsRoot)) {
   mkdirSync(uploadsRoot, { recursive: true });
 }
 if (!existsSync(cadastroAssetsRoot)) {
   mkdirSync(cadastroAssetsRoot, { recursive: true });
+}
+if (!existsSync(ataSessaoUploadsRoot)) {
+  mkdirSync(ataSessaoUploadsRoot, { recursive: true });
 }
 
 function resolveDocumentoPath(arquivoChave: string) {
@@ -162,6 +168,23 @@ const cadastroAssetStorage = multer.diskStorage({
 const cadastroAssetUpload = multer({
   storage: cadastroAssetStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const ataSessaoStorage = multer.diskStorage({
+  destination(_req, _file, callback) {
+    mkdirSync(ataSessaoUploadsRoot, { recursive: true });
+    callback(null, ataSessaoUploadsRoot);
+  },
+  filename(_req, file, callback) {
+    const extension = extname(file.originalname) || ".pdf";
+    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "ata-sessao";
+    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+  },
+});
+
+const ataSessaoUpload = multer({
+  storage: ataSessaoStorage,
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 app.use(cors({
@@ -349,6 +372,94 @@ app.post("/api/cadastros/assets/upload", cadastroAssetUpload.single("arquivo"), 
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Falha ao salvar o arquivo do cadastro." });
+  }
+});
+
+app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo"), async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    if (!req.file) {
+      res.status(400).json({ message: "Selecione um arquivo PDF da ata para processar." });
+      return;
+    }
+
+    const extension = extname(req.file.originalname).toLowerCase();
+    if (extension !== ".pdf") {
+      res.status(400).json({ message: "Somente arquivos PDF de ata de sessão são aceitos." });
+      return;
+    }
+
+    const result = await generateAtaSessaoReports({ sourcePath: req.file.path });
+    const artifacts = result.artifacts.map((artifact) => {
+      const relativePath = resolve(artifact.path).replace(/\\/g, "/").replace(resolve(ataSessaoReportsRoot).replace(/\\/g, "/"), "").replace(/^\/+/, "");
+      return {
+        ...artifact,
+        relativePath,
+        downloadUrl: `/api/relatorios/ata-sessao/download?file=${encodeURIComponent(relativePath)}`,
+      };
+    });
+
+    await logAuditoria({ user } as any, {
+      tabela: "relatorios_ata_sessao",
+      registroId: 0,
+      acao: "PROCESS",
+      dadosNovos: {
+        arquivoOriginal: req.file.originalname,
+        outputDir: result.outputDir,
+        summary: result.summary,
+      },
+      descricao: `Processamento avulso de ata de sessão em Documentos: ${req.file.originalname}`,
+    });
+
+    res.status(201).json({
+      ...result,
+      originalFileName: req.file.originalname,
+      artifacts,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao processar a ata de sessão enviada." });
+  }
+});
+
+app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
+  try {
+    const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!relativeFile) {
+      res.status(400).json({ message: "Arquivo do relatório não informado." });
+      return;
+    }
+
+    const absolutePath = resolve(ataSessaoReportsRoot, relativeFile);
+    const normalizedRoot = resolve(ataSessaoReportsRoot).replace(/\\/g, "/");
+    const normalizedTarget = absolutePath.replace(/\\/g, "/");
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      res.status(400).json({ message: "Arquivo de relatório inválido." });
+      return;
+    }
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Arquivo de relatório não encontrado." });
+      return;
+    }
+
+    const extension = extname(absolutePath).toLowerCase();
+    const mimeType =
+      extension === ".pdf"
+        ? "application/pdf"
+        : extension === ".xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : extension === ".json"
+            ? "application/json; charset=utf-8"
+            : "text/plain; charset=utf-8";
+
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(relativeFile.split("/").pop() || "relatorio") || "relatorio"}${extension}\"`);
+    res.sendFile(absolutePath);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao disponibilizar o relatório da ata." });
   }
 });
 

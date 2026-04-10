@@ -9,6 +9,48 @@ export const dossieProcessOptionsInputSchema = z.object({
   limit: z.number().int().positive().max(100).default(50),
 });
 
+export const dossieItemOptionsInputSchema = z.object({
+  search: z.string().trim().optional(),
+  limit: z.number().int().positive().max(100).default(50),
+});
+
+export const dossieFornecedorOptionsInputSchema = z.object({
+  search: z.string().trim().optional(),
+  limit: z.number().int().positive().max(100).default(50),
+});
+
+export const dossieItemFiltersSchema = z.object({
+  periodoInicio: z.string().trim().optional(),
+  periodoFim: z.string().trim().optional(),
+  modalidadeId: z.number().int().positive().optional(),
+  secretariaId: z.number().int().positive().optional(),
+  status: z.string().trim().optional(),
+  processoId: z.number().int().positive().optional(),
+  contratoId: z.number().int().positive().optional(),
+  fornecedorId: z.number().int().positive().optional(),
+});
+
+export const dossieFornecedorFiltersSchema = z.object({
+  periodoInicio: z.string().trim().optional(),
+  periodoFim: z.string().trim().optional(),
+  modalidadeId: z.number().int().positive().optional(),
+  secretariaId: z.number().int().positive().optional(),
+  status: z.string().trim().optional(),
+  processoId: z.number().int().positive().optional(),
+  contratoId: z.number().int().positive().optional(),
+  itemId: z.number().int().positive().optional(),
+});
+
+export const dossieItemDetailInputSchema = z.object({
+  itemId: z.number().int().positive(),
+  filters: dossieItemFiltersSchema.default({}),
+});
+
+export const dossieFornecedorDetailInputSchema = z.object({
+  fornecedorId: z.number().int().positive(),
+  filters: dossieFornecedorFiltersSchema.default({}),
+});
+
 export interface DossieResumo {
   totalItens: number;
   totalFornecedores: number;
@@ -141,6 +183,7 @@ export interface DossiePlanejamento {
 
 export interface DossieItem {
   id: number;
+  catalogoItemId: number | null;
   numeroItem: number;
   loteId: number | null;
   loteNumero: number | null;
@@ -595,6 +638,394 @@ export interface DossieImportacoes {
   };
 }
 
+export interface DossieEntityOption {
+  id: number;
+  label: string;
+  subtitle: string | null;
+}
+
+export interface DossieInsight {
+  id: string;
+  categoria: string;
+  titulo: string;
+  descricao: string;
+  severidade: "info" | "warning" | "critical";
+}
+
+export interface DossieAuditChange {
+  id: number;
+  acao: "CREATE" | "UPDATE" | "DELETE";
+  descricao: string | null;
+  usuario: string | null;
+  criadoEm: string | null;
+  camposAlterados: string[];
+}
+
+export interface DossieTimelineEvent {
+  id: string;
+  tipo: string;
+  titulo: string;
+  descricao: string;
+  data: string | null;
+  href: string | null;
+}
+
+export interface DossieFilterOption {
+  id: number;
+  label: string;
+  subtitle: string | null;
+}
+
+export interface DossieStatusOption {
+  codigo: string;
+  nome: string;
+}
+
+export interface DossieSerieTemporalPoint {
+  chave: string;
+  label: string;
+  valor: number;
+}
+
+export interface DossieMultiSeriePoint {
+  chave: string;
+  label: string;
+  valorA: number;
+  valorB: number;
+  valorC?: number;
+}
+
+export interface DossieScatterPoint {
+  id: string;
+  label: string;
+  eixoX: number;
+  eixoY: number;
+  serie: string | null;
+  descricao: string | null;
+}
+
+export interface DossieHeatmapCell {
+  linha: string;
+  coluna: string;
+  valor: number;
+}
+
+export interface DossieItemIdentificacao {
+  id: number;
+  codigoInterno: string;
+  descricaoResumida: string;
+  descricaoCompleta: string | null;
+  unidadeMedida: string;
+  categoria: string | null;
+  grupo: string | null;
+  familia: string | null;
+  status: string;
+  criadoEm: string | null;
+  atualizadoEm: string | null;
+  observacoes: string | null;
+  aliases: string[];
+}
+
+export interface DossieItemResumo {
+  totalProcessos: number;
+  totalLicitacoes: number;
+  totalContratos: number;
+  quantidadeTotalContratada: number;
+  valorTotalContratado: number;
+  valorMedioContratado: number | null;
+  menorValorUnitarioHistorico: number | null;
+  maiorValorUnitarioHistorico: number | null;
+  ultimoValorContratado: number | null;
+  totalFornecedoresDistintos: number;
+  totalFornecedoresVencedores: number;
+  taxaSucessoMediaContratacao: number | null;
+  totalAparicoes: number;
+  valorEstimadoAcumulado: number;
+  valorHomologadoAcumulado: number;
+}
+
+export interface DossieItemProcessoRow {
+  itemProcessoId: number;
+  processoId: number;
+  numeroSirel: string;
+  numeroAdministrativo: string | null;
+  objetoProcesso: string;
+  secretariaId: number;
+  secretaria: string;
+  modalidadeId: number | null;
+  modalidade: string | null;
+  status: string | null;
+  etapaAtual: string | null;
+  dataReferencia: string | null;
+  quantidadePrevista: number;
+  unidade: string;
+  valorEstimado: number | null;
+  valorHomologado: number | null;
+}
+
+export interface DossieItemLicitacaoRow {
+  itemProcessoId: number;
+  processoId: number;
+  numeroSirel: string;
+  edital: string | null;
+  modalidadeId: number | null;
+  modalidade: string | null;
+  criterioJulgamento: string | null;
+  loteNumero: number | null;
+  itemNumero: number;
+  quantidadeLicitada: number;
+  unidade: string;
+  valorEstimadoUnitario: number | null;
+  melhorValorOfertado: number | null;
+  fornecedorVencedorId: number | null;
+  fornecedorVencedor: string | null;
+  valorVencedor: number | null;
+  economiaAbsoluta: number | null;
+  economiaPercentual: number | null;
+  statusItem: string;
+  dataResultado: string | null;
+}
+
+export interface DossieItemContratoRow {
+  contratoId: number;
+  numeroContrato: string;
+  fornecedorId: number | null;
+  fornecedorNome: string;
+  processoId: number;
+  processoNumeroSirel: string;
+  quantidadeContratada: number;
+  quantidadeConsumida: number;
+  saldoRemanescente: number;
+  valorUnitario: number | null;
+  valorTotalItem: number | null;
+  vigenciaInicio: string | null;
+  vigenciaFim: string | null;
+  status: string;
+}
+
+export interface DossieItemFornecedorRow {
+  fornecedorId: number | null;
+  fornecedorNome: string;
+  documento: string | null;
+  participacoes: number;
+  vitorias: number;
+  menorValorOfertado: number | null;
+  maiorValorOfertado: number | null;
+  valorMedioOfertado: number | null;
+  ultimoValorOfertado: number | null;
+  ultimoValorVencedor: number | null;
+  taxaVitoria: number | null;
+  origemPrincipal: string;
+}
+
+export interface DossieItemEvolucaoPrecoRow {
+  data: string;
+  processoId: number | null;
+  processoNumeroSirel: string | null;
+  fornecedorId: number | null;
+  fornecedorNome: string | null;
+  modalidadeId: number | null;
+  modalidade: string | null;
+  secretariaId: number | null;
+  secretaria: string | null;
+  valorEstimado: number | null;
+  valorVencedor: number | null;
+  valorContratado: number | null;
+}
+
+export interface DossieItemAuditoria {
+  ultimaAtualizacaoCadastro: string | null;
+  usuariosSensiveis: string[];
+  mudancasRelevantes: DossieAuditChange[];
+  vinculosCriticos: string[];
+}
+
+export interface DossieItemCharts {
+  seriePrecos: DossieMultiSeriePoint[];
+  fornecedores: DossieSerieTemporalPoint[];
+  modalidades: DossieSerieTemporalPoint[];
+  status: DossieSerieTemporalPoint[];
+  recorrencia: DossieSerieTemporalPoint[];
+  dispersao: DossieScatterPoint[];
+}
+
+export interface DossieItemFiltersAvailable {
+  modalidades: DossieFilterOption[];
+  secretarias: DossieFilterOption[];
+  processos: DossieFilterOption[];
+  contratos: DossieFilterOption[];
+  fornecedores: DossieFilterOption[];
+  status: DossieStatusOption[];
+}
+
+export interface DossieItemDetail {
+  identificacao: DossieItemIdentificacao;
+  resumo: DossieItemResumo;
+  filtrosDisponiveis: DossieItemFiltersAvailable;
+  processos: DossieItemProcessoRow[];
+  licitacoes: DossieItemLicitacaoRow[];
+  contratos: DossieItemContratoRow[];
+  fornecedores: DossieItemFornecedorRow[];
+  evolucaoPrecos: DossieItemEvolucaoPrecoRow[];
+  insights: DossieInsight[];
+  charts: DossieItemCharts;
+  auditoria: DossieItemAuditoria;
+}
+
+export interface DossieFornecedorIdentificacao {
+  id: number;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  documento: string;
+  situacaoCadastralInterna: string;
+  email: string | null;
+  telefone: string | null;
+  endereco: string | null;
+  municipio: string | null;
+  uf: string | null;
+  criadoEm: string | null;
+  atualizadoEm: string | null;
+  observacoes: string | null;
+  status: string;
+  registroUnificado: boolean;
+}
+
+export interface DossieFornecedorResumoGerencial {
+  totalProcessos: number;
+  totalLicitacoes: number;
+  totalVitorias: number;
+  taxaVitoria: number | null;
+  valorTotalOfertado: number;
+  valorTotalVencido: number;
+  valorTotalContratado: number;
+  totalContratos: number;
+  ticketMedioContrato: number | null;
+  totalItensOfertados: number;
+  totalItensVencidos: number;
+  primeiroRegistroHistorico: string | null;
+  ultimaParticipacao: string | null;
+  ultimaVitoria: string | null;
+}
+
+export interface DossieFornecedorParticipacaoRow {
+  processoId: number;
+  numeroSirel: string;
+  objetoProcesso: string;
+  modalidadeId: number | null;
+  modalidade: string | null;
+  dataReferencia: string | null;
+  papel: string;
+  tipoParticipacao: string;
+  valorGlobalOfertado: number | null;
+  melhorClassificacao: number | null;
+  statusFornecedor: string | null;
+  secretariaId: number;
+  secretaria: string;
+}
+
+export interface DossieFornecedorOfertaRow {
+  id: string;
+  tipoRegistro: string;
+  processoId: number;
+  numeroSirel: string;
+  edital: string | null;
+  itemId: number | null;
+  itemCatalogoId: number | null;
+  itemLabel: string;
+  loteNumero: number | null;
+  valorEstimado: number | null;
+  valorOfertadoInicial: number | null;
+  valorFinal: number | null;
+  diferencaPercentualEstimado: number | null;
+  classificacao: number | null;
+  resultado: string | null;
+  dataReferencia: string | null;
+}
+
+export interface DossieFornecedorVitoriaRow {
+  processoId: number;
+  numeroSirel: string;
+  edital: string | null;
+  itemProcessoId: number;
+  itemCatalogoId: number | null;
+  itemLabel: string;
+  loteNumero: number | null;
+  quantidade: number;
+  unidade: string;
+  valorVencedorUnitario: number | null;
+  valorTotalVencido: number | null;
+  dataResultado: string | null;
+  statusPosterior: string;
+}
+
+export interface DossieFornecedorContratoRow {
+  contratoId: number;
+  origem: "INTERNO" | "PNCP";
+  numeroContrato: string;
+  processoId: number | null;
+  processoNumeroSirel: string | null;
+  objetoResumido: string;
+  valorTotalContrato: number | null;
+  valorAtribuidoFornecedor: number | null;
+  vigenciaInicio: string | null;
+  vigenciaFim: string | null;
+  status: string;
+  totalItens: number;
+  saldo: number | null;
+  pncpUrl: string | null;
+}
+
+export interface DossieFornecedorItemRow {
+  itemCatalogoId: number | null;
+  itemLabel: string;
+  ofertado: number;
+  vencido: number;
+  menorPrecoOfertado: number | null;
+  precoMedioOfertado: number | null;
+  ultimoPrecoOfertado: number | null;
+  ultimoPrecoVencedor: number | null;
+  participacaoVitoriasFornecedor: number | null;
+}
+
+export interface DossieFornecedorAuditoria {
+  ultimaAtualizacaoCadastro: string | null;
+  trilha: DossieAuditChange[];
+  observacoesCriticas: string[];
+}
+
+export interface DossieFornecedorCharts {
+  participacoesVitorias: DossieMultiSeriePoint[];
+  valorVencidoPorAno: DossieSerieTemporalPoint[];
+  modalidades: DossieSerieTemporalPoint[];
+  topItens: DossieSerieTemporalPoint[];
+  funil: DossieSerieTemporalPoint[];
+  heatmapSecretaria: DossieHeatmapCell[];
+}
+
+export interface DossieFornecedorFiltersAvailable {
+  modalidades: DossieFilterOption[];
+  secretarias: DossieFilterOption[];
+  processos: DossieFilterOption[];
+  contratos: DossieFilterOption[];
+  itens: DossieFilterOption[];
+  status: DossieStatusOption[];
+}
+
+export interface DossieFornecedorDetail {
+  identificacao: DossieFornecedorIdentificacao;
+  resumo: DossieFornecedorResumoGerencial;
+  filtrosDisponiveis: DossieFornecedorFiltersAvailable;
+  participacoes: DossieFornecedorParticipacaoRow[];
+  ofertas: DossieFornecedorOfertaRow[];
+  vitorias: DossieFornecedorVitoriaRow[];
+  contratos: DossieFornecedorContratoRow[];
+  itens: DossieFornecedorItemRow[];
+  timeline: DossieTimelineEvent[];
+  insights: DossieInsight[];
+  charts: DossieFornecedorCharts;
+  auditoria: DossieFornecedorAuditoria;
+}
+
 export interface DossieDetail {
   resumo: DossieResumo;
   processo: DossieProcesso;
@@ -625,4 +1056,16 @@ export interface DossieDetail {
 export type DossieDetailInput = z.infer<typeof dossieDetailInputSchema>;
 export type DossieProcessOptionsInput = z.infer<
   typeof dossieProcessOptionsInputSchema
+>;
+export type DossieItemOptionsInput = z.infer<
+  typeof dossieItemOptionsInputSchema
+>;
+export type DossieFornecedorOptionsInput = z.infer<
+  typeof dossieFornecedorOptionsInputSchema
+>;
+export type DossieItemDetailInput = z.infer<
+  typeof dossieItemDetailInputSchema
+>;
+export type DossieFornecedorDetailInput = z.infer<
+  typeof dossieFornecedorDetailInputSchema
 >;

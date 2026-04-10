@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ExternalLink, FileText, Search } from "lucide-react";
 
+import { PageIntro } from "@/components/shared/page-intro";
 import { ProcessMacroPanel } from "@/components/shared/process-macro-panel";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -123,6 +124,26 @@ export function ContratosPage() {
 
   return (
     <div className="space-y-6">
+      <PageIntro
+        eyebrow="Ciclo principal"
+        title="Contratos com leitura macro e acesso direto aos vinculos."
+        description="A entrada do modulo concentra contratos vigentes, processos em formalizacao e atalhos para processo, fornecedor e base externa sem quebrar a navegacao."
+        dataTourId="contratos-intro"
+        meta={[
+          { label: "Total", value: String(summaryQuery.data?.total ?? 0) },
+          { label: "Ativos", value: String(summaryQuery.data?.ativos ?? 0) },
+          { label: "Expirando em 30 dias", value: String(summaryQuery.data?.expirandoEm30Dias ?? 0) },
+        ]}
+        aside={
+          <div className="rounded-[24px] border border-white/12 bg-white/[0.08] p-4 text-white backdrop-blur-sm xl:max-w-[340px]">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-sky-100/70">Foco operacional</p>
+            <p className="mt-3 text-sm leading-7 text-slate-200">
+              Combine a visao macro do processo com a lista contratual para agir rapido em vigencia, fornecedor e origem do ajuste.
+            </p>
+          </div>
+        }
+      />
+
       {selectedProcess ? (
         <ProcessMacroPanel
           moduleLabel="Contratos"
@@ -172,8 +193,9 @@ export function ContratosPage() {
         title="Contratos"
         description="Base de contratos da SIREL com visao macro do processo, filtros, resumo e paginacao para crescimento real da operacao."
       >
-        <Tabs
-          items={[
+        <div data-tour-id="contratos-list">
+          <Tabs
+            items={[
             {
               value: "visao-geral",
               label: "Visao geral",
@@ -395,10 +417,30 @@ export function ContratosPage() {
                                     {row.origem}
                                   </span>
                                 </TableCell>
-                                <TableCell>{row.processoNumeroSirel}</TableCell>
+                                <TableCell>
+                                  {row.processoId ? (
+                                    <Link
+                                      href={`/dossie/${row.processoId}`}
+                                      className="font-semibold text-[var(--accent-color)]"
+                                    >
+                                      {row.processoNumeroSirel}
+                                    </Link>
+                                  ) : (
+                                    row.processoNumeroSirel
+                                  )}
+                                </TableCell>
                                 <TableCell>
                                   <div className="max-w-[280px] truncate">
-                                    {row.fornecedor}
+                                    {row.fornecedorId ? (
+                                      <Link
+                                        href={`/dossie/fornecedor/${row.fornecedorId}`}
+                                        className="font-semibold text-[var(--accent-color)]"
+                                      >
+                                        {row.fornecedor}
+                                      </Link>
+                                    ) : (
+                                      row.fornecedor
+                                    )}
                                   </div>
                                   <div className="text-xs text-[var(--text-muted)]">
                                     {row.objeto}
@@ -412,6 +454,20 @@ export function ContratosPage() {
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex flex-wrap gap-2">
+                                    {row.processoId ? (
+                                      <Link href={`/dossie/${row.processoId}`}>
+                                        <Button variant="outline" size="sm">
+                                          Dossiê processo
+                                        </Button>
+                                      </Link>
+                                    ) : null}
+                                    {row.fornecedorId ? (
+                                      <Link href={`/dossie/fornecedor/${row.fornecedorId}`}>
+                                        <Button variant="outline" size="sm">
+                                          Dossiê fornecedor
+                                        </Button>
+                                      </Link>
+                                    ) : null}
                                     {row.pncpUrl ? (
                                       <a
                                         href={row.pncpUrl}
@@ -493,8 +549,9 @@ export function ContratosPage() {
                 </div>
               ),
             },
-          ]}
-        />
+            ]}
+          />
+        </div>
       </SectionCard>
     </div>
   );

@@ -1,4 +1,4 @@
-﻿import { FileStack, Search, ShieldCheck, Stamp, Upload } from "lucide-react";
+﻿import { Download, FileCog, FileStack, Search, ShieldCheck, Stamp, Upload } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { documentoAccessRoleOptions } from "@sirel/shared/schemas/documentos";
@@ -14,9 +14,15 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
-import { deleteProcessoDocumento, uploadProcessoDocumento, type DocumentoTipo } from "@/lib/document-upload";
+import {
+  deleteProcessoDocumento,
+  processAtaSessaoDocumento,
+  resolveServerAssetUrl,
+  uploadProcessoDocumento,
+  type AtaSessaoStandaloneProcessResult,
+  type DocumentoTipo,
+} from "@/lib/document-upload";
 import { formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
-import { resolveServerAssetUrl } from "@/lib/document-upload";
 import { trpc } from "@/lib/trpc";
 
 const pillars = [
@@ -70,6 +76,11 @@ export function DocumentosPage() {
   const [metadataForm, setMetadataForm] = useState(initialMetadataForm);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ataFile, setAtaFile] = useState<File | null>(null);
+  const [ataFeedback, setAtaFeedback] = useState<string | null>(null);
+  const [ataError, setAtaError] = useState<string | null>(null);
+  const [ataProcessing, setAtaProcessing] = useState(false);
+  const [ataResult, setAtaResult] = useState<AtaSessaoStandaloneProcessResult | null>(null);
   const deferredSearch = useDeferredValue(search.trim());
   const deferredCategory = useDeferredValue(categoria.trim());
 
@@ -189,6 +200,36 @@ export function DocumentosPage() {
     } catch (deleteError) {
       setFeedback(null);
       setError(deleteError instanceof Error ? deleteError.message : "Falha ao remover o documento.");
+    }
+  }
+
+  async function handleProcessAta(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAtaFeedback(null);
+    setAtaError(null);
+
+    if (!ataFile) {
+      setAtaError("Selecione o PDF da ata para gerar os relatórios avulsos.");
+      return;
+    }
+
+    if (!ataFile.name.toLowerCase().endsWith(".pdf")) {
+      setAtaError("Envie um arquivo PDF de ata de sessão.");
+      return;
+    }
+
+    try {
+      setAtaProcessing(true);
+      const result = await processAtaSessaoDocumento(ataFile);
+      setAtaResult(result);
+      setAtaFeedback("Ata processada com sucesso. Os relatórios foram gerados sem vínculo com o acervo do processo.");
+      setAtaFile(null);
+    } catch (processingError) {
+      setAtaResult(null);
+      setAtaFeedback(null);
+      setAtaError(processingError instanceof Error ? processingError.message : "Falha ao processar a ata de sessão.");
+    } finally {
+      setAtaProcessing(false);
     }
   }
 
@@ -446,5 +487,7 @@ export function DocumentosPage() {
     </SectionCard>
   );
 }
+
+
 
 

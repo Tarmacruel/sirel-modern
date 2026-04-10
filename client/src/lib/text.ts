@@ -1,32 +1,68 @@
-const mojibakeReplacements: Array<[RegExp, string]> = [
-  [/Configura\?+o/gi, "Configuração"],
-  [/configura\?+o/gi, "configuração"],
-  [/Licita\?+o/gi, "Licitação"],
-  [/licita\?+o/gi, "licitação"],
-  [/altera\?+o/gi, "alteração"],
-  [/altera\?+es/gi, "alterações"],
-  [/prepara\?+o/gi, "preparação"],
-  [/Publica\?+o/gi, "Publicação"],
-  [/publica\?+o/gi, "publicação"],
-  [/confer\?ncia/gi, "conferência"],
-  [/Descri\?+o/gi, "Descrição"],
-  [/descri\?+o/gi, "descrição"],
-  [/situa\?+o/gi, "situação"],
-  [/avalia\?+o/gi, "avaliação"],
-  [/recep\?+o/gi, "recepção"],
-  [/homologa\?+o/gi, "homologação"],
-  [/habilita\?+o/gi, "habilitação"],
-  [/movimenta\?+o/gi, "movimentação"],
-  [/In\?cio/gi, "Início"],
-  [/in\?cio/gi, "início"],
-  [/inv\?lida/gi, "inválida"],
-  [/inv\?lido/gi, "inválido"],
-  [/\bn\?o\b/gi, "não"],
-  [/\bgest\?o\b/gi, "gestão"],
+const latin1MojibakeReplacements: Array<[RegExp, string]> = [
+  [/Ã§/g, "c"],
+  [/Ã£/g, "a"],
+  [/Ã¡/g, "a"],
+  [/Ã¢/g, "a"],
+  [/Ã /g, "a"],
+  [/Ã¤/g, "a"],
+  [/Ã©/g, "e"],
+  [/Ãª/g, "e"],
+  [/Ã¨/g, "e"],
+  [/Ã­/g, "i"],
+  [/Ã¬/g, "i"],
+  [/Ã³/g, "o"],
+  [/Ã´/g, "o"],
+  [/Ãµ/g, "o"],
+  [/Ã²/g, "o"],
+  [/Ãº/g, "u"],
+  [/Ã¹/g, "u"],
+  [/Ã‡/g, "C"],
+  [/Ã‰/g, "E"],
+  [/ÃŠ/g, "E"],
+  [/Ã“/g, "O"],
+  [/Ã”/g, "O"],
+  [/Ãš/g, "U"],
+  [/Ã�/g, "A"],
+];
+
+const replacementCharFixes: Array<[RegExp, string]> = [
+  [/Configura\uFFFD+o/gi, "Configuracao"],
+  [/Licita\uFFFD+o/gi, "Licitacao"],
+  [/Publica\uFFFD+o/gi, "Publicacao"],
+  [/Descri\uFFFD+o/gi, "Descricao"],
+  [/situa\uFFFD+o/gi, "situacao"],
+  [/Situa\uFFFD+o/gi, "Situacao"],
+  [/habilita\uFFFD+o/gi, "habilitacao"],
+  [/Habilita\uFFFD+o/gi, "Habilitacao"],
+  [/homologa\uFFFD+o/gi, "homologacao"],
+  [/Homologa\uFFFD+o/gi, "Homologacao"],
+  [/movimenta\uFFFD+es/gi, "movimentacoes"],
+  [/Movimenta\uFFFD+es/gi, "Movimentacoes"],
+  [/confer\uFFFD+ncia/gi, "conferencia"],
+  [/Usu\uFFFD+rio/gi, "Usuario"],
+  [/Respons\uFFFD+vel/gi, "Responsavel"],
+  [/\bn\uFFFD+o\b/gi, "nao"],
+  [/\bN\uFFFD+o\b/g, "Nao"],
+  [/invers\uFFFD+o/gi, "inversao"],
+  [/crit\uFFFD+rio/gi, "criterio"],
+  [/previs\uFFFD+o/gi, "previsao"],
+  [/n\uFFFD+mero/gi, "numero"],
+  [/\uFFFD+ltima/gi, "Ultima"],
+  [/\uFFFD+ltimo/gi, "Ultimo"],
 ];
 
 export function cleanDisplayText(value: string | null | undefined) {
   if (!value) return "";
 
-  return mojibakeReplacements.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), value);
+  let normalized = value;
+
+  for (const [pattern, replacement] of latin1MojibakeReplacements) {
+    normalized = normalized.replace(pattern, replacement);
+  }
+
+  for (const [pattern, replacement] of replacementCharFixes) {
+    normalized = normalized.replace(pattern, replacement);
+  }
+
+  return normalized;
 }

@@ -6,6 +6,8 @@ import {
   workflowSituacaoOptions,
 } from "../const.js";
 
+const optionalDateString = z.string().trim().min(1).max(20).optional();
+
 export const workflowListInputSchema = z.object({
   page: z.number().int().positive().default(1),
   pageSize: z.number().int().positive().max(100).default(12),
@@ -22,6 +24,7 @@ export const workflowMoveInputSchema = z.object({
   situacao: z.enum(workflowSituacaoOptions),
   etapaAtual: z.string().trim().min(3).max(255),
   statusId: z.number().int().positive().optional(),
+  dataStatus: optionalDateString,
   condutorProcessoId: z.number().int().positive().optional(),
   descricao: z.string().trim().min(3).max(255).optional(),
   observacao: z.string().trim().max(2000).optional(),
@@ -31,6 +34,7 @@ export const workflowPublishInputSchema = z.object({
   processoId: z.number().int().positive(),
   condutorProcessoId: z.number().int().positive(),
   statusId: z.number().int().positive().optional(),
+  dataStatus: optionalDateString,
   descricao: z.string().trim().min(3).max(255).optional(),
   observacao: z.string().trim().max(2000).optional(),
 });

@@ -3,12 +3,17 @@ import { asc, desc, eq, ilike, inArray, or } from "drizzle-orm";
 
 import {
   dossieDetailInputSchema,
+  dossieFornecedorDetailInputSchema,
+  dossieFornecedorOptionsInputSchema,
+  dossieItemDetailInputSchema,
+  dossieItemOptionsInputSchema,
   dossieProcessOptionsInputSchema,
 } from "@sirel/shared/schemas/dossie";
 
 import { requireDb } from "../db/client.js";
 import {
   aditivosContratos,
+  catalogoItens,
   contratosPncp,
   contratos,
   contratoItens,
@@ -54,6 +59,19 @@ import {
   workflowProcesso,
 } from "../db/schema.js";
 import { refreshDossieAutonomoProcesso } from "../lib/dossie-autonomia.js";
+import {
+  buildFornecedorDossieDetail,
+  buildItemDossieDetail,
+} from "../lib/dossie-entidades.js";
+import {
+  canonicalFornecedorId,
+  fornecedorNamesLikelySame,
+  loadFornecedorIdentityCandidates,
+  loadFornecedorMergeAliasMap,
+  normalizeFornecedorDocumentKey,
+  resolveFornecedorReference,
+  tokenizeFornecedorNome,
+} from "../lib/fornecedor-identidade.js";
 import { operadorProcedure, protectedProcedure, router } from "../trpc.js";
 
 function toNumber(value: unknown) {
@@ -62,6 +80,8 @@ function toNumber(value: unknown) {
 }
 
 function toNumberOrNull(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && !value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -143,6 +163,82 @@ export const dossieRouter = router({
         .orderBy(desc(processos.atualizadoEm), desc(processos.id))
         .limit(input.limit);
     }),
+
+  itemOptions: protectedProcedure
+    .input(dossieItemOptionsInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const search = input.search?.trim();
+      const whereClause = search
+        ? or(
+            ilike(catalogoItens.descricao, `%${search}%`),
+            ilike(catalogoItens.unidadePadrao, `%${search}%`),
+          )
+        : undefined;
+
+      const rows = await db
+        .select({
+          id: catalogoItens.id,
+          descricao: catalogoItens.descricao,
+          unidadePadrao: catalogoItens.unidadePadrao,
+          ativo: catalogoItens.ativo,
+        })
+        .from(catalogoItens)
+        .where(whereClause)
+        .orderBy(asc(catalogoItens.descricao), asc(catalogoItens.id))
+        .limit(input.limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        label: row.descricao,
+        subtitle: `${row.unidadePadrao} • ${row.ativo ? "Ativo" : "Inativo"}`,
+      }));
+    }),
+
+  fornecedorOptions: protectedProcedure
+    .input(dossieFornecedorOptionsInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const search = input.search?.trim();
+      const whereClause = search
+        ? or(
+            ilike(fornecedores.razaoSocial, `%${search}%`),
+            ilike(fornecedores.cnpj, `%${search}%`),
+            ilike(fornecedores.email, `%${search}%`),
+            ilike(fornecedores.cidade, `%${search}%`),
+          )
+        : undefined;
+
+      const rows = await db
+        .select({
+          id: fornecedores.id,
+          razaoSocial: fornecedores.razaoSocial,
+          cnpj: fornecedores.cnpj,
+          cidade: fornecedores.cidade,
+          estado: fornecedores.estado,
+          ativo: fornecedores.ativo,
+        })
+        .from(fornecedores)
+        .where(whereClause)
+        .orderBy(asc(fornecedores.razaoSocial), asc(fornecedores.id))
+        .limit(input.limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        label: row.razaoSocial,
+        subtitle: [row.cnpj, row.cidade ? `${row.cidade}/${row.estado ?? ""}` : null, row.ativo ? "Ativo" : "Inativo"]
+          .filter(Boolean)
+          .join(" • "),
+      }));
+    }),
+
+  itemDetail: protectedProcedure
+    .input(dossieItemDetailInputSchema)
+    .query(async ({ input }) => buildItemDossieDetail(input)),
+
+  fornecedorDetail: protectedProcedure
+    .input(dossieFornecedorDetailInputSchema)
+    .query(async ({ input }) => buildFornecedorDossieDetail(input)),
 
   detail: protectedProcedure
     .input(dossieDetailInputSchema)
@@ -251,6 +347,7 @@ export const dossieRouter = router({
       const itemsRows = await db
         .select({
           id: itensProcesso.id,
+          catalogoItemId: itensProcesso.catalogoItemId,
           numeroItem: itensProcesso.numeroItem,
           loteId: itensProcesso.loteId,
           loteNumero: lotes.numeroLote,
@@ -760,6 +857,161 @@ export const dossieRouter = router({
           : Promise.resolve([]),
       ]);
 
+      const mergeAliasMap = await loadFornecedorMergeAliasMap(db);
+      const processSupplierRefs = [
+        ...cotacaoRows.map((row) => ({
+          fornecedorId: row.fornecedorId,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorCnpj,
+        })),
+        ...licitantesRows.map((row) => ({
+          fornecedorId: row.fornecedorId,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorCnpj,
+        })),
+        ...propostasRows.map((row) => ({
+          fornecedorId: row.fornecedorId,
+          nome: row.fornecedorNome,
+          cnpj: null,
+        })),
+        ...contratosRows.map((row) => ({
+          fornecedorId: row.fornecedorId,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorCnpj,
+        })),
+        ...normalizedPncpContractsRows.map((row) => ({
+          fornecedorId: row.fornecedorId,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorCnpj,
+        })),
+        ...itemValuesRows.map((row) => ({
+          fornecedorId: row.fornecedorVencedorId,
+          nome: row.fornecedorVencedorNome,
+          cnpj: row.fornecedorVencedorCnpj,
+        })),
+        ...(bllRow?.fornecedorNome
+          ? [{ fornecedorId: null, nome: bllRow.fornecedorNome, cnpj: null }]
+          : []),
+        ...bllItensRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.fornecedorNome,
+          cnpj: null,
+        })),
+        ...bllLotesRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.vencedor,
+          cnpj: null,
+        })),
+        ...bllItensEspecificadosRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.fornecedorHomologado,
+          cnpj: null,
+        })),
+        ...pncpContratacaoItensRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorDocumento,
+        })),
+        ...pncpAtasRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorDocumento,
+        })),
+        ...pncpContratosRows.map((row) => ({
+          fornecedorId: null,
+          nome: row.fornecedorNome,
+          cnpj: row.fornecedorDocumento,
+        })),
+      ];
+      const supplierIdentityCandidates = await loadFornecedorIdentityCandidates(
+        db,
+        processSupplierRefs,
+      );
+      const processActivityBySupplierId = new Map<number, number>();
+      const bumpProcessActivity = (fornecedorId: number | null | undefined) => {
+        const canonicalId = canonicalFornecedorId(fornecedorId ?? null, mergeAliasMap);
+        if (!canonicalId) return;
+        processActivityBySupplierId.set(
+          canonicalId,
+          (processActivityBySupplierId.get(canonicalId) ?? 0) + 1,
+        );
+      };
+      for (const row of cotacaoRows) bumpProcessActivity(row.fornecedorId);
+      for (const row of licitantesRows) bumpProcessActivity(row.fornecedorId);
+      for (const row of propostasRows) bumpProcessActivity(row.fornecedorId);
+      for (const row of contratosRows) bumpProcessActivity(row.fornecedorId);
+      for (const row of normalizedPncpContractsRows) bumpProcessActivity(row.fornecedorId);
+
+      const canonicalSupplierByCandidateId = new Map<number, (typeof supplierIdentityCandidates)[number]>();
+      const rankCanonicalSupplier = (row: (typeof supplierIdentityCandidates)[number]) => {
+        const tokenCount = tokenizeFornecedorNome(row.razaoSocial).length;
+        return (
+          Number(Boolean(normalizeFornecedorDocumentKey(row.cnpj))) * 1000 +
+          tokenCount * 50 +
+          row.razaoSocial.length +
+          (processActivityBySupplierId.get(row.id) ?? 0) * 10 +
+          Number(Boolean(row.ativo))
+        );
+      };
+      for (const supplierRow of supplierIdentityCandidates) {
+        const matches = supplierIdentityCandidates.filter((candidate) => {
+          const leftDoc = normalizeFornecedorDocumentKey(candidate.cnpj);
+          const rightDoc = normalizeFornecedorDocumentKey(supplierRow.cnpj);
+          if (leftDoc && rightDoc && leftDoc === rightDoc) return true;
+          return fornecedorNamesLikelySame(
+            candidate.razaoSocial,
+            supplierRow.razaoSocial,
+          );
+        });
+        const canonical =
+          matches.sort(
+            (left, right) =>
+              rankCanonicalSupplier(right) - rankCanonicalSupplier(left) ||
+              left.id - right.id,
+          )[0] ?? supplierRow;
+        canonicalSupplierByCandidateId.set(supplierRow.id, canonical);
+      }
+      const processPreferredSupplierIds = new Set(
+        processSupplierRefs
+          .map((row) =>
+            canonicalFornecedorId(row.fornecedorId ?? null, mergeAliasMap),
+          )
+          .filter((value): value is number => Boolean(value)),
+      );
+      const resolveFornecedorRef = (reference: {
+        fornecedorId?: number | null;
+        nome?: string | null;
+        cnpj?: string | null;
+      }) =>
+        canonicalSupplierByCandidateId.get(
+          resolveFornecedorReference({
+            reference,
+            suppliers: supplierIdentityCandidates,
+            mergeMap: mergeAliasMap,
+            preferredSupplierIds: processPreferredSupplierIds,
+          })?.id ?? 0,
+        ) ??
+        resolveFornecedorReference({
+          reference,
+          suppliers: supplierIdentityCandidates,
+          mergeMap: mergeAliasMap,
+          preferredSupplierIds: processPreferredSupplierIds,
+        });
+      const itemValuesResolvedRows = itemValuesRows.map((row) => {
+        const resolved = resolveFornecedorRef({
+          fornecedorId: row.fornecedorVencedorId,
+          nome: row.fornecedorVencedorNome,
+          cnpj: row.fornecedorVencedorCnpj,
+        });
+        return {
+          ...row,
+          fornecedorVencedorId: resolved?.id ?? row.fornecedorVencedorId ?? null,
+          fornecedorVencedorNome:
+            resolved?.razaoSocial ?? row.fornecedorVencedorNome ?? null,
+          fornecedorVencedorCnpj: resolved?.cnpj ?? row.fornecedorVencedorCnpj ?? null,
+        };
+      });
+
       const peopleMap = new Map(personRows.map((row) => [row.id, row]));
       const usersMap = new Map(userRows.map((row) => [row.id, row.name]));
       const secretariasMap = new Map(
@@ -771,7 +1023,7 @@ export const dossieRouter = router({
       const propostaById = new Map(propostasRows.map((row) => [row.id, row]));
       const itemById = new Map(itemsRows.map((row) => [row.id, row]));
       const itemValueByItemId = new Map(
-        itemValuesRows.map((row) => [row.itemProcessoId, row]),
+        itemValuesResolvedRows.map((row) => [row.itemProcessoId, row]),
       );
 
       const preliminaresPorItem = new Map<number, number>();
@@ -847,19 +1099,31 @@ export const dossieRouter = router({
         estado?: string | null;
         origem: string;
       }) {
-        const nome = String(entry.nome ?? "").trim();
+        const resolved = resolveFornecedorRef({
+          fornecedorId: entry.fornecedorId,
+          nome: entry.nome,
+          cnpj: entry.cnpj,
+        });
+        const fornecedorId =
+          resolved?.id ??
+          canonicalFornecedorId(entry.fornecedorId ?? null, mergeAliasMap) ??
+          null;
+        const nome = String(
+          resolved?.razaoSocial ?? entry.nome ?? "",
+        ).trim();
+        const cnpj = resolved?.cnpj ?? entry.cnpj ?? null;
         if (!nome) return null;
-        const key = entry.fornecedorId
-          ? `id:${entry.fornecedorId}`
-          : `name:${normalizeName(nome)}|${entry.cnpj ?? ""}`;
+        const key = fornecedorId
+          ? `id:${fornecedorId}`
+          : `name:${normalizeName(nome)}|${normalizeFornecedorDocumentKey(cnpj) || cnpj || ""}`;
         const current = fornecedorMap.get(key) ?? {
-          fornecedorId: entry.fornecedorId ?? null,
+          fornecedorId,
           nome,
-          cnpj: entry.cnpj ?? null,
-          telefone: entry.telefone ?? null,
-          email: entry.email ?? null,
-          cidade: entry.cidade ?? null,
-          estado: entry.estado ?? null,
+          cnpj,
+          telefone: resolved?.telefone ?? entry.telefone ?? null,
+          email: resolved?.email ?? entry.email ?? null,
+          cidade: resolved?.cidade ?? entry.cidade ?? null,
+          estado: resolved?.estado ?? entry.estado ?? null,
           cotacoes: 0,
           licitacoes: 0,
           contratos: 0,
@@ -871,12 +1135,15 @@ export const dossieRouter = router({
         };
 
         current.origem.add(entry.origem);
-        if (!current.cnpj && entry.cnpj) current.cnpj = entry.cnpj;
-        if (!current.telefone && entry.telefone)
-          current.telefone = entry.telefone;
-        if (!current.email && entry.email) current.email = entry.email;
-        if (!current.cidade && entry.cidade) current.cidade = entry.cidade;
-        if (!current.estado && entry.estado) current.estado = entry.estado;
+        if (!current.cnpj && cnpj) current.cnpj = cnpj;
+        if (!current.telefone && (resolved?.telefone ?? entry.telefone))
+          current.telefone = resolved?.telefone ?? entry.telefone ?? null;
+        if (!current.email && (resolved?.email ?? entry.email))
+          current.email = resolved?.email ?? entry.email ?? null;
+        if (!current.cidade && (resolved?.cidade ?? entry.cidade))
+          current.cidade = resolved?.cidade ?? entry.cidade ?? null;
+        if (!current.estado && (resolved?.estado ?? entry.estado))
+          current.estado = resolved?.estado ?? entry.estado ?? null;
         fornecedorMap.set(key, current);
         return current;
       }
@@ -915,7 +1182,7 @@ export const dossieRouter = router({
         entry.contratos += 1;
         entry.valorContratado += toNumber(row.valorContrato);
       }
-      for (const row of itemValuesRows) {
+      for (const row of itemValuesResolvedRows) {
         const entry = ensureFornecedor({
           fornecedorId: row.fornecedorVencedorId,
           nome: row.fornecedorVencedorNome,
@@ -1048,7 +1315,7 @@ export const dossieRouter = router({
           origemPrincipal: string;
         }
       >();
-      for (const row of itemValuesRows) {
+      for (const row of itemValuesResolvedRows) {
         const nome = String(row.fornecedorVencedorNome ?? "").trim();
         if (!nome || !row.itemHomologado) continue;
         const key = row.fornecedorVencedorId
@@ -1067,22 +1334,22 @@ export const dossieRouter = router({
         fornecedoresVencedoresMap.set(key, current);
       }
 
-      const totalItensHomologados = itemValuesRows.filter(
+      const totalItensHomologados = itemValuesResolvedRows.filter(
         (row) => row.itemHomologado,
       ).length;
-      const totalItensFracassados = itemValuesRows.filter(
+      const totalItensFracassados = itemValuesResolvedRows.filter(
         (row) => row.itemFracassado,
       ).length;
-      const totalItensDesertos = itemValuesRows.filter(
+      const totalItensDesertos = itemValuesResolvedRows.filter(
         (row) => row.itemDeserto,
       ).length;
       const valorEstimadoFinanceiro =
         sumValues(
-          itemValuesRows.map((row) => toNumberOrNull(row.valorEstimadoTotal)),
+          itemValuesResolvedRows.map((row) => toNumberOrNull(row.valorEstimadoTotal)),
         ) || toNumber(baseRow.valorEstimado);
       const valorVencedorFinanceiro =
         sumValues(
-          itemValuesRows.map((row) =>
+          itemValuesResolvedRows.map((row) =>
             toNumberOrNull(row.valorLanceVencedorTotal),
           ),
         ) || toNumber(baseRow.valorHomologado);
@@ -1096,7 +1363,7 @@ export const dossieRouter = router({
           ? (totalItensHomologados / itemsRows.length) * 100
           : null;
       const ultimaSincronizacaoFinanceira =
-        itemValuesRows
+        itemValuesResolvedRows
           .map((row) => toDateValue(row.atualizadoEm))
           .filter(Boolean)
           .sort()
@@ -1294,6 +1561,7 @@ export const dossieRouter = router({
           const itemValues = itemValueByItemId.get(row.id);
           return {
             id: row.id,
+            catalogoItemId: row.catalogoItemId,
             numeroItem: row.numeroItem,
             loteId: row.loteId,
             loteNumero: row.loteNumero,

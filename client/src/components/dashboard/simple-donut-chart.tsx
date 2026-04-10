@@ -34,7 +34,7 @@ export function SimpleDonutChart({
     .join(", ");
 
   return (
-    <div className="grid gap-4 md:grid-cols-[180px_1fr] md:items-center">
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[160px_minmax(0,1fr)] lg:items-center 2xl:grid-cols-[180px_minmax(0,1fr)]">
       <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-full" style={{ background: `conic-gradient(${gradientStops})` }}>
         <div className="flex h-28 w-28 flex-col items-center justify-center rounded-full bg-[var(--surface-card)] text-center shadow-inner">
           <span className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">Total</span>
@@ -50,7 +50,7 @@ export function SimpleDonutChart({
               key={`${item.label}-${index}`}
               type="button"
               onClick={() => onSliceClick?.(item)}
-              className={`w-full rounded-2xl border px-4 py-3 text-left transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isSelected ? "border-[var(--accent-color)] bg-[var(--surface-highlight)] shadow-sm" : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)]"}`}
+              className={`w-full min-w-0 rounded-2xl border px-4 py-3 text-left transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${isSelected ? "border-[var(--accent-color)] bg-[var(--surface-highlight)] shadow-sm" : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)]"}`}
             >
               <div className="flex items-center justify-between gap-3 text-sm">
                 <div className="flex min-w-0 items-center gap-3">
