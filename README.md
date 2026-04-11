@@ -33,7 +33,7 @@ Entraram nesta revisao:
 - revisao da experiencia de entrada com login, dashboard operacional, command palette e tour guiado;
 - nova funcionalidade em `Documentos` para processar `Ata de Sessao` de forma avulsa;
 - geracao automatica de relatorios PDF/XLSX de lotes adjudicados, em habilitacao e malsucedidos;
-- parser e renderer de relatorios de ata com melhor normalizacao, logging e paginação.
+- parser e renderer de relatorios de ata com melhor normalizacao, logging e paginacao.
 
 ## Publicacao atual
 
@@ -158,12 +158,62 @@ Esse comando:
 
 - gera dump PostgreSQL;
 - compacta `storage/uploads`;
+- compacta `storage/reports`;
+- inclui uma cópia do `.env` como `.env.backup`;
+- gera `metadata.json`, `metadata.txt` e `backup.log`;
+- grava checksums SHA-256 dos componentes e do pacote final;
+- cria sidecars `<backup>.metadata.json` e `<backup>.sha256.txt`;
 - monta um pacote `.zip` em `storage/backups/`;
-- mantem os 7 backups mais recentes.
+- espelha o pacote em `C:\Users\078364\OneDrive\BACKUPS`;
+- mantém os 10 backups mais recentes nos dois destinos;
+- impede execução simultânea com arquivo de lock.
 
 Script utilizado:
 
 - `scripts/backup-local.ps1`
+
+### Agendamento automático do backup
+
+Instalação da tarefa no Windows Task Scheduler:
+
+```powershell
+npm run backup:install-schedule
+```
+
+Remoção da tarefa:
+
+```powershell
+npm run backup:remove-schedule
+```
+
+Configuração padrão do agendamento:
+
+- nome da tarefa: `SIREL Backup Automatico`
+- horários: `00:00`, `12:00` e `19:00`
+- retenção: `10` backups
+- destino local: `storage/backups`
+- cópia espelhada: `C:\Users\078364\OneDrive\BACKUPS`
+
+### Restauração assistida
+
+Validação do pacote sem aplicar alterações:
+
+```powershell
+npm run backup:restore -- -BackupArchivePath "caminho\do\sirel-backup-YYYYMMDD-HHmmss.zip"
+```
+
+Restauração efetiva:
+
+```powershell
+npm run backup:restore -- -BackupArchivePath "caminho\do\sirel-backup-YYYYMMDD-HHmmss.zip" -Apply
+```
+
+A restauração assistida:
+
+- valida checksums SHA-256 antes de restaurar;
+- restaura banco, `storage/uploads` e `storage/reports` conforme os parâmetros;
+- só restaura `.env` quando `-RestoreEnv $true` for informado;
+- preserva conteúdo anterior como `*.before-restore-YYYYMMDD-HHmmss` antes de sobrescrever diretórios.
 
 ## Banco e seed basico
 
@@ -257,6 +307,9 @@ Observacoes:
 - `npm run legacy:sync:full`
 - `npm run start:local`
 - `npm run backup:local`
+- `npm run backup:install-schedule`
+- `npm run backup:remove-schedule`
+- `npm run backup:restore -- -BackupArchivePath "caminho/do/backup.zip"`
 - `npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf"`
 
 ## Roadmap resumido

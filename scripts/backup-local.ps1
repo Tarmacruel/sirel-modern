@@ -1,5 +1,18 @@
-﻿$ErrorActionPreference = 'Stop'
-Set-Location -Path (Join-Path $PSScriptRoot '..')
+[CmdletBinding()]
+param(
+  [string]$BackupRoot = "storage\backups",
+  [string]$MirrorRoot = "C:\Users\078364\OneDrive\BACKUPS",
+  [int]$RetentionCount = 10,
+  [bool]$IncludeReports = $true,
+  [bool]$IncludeEnv = $true
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+Set-Location -Path (Join-Path $PSScriptRoot "..")
 
 function Get-EnvValue([string]$Path, [string]$Name) {
   if (-not (Test-Path $Path)) { return $null }
@@ -7,74 +20,304 @@ function Get-EnvValue([string]$Path, [string]$Name) {
   $line = Get-Content $Path | Where-Object { $_ -match "^$Name=" } | Select-Object -First 1
   if (-not $line) { return $null }
 
-  return ($line -replace "^$Name=", '').Trim()
+  return ($line -replace "^$Name=", "").Trim()
 }
 
 function Find-PgDump {
   $cmd = Get-Command pg_dump -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
 
-  $candidates = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue |
+  $candidates = Get-ChildItem "C:\Program Files\PostgreSQL" -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending |
-    ForEach-Object { Join-Path $_.FullName 'bin\pg_dump.exe' } |
+    ForEach-Object { Join-Path $_.FullName "bin\pg_dump.exe" } |
     Where-Object { Test-Path $_ }
 
-  if ($candidates) { return $candidates[0] }
+  if ($candidates) { return ($candidates | Select-Object -First 1) }
 
-  throw 'pg_dump não foi encontrado. Instale o PostgreSQL client tools nesta máquina.'
+  throw "pg_dump não foi encontrado. Instale o PostgreSQL client tools nesta máquina."
 }
 
-$root = Get-Location
-$envFile = Join-Path $root '.env'
-$databaseUrl = Get-EnvValue -Path $envFile -Name 'DATABASE_URL'
+function Ensure-Directory([string]$Path) {
+  if (-not (Test-Path $Path)) {
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+  }
+}
+
+function Write-Log([string]$Message, [string]$Level = "INFO") {
+  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  $line = "[$timestamp] [$Level] $Message"
+  Write-Host $line
+  if ($script:LogPath) {
+    Add-Content -Path $script:LogPath -Value $line -Encoding utf8
+  }
+}
+
+function Remove-LockFile([string]$LockPath) {
+  if (Test-Path $LockPath) {
+    Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Get-SirelVersion([string]$RootPath) {
+  $packagePath = Join-Path $RootPath "package.json"
+  if (-not (Test-Path $packagePath)) { return "desconhecida" }
+  $package = Get-Content -Raw $packagePath | ConvertFrom-Json
+  return [string]$package.version
+}
+
+function Test-DirectoryHasContent([string]$Path) {
+  if (-not (Test-Path $Path)) { return $false }
+  return [bool](Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+function New-ZipFromDirectory([string]$SourcePath, [string]$DestinationPath) {
+  if (Test-Path $DestinationPath) {
+    Remove-Item -LiteralPath $DestinationPath -Force
+  }
+  [System.IO.Compression.ZipFile]::CreateFromDirectory($SourcePath, $DestinationPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+}
+
+function Get-FileSha256([string]$Path) {
+  if (-not (Test-Path $Path)) { return $null }
+  return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+}
+
+function Apply-Retention([string]$TargetPath, [int]$KeepCount) {
+  Ensure-Directory $TargetPath
+  Get-ChildItem -LiteralPath $TargetPath -Filter "sirel-backup-*.zip" -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -Skip $KeepCount |
+    ForEach-Object {
+      $metadataSidecar = "$($_.FullName).metadata.json"
+      $shaSidecar = "$($_.FullName).sha256.txt"
+      Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+      if (Test-Path $metadataSidecar) {
+        Remove-Item -LiteralPath $metadataSidecar -Force -ErrorAction SilentlyContinue
+      }
+      if (Test-Path $shaSidecar) {
+        Remove-Item -LiteralPath $shaSidecar -Force -ErrorAction SilentlyContinue
+      }
+    }
+}
+
+$root = (Get-Location).Path
+$backupRootAbsolute = if ([System.IO.Path]::IsPathRooted($BackupRoot)) { $BackupRoot } else { Join-Path $root $BackupRoot }
+$mirrorRootAbsolute = $MirrorRoot
+$envFile = Join-Path $root ".env"
+$databaseUrl = Get-EnvValue -Path $envFile -Name "DATABASE_URL"
 if (-not $databaseUrl) {
-  throw 'DATABASE_URL não encontrada no arquivo .env.'
+  throw "DATABASE_URL não encontrada no arquivo .env."
 }
 
 $uri = [System.Uri]$databaseUrl
-$dbName = $uri.AbsolutePath.TrimStart('/')
-$userInfo = $uri.UserInfo.Split(':', 2)
+$dbName = $uri.AbsolutePath.TrimStart("/")
+$userInfo = $uri.UserInfo.Split(":", 2)
 $dbUser = $userInfo[0]
-$dbPassword = if ($userInfo.Count -gt 1) { $userInfo[1] } else { '' }
+$dbPassword = if ($userInfo.Count -gt 1) { $userInfo[1] } else { "" }
 $dbHost = $uri.Host
 $dbPort = if ($uri.Port -gt 0) { $uri.Port } else { 5432 }
 
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$backupRoot = Join-Path $root 'storage\backups'
-$backupDir = Join-Path $backupRoot $timestamp
-$uploadsDir = Join-Path $root 'storage\uploads'
-$archivePath = Join-Path $backupRoot ("sirel-backup-$timestamp.zip")
-$sqlPath = Join-Path $backupDir 'database.sql'
-$uploadsArchive = Join-Path $backupDir 'uploads.zip'
-$metaPath = Join-Path $backupDir 'metadata.txt'
+Ensure-Directory $backupRootAbsolute
+Ensure-Directory $mirrorRootAbsolute
 
-New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-$pgDump = Find-PgDump
-
-Write-Host '🗄️ Gerando dump PostgreSQL...' -ForegroundColor Yellow
-$env:PGPASSWORD = $dbPassword
-& $pgDump --host=$dbHost --port=$dbPort --username=$dbUser --dbname=$dbName --file=$sqlPath --no-owner --no-privileges
-Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
-
-if (Test-Path $uploadsDir) {
-  Write-Host '📎 Compactando uploads...' -ForegroundColor Yellow
-  Compress-Archive -Path (Join-Path $uploadsDir '*') -DestinationPath $uploadsArchive -Force
+$lockPath = Join-Path $backupRootAbsolute ".backup.lock"
+if (Test-Path $lockPath) {
+  $lockInfo = Get-Content -Raw $lockPath -ErrorAction SilentlyContinue
+  throw "Já existe uma rotina de backup em andamento. Lock encontrado em $lockPath. Detalhes: $lockInfo"
 }
 
-@(
-  "SIREL Beta 2.0 - Backup local",
-  "Data: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')",
-  "Banco: $dbName",
-  "Host: $dbHost:$dbPort",
-  "Origem: $root"
-) | Set-Content -Path $metaPath -Encoding utf8
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$executionStart = Get-Date
+$workingDir = Join-Path $backupRootAbsolute ".tmp-$timestamp"
+$archiveName = "sirel-backup-$timestamp.zip"
+$archivePath = Join-Path $backupRootAbsolute $archiveName
+$mirrorArchivePath = Join-Path $mirrorRootAbsolute $archiveName
+$archiveMetadataPath = Join-Path $backupRootAbsolute ("$archiveName.metadata.json")
+$mirrorMetadataPath = Join-Path $mirrorRootAbsolute ("$archiveName.metadata.json")
+$archiveShaPath = Join-Path $backupRootAbsolute ("$archiveName.sha256.txt")
+$mirrorShaPath = Join-Path $mirrorRootAbsolute ("$archiveName.sha256.txt")
+$sqlPath = Join-Path $workingDir "database.sql"
+$uploadsArchivePath = Join-Path $workingDir "uploads.zip"
+$reportsArchivePath = Join-Path $workingDir "reports.zip"
+$metadataTxtPath = Join-Path $workingDir "metadata.txt"
+$metadataJsonPath = Join-Path $workingDir "metadata.json"
+$script:LogPath = Join-Path $workingDir "backup.log"
+$version = Get-SirelVersion $root
+$uploadsDir = Join-Path $root "storage\uploads"
+$reportsDir = Join-Path $root "storage\reports"
 
-Write-Host '📦 Gerando pacote final...' -ForegroundColor Yellow
-Compress-Archive -Path (Join-Path $backupDir '*') -DestinationPath $archivePath -Force
+Ensure-Directory $workingDir
+Set-Content -Path $lockPath -Value (@(
+  "started_at=$($executionStart.ToString("o"))"
+  "user=$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+  "working_dir=$workingDir"
+) -join [Environment]::NewLine) -Encoding utf8
 
-Get-ChildItem $backupRoot -Filter 'sirel-backup-*.zip' |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -Skip 7 |
-  Remove-Item -Force
+$metadata = [ordered]@{
+  system = "SIREL"
+  version = $version
+  startedAt = $executionStart.ToString("o")
+  finishedAt = $null
+  status = "PROCESSANDO"
+  archiveName = $archiveName
+  archivePath = $archivePath
+  mirrorArchivePath = $mirrorArchivePath
+  host = $env:COMPUTERNAME
+  windowsUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+  rootPath = $root
+  database = [ordered]@{
+    name = $dbName
+    host = $dbHost
+    port = $dbPort
+    user = $dbUser
+  }
+  includes = [ordered]@{
+    env = $false
+    uploads = $false
+    reports = $false
+  }
+  checksums = [ordered]@{
+    databaseSqlSha256 = $null
+    uploadsZipSha256 = $null
+    reportsZipSha256 = $null
+    envBackupSha256 = $null
+    localArchiveSha256 = $null
+    mirrorArchiveSha256 = $null
+  }
+  paths = [ordered]@{
+    uploads = $uploadsDir
+    reports = $reportsDir
+    env = $envFile
+    backupRoot = $backupRootAbsolute
+    mirrorRoot = $mirrorRootAbsolute
+  }
+}
 
-Write-Host "✅ Backup concluído: $archivePath" -ForegroundColor Green
+try {
+  $pgDump = [string](Find-PgDump)
+  Write-Log "Iniciando backup robusto do SIREL $version."
+  Write-Log "Gerando dump PostgreSQL em $sqlPath."
+
+  $env:PGPASSWORD = $dbPassword
+  try {
+    $quotedSqlPath = '"' + $sqlPath + '"'
+    $dumpProcess = Start-Process -FilePath $pgDump -ArgumentList @(
+      "--host=$dbHost",
+      "--port=$dbPort",
+      "--username=$dbUser",
+      "--dbname=$dbName",
+      "--file=$quotedSqlPath",
+      "--no-owner",
+      "--no-privileges"
+    ) -NoNewWindow -PassThru -Wait
+    if ($dumpProcess.ExitCode -ne 0 -or -not (Test-Path $sqlPath)) {
+      throw "Falha ao gerar o dump PostgreSQL."
+    }
+    $metadata.checksums.databaseSqlSha256 = Get-FileSha256 $sqlPath
+  } finally {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+  }
+
+  if (Test-DirectoryHasContent $uploadsDir) {
+    Write-Log "Compactando storage/uploads em uploads.zip."
+    New-ZipFromDirectory -SourcePath $uploadsDir -DestinationPath $uploadsArchivePath
+    $metadata.includes.uploads = $true
+    $metadata.checksums.uploadsZipSha256 = Get-FileSha256 $uploadsArchivePath
+  } else {
+    Write-Log "storage/uploads ausente ou vazio; seguindo sem uploads.zip." "WARN"
+  }
+
+  if ($IncludeReports -and (Test-DirectoryHasContent $reportsDir)) {
+    Write-Log "Compactando storage/reports em reports.zip."
+    New-ZipFromDirectory -SourcePath $reportsDir -DestinationPath $reportsArchivePath
+    $metadata.includes.reports = $true
+    $metadata.checksums.reportsZipSha256 = Get-FileSha256 $reportsArchivePath
+  } elseif ($IncludeReports) {
+    Write-Log "storage/reports ausente ou vazio; seguindo sem reports.zip." "WARN"
+  } else {
+    Write-Log "Inclusão de reports desativada por parâmetro."
+  }
+
+  if ($IncludeEnv -and (Test-Path $envFile)) {
+    Write-Log "Copiando .env para .env.backup."
+    Copy-Item -LiteralPath $envFile -Destination (Join-Path $workingDir ".env.backup") -Force
+    $metadata.includes.env = $true
+    $metadata.checksums.envBackupSha256 = Get-FileSha256 (Join-Path $workingDir ".env.backup")
+  } elseif ($IncludeEnv) {
+    Write-Log ".env não encontrado; seguindo sem .env.backup." "WARN"
+  } else {
+    Write-Log "Inclusão do .env desativada por parâmetro."
+  }
+
+  $metadata.status = "SUCESSO"
+  $metadata.finishedAt = (Get-Date).ToString("o")
+  $metadata.durationSeconds = [math]::Round(((Get-Date) - $executionStart).TotalSeconds, 2)
+  $metadata.retentionCount = $RetentionCount
+
+  $metadataText = @(
+    "SIREL $version - Backup robusto local"
+    "Data de inicio: $($executionStart.ToString("dd/MM/yyyy HH:mm:ss"))"
+    "Data de fim: $((Get-Date).ToString("dd/MM/yyyy HH:mm:ss"))"
+    "Banco: $dbName"
+    "Host: ${dbHost}:$dbPort"
+    "Usuario Windows: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+    "Raiz: $root"
+    "Uploads incluidos: $($metadata.includes.uploads)"
+    "Reports incluidos: $($metadata.includes.reports)"
+    "Env incluido: $($metadata.includes.env)"
+    "Destino local: $archivePath"
+    "Destino espelhado: $mirrorArchivePath"
+  )
+  $metadataText | Set-Content -Path $metadataTxtPath -Encoding utf8
+  ($metadata | ConvertTo-Json -Depth 6) | Set-Content -Path $metadataJsonPath -Encoding utf8
+
+  Write-Log "Gerando pacote final $archiveName."
+  if (Test-Path $archivePath) {
+    Remove-Item -LiteralPath $archivePath -Force
+  }
+  New-ZipFromDirectory -SourcePath $workingDir -DestinationPath $archivePath
+  if (-not (Test-Path $archivePath)) {
+    throw "O pacote final não foi criado em $archivePath."
+  }
+
+  Write-Log "Espelhando pacote para $mirrorArchivePath."
+  Copy-Item -LiteralPath $archivePath -Destination $mirrorArchivePath -Force
+  if (-not (Test-Path $mirrorArchivePath)) {
+    throw "A cópia espelhada não foi criada em $mirrorArchivePath."
+  }
+
+  $metadata.checksums.localArchiveSha256 = Get-FileSha256 $archivePath
+  $metadata.checksums.mirrorArchiveSha256 = Get-FileSha256 $mirrorArchivePath
+  ($metadata | ConvertTo-Json -Depth 8) | Set-Content -Path $archiveMetadataPath -Encoding utf8
+  ($metadata | ConvertTo-Json -Depth 8) | Set-Content -Path $mirrorMetadataPath -Encoding utf8
+  $metadata.checksums.localArchiveSha256 | Set-Content -Path $archiveShaPath -Encoding ascii
+  $metadata.checksums.mirrorArchiveSha256 | Set-Content -Path $mirrorShaPath -Encoding ascii
+
+  Write-Log "Aplicando retenção de $RetentionCount backups no destino local."
+  Apply-Retention -TargetPath $backupRootAbsolute -KeepCount $RetentionCount
+  Write-Log "Aplicando retenção de $RetentionCount backups no destino espelhado."
+  Apply-Retention -TargetPath $mirrorRootAbsolute -KeepCount $RetentionCount
+
+  Write-Log "Backup concluído com sucesso: $archivePath"
+  Write-Host "✅ Backup concluído: $archivePath" -ForegroundColor Green
+  Write-Host "☁️ Cópia espelhada: $mirrorArchivePath" -ForegroundColor Green
+}
+catch {
+  $metadata.status = "ERRO"
+  $metadata.finishedAt = (Get-Date).ToString("o")
+  $metadata.durationSeconds = [math]::Round(((Get-Date) - $executionStart).TotalSeconds, 2)
+  $metadata.error = $_.Exception.Message
+  try {
+    ($metadata | ConvertTo-Json -Depth 6) | Set-Content -Path $metadataJsonPath -Encoding utf8
+  } catch {
+    # sem ação adicional
+  }
+  Write-Log $_.Exception.Message "ERROR"
+  throw
+}
+finally {
+  Remove-LockFile $lockPath
+  if (Test-Path $workingDir) {
+    Remove-Item -LiteralPath $workingDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
