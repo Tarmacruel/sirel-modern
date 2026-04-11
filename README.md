@@ -138,15 +138,38 @@ Esse comando:
 - aplica migrations;
 - verifica seed basico;
 - executa seed quando a base estiver vazia;
-- sobe frontend e backend em desenvolvimento.
+- sobe backend e frontend em background;
+- grava PIDs em `storage/runtime`;
+- grava logs em `storage/logs`.
 
-Script equivalente:
+Comandos operacionais oficiais:
 
-- `Iniciar_SIREL_Local.ps1`
+- `npm run start:local`
+- `npm run start:tunnel`
+- `npm run stop:local`
+- `npm run reset:local`
+- `npm run status:local`
+- `npm run logs:local`
 
-Script legado de conveniencia:
+Atalhos de um clique na raiz do projeto:
 
-- `Iniciar_SIREL_Beta_2.bat`
+- `SIREL_Iniciar.bat`
+- `SIREL_Parar.bat`
+- `SIREL_Resetar.bat`
+- `SIREL_Status.bat`
+
+Launcher oficial:
+
+- `scripts/ops/launcher.ps1`
+
+Regras operacionais:
+
+- `start:local` sobe backend + frontend sem tunnel;
+- `start:tunnel` sobe backend + frontend e depois inicia o cloudflared;
+- `stop:local` encerra backend, frontend e tunnel com fallback por PID e porta;
+- `reset:local` faz reset operacional sem tocar em banco, uploads, reports ou backups;
+- `status:local` mostra sessao, PIDs, portas e logs;
+- `logs:local` abre a pasta oficial de logs em `storage/logs`.
 
 ### Backup local
 
@@ -306,6 +329,11 @@ Observacoes:
 - `npm run legacy:sync`
 - `npm run legacy:sync:full`
 - `npm run start:local`
+- `npm run start:tunnel`
+- `npm run stop:local`
+- `npm run reset:local`
+- `npm run status:local`
+- `npm run logs:local`
 - `npm run backup:local`
 - `npm run backup:install-schedule`
 - `npm run backup:remove-schedule`

@@ -1,0 +1,113 @@
+SIREL - GUIA OPERACIONAL LOCAL E SENSIVEL
+Arquivo local de apoio administrativo.
+Nao versionar. Nao enviar para Git, chat, e-mail ou anexos publicos.
+
+1. Publicacao atual
+- URL publica: https://www.sirel.com.br
+- Repositorio: https://github.com/Tarmacruel/sirel-modern.git
+- Branch operacional recente: beta-2.0-modern
+
+2. Ambiente atual (.env local)
+- DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sirel_db
+- HOST=0.0.0.0
+- PORT=3030
+- CLIENT_URL=http://localhost:5173
+- VITE_API_PORT=3030
+- JWT_SECRET=troque_esta_chave
+- BETA_DEFAULT_PASSWORD=SirelBeta@2026
+- BETA_ADMIN_USERNAME=jonatas.sousa
+- BETA_ADMIN_NAME=Jonatas Sousa
+- BETA_ADMIN_EMAIL=jonatassousa@outlook.com
+- OWNER_NAME=Administrador SIREL
+- OWNER_OPEN_ID=owner-demo
+- IMPORT_BLL_AUTOMATICA=true
+- IMPORT_BLL_DAILY_HOUR=7
+- IMPORT_BLL_TIMEZONE=America/Sao_Paulo
+- SMTP_HOST=
+- SMTP_PORT=587
+- SMTP_USER=
+- SMTP_PASS=
+- SMTP_FROM=
+- WEB_PUSH_PUBLIC_KEY=
+- WEB_PUSH_PRIVATE_KEY=
+- WEB_PUSH_SUBJECT=mailto:admin@sirel.local
+- VITE_WEB_PUSH_PUBLIC_KEY=
+
+3. Arquivos e caminhos importantes
+- Projeto: C:\BD_Licitacao\Versoes SIREL\sirel-modern
+- README publico: README.md
+- Config de ambiente local: .env
+- Exemplo publico: .env.example
+- Migracoes: drizzle\migrations
+- Uploads e artefatos locais: storage\
+- Backups locais: storage\backups\
+- Launcher oficial: scripts\ops\launcher.ps1
+- Runtime local: storage\runtime\
+- Logs oficiais: storage\logs\
+
+4. Comandos usados com frequencia
+- npm install
+- npm run dev
+- npm run dev:client
+- npm run dev:server
+- npm run build
+- npm run check
+- npm run test
+- npm run test:all
+- npm run db:migrate
+- npm run db:generate
+- npm run db:check-seeded
+- npm run db:sync-journal
+- npm run legacy:export
+- npm run legacy:import
+- npm run legacy:import:basics
+- npm run legacy:seed:basics
+- npm run legacy:sync
+- npm run legacy:sync:full
+- npm run start:local
+- npm run start:tunnel
+- npm run stop:local
+- npm run reset:local
+- npm run status:local
+- npm run logs:local
+- npm run backup:local
+- npm run backup:install-schedule
+- npm run backup:remove-schedule
+- npm run backup:restore -- -BackupArchivePath "caminho\\do\\backup.zip"
+
+5. Git util
+- git status --short
+- git pull --rebase
+- git add --all -- . ':(exclude)storage/reports'
+- git commit -m "mensagem"
+- git push -u origin beta-2.0-modern
+- git log --oneline -10
+
+6. Publicacao e verificacao rapida
+- Rodar npm run check
+- Rodar npm run test:all
+- Aplicar migracoes com npm run db:migrate
+- Confirmar funcionamento de Processos, Workflow, Licitacao e Importacoes
+- Confirmar acesso web em https://www.sirel.com.br
+
+7. Recuperacao operacional
+- Verificar .env antes de subir o sistema
+- Confirmar PostgreSQL ativo e acessivel pela DATABASE_URL
+- Restaurar backup mais recente de storage\backups se necessario
+- Reaplicar migracoes apos restauracao
+- Validar seed com npm run db:check-seeded
+- Usar stop/reset oficiais antes de subir novamente o ambiente
+
+8. Observacoes recentes
+- O campo protocolo foi incorporado aos processos
+- Existe backfill para processos LEGADO ja vinculados a importacao legada
+- Ha unificacao de cadastros duplicados para fornecedores, pessoas e servidores
+- Ha unificacao em lote
+- Ha filtros por obras/servicos de engenharia e por grupo de modalidade
+
+9. Pendencias para preencher quando houver mudanca
+- URL real de administracao, se separada da URL publica
+- Credenciais reais de SMTP
+- Chaves reais de Web Push
+- JWT_SECRET definitivo de producao
+- Procedimento oficial de restore do banco de producao
