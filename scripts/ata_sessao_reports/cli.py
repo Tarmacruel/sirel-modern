@@ -5,9 +5,11 @@ import json
 import logging
 from pathlib import Path
 
+from .data_normalizer import normalize_report_data
 from .excel import write_reports_workbooks
 from .models import ensure_directory
 from .parser import normalize_ascii_slug, parse_ata_sessao_pdf
+from .pdf_renderer import write_report_pdfs
 
 
 def build_logger(output_dir: Path) -> logging.Logger:
@@ -26,11 +28,22 @@ def build_logger(output_dir: Path) -> logging.Logger:
     return logger
 
 
+def _load_branding(path: str | None) -> dict[str, object] | None:
+    if not path:
+        return None
+    branding_path = Path(path).expanduser().resolve()
+    if not branding_path.exists():
+        return None
+    return json.loads(branding_path.read_text(encoding='utf-8'))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='Processa atas de sessão e gera relatórios estruturados.')
     parser.add_argument('--input', required=True, help='Caminho do PDF de ata de sessão.')
     parser.add_argument('--output-dir', required=True, help='Diretório de saída para os artefatos.')
     parser.add_argument('--json-out', help='Caminho opcional do JSON consolidado.')
+    parser.add_argument('--generated-by', help='Nome do usuário que gerou o relatório.')
+    parser.add_argument('--branding-json', help='JSON opcional com linhas institucionais, rodapé e logo.')
     args = parser.parse_args()
 
     pdf_path = Path(args.input).expanduser().resolve()
@@ -39,7 +52,9 @@ def main() -> int:
     parsing_errors_path = output_dir / 'erros_parsing.log'
 
     result = parse_ata_sessao_pdf(pdf_path, logger=logger, parsing_error_log_path=parsing_errors_path)
+    normalized = normalize_report_data(result)
     artifacts = write_reports_workbooks(result, output_dir)
+    artifacts.update(write_report_pdfs(normalized, output_dir, branding=_load_branding(args.branding_json), generated_by=args.generated_by))
 
     payload = result.to_dict()
     payload['artifacts'] = artifacts

@@ -272,6 +272,92 @@ export function DocumentosPage() {
             ),
           },
           {
+            value: "ata-sessao",
+            label: "Ata de sessão",
+            content: (
+              <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+                <div className="space-y-4">
+                  {ataFeedback ? <Alert variant="success">{ataFeedback}</Alert> : null}
+                  {ataError ? <Alert variant="error">{ataError}</Alert> : null}
+
+                  <SectionCard
+                    title="Processamento avulso de ata"
+                    description="Envie uma ata de sessão em PDF para gerar os relatórios sem gravar nada no acervo nem criar vínculo com documentos do processo."
+                  >
+                    <form className="space-y-4" onSubmit={handleProcessAta}>
+                      <Alert variant="info" title="Sem vínculo com o acervo do processo">
+                        Esse botão processa a ata apenas para gerar os relatórios de trabalho. O arquivo enviado e os artefatos não são cadastrados na tabela de documentos do processo.
+                      </Alert>
+                      <FormField label="Arquivo PDF da ata">
+                        <Input
+                          key={ataResult?.generatedAt ?? "ata-sessao-input"}
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          onChange={(event) => setAtaFile(event.target.files?.[0] ?? null)}
+                        />
+                      </FormField>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+                        <p className="font-semibold text-slate-900">Regras desta leitura</p>
+                        <p className="mt-2">Lotes com status <span className="font-semibold text-slate-900">ADJUDICADO</span> e <span className="font-semibold text-slate-900">HABILITAÇÃO</span> entram juntos no relatório principal.</p>
+                        <p>Lotes <span className="font-semibold text-slate-900">FRACASSADO</span>, <span className="font-semibold text-slate-900">DESERTO</span> e <span className="font-semibold text-slate-900">CANCELADO</span> seguem para o relatório de malsucedidos.</p>
+                      </div>
+                      <Button type="submit" loading={ataProcessing} icon={<FileCog className="h-4 w-4" />}>
+                        {ataProcessing ? "Processando ata..." : "Gerar relatórios da ata"}
+                      </Button>
+                    </form>
+                  </SectionCard>
+                </div>
+
+                <div className="space-y-4">
+                  <SectionCard
+                    title="Arquivos gerados"
+                    description="Resumo da última execução com os downloads diretos dos PDFs, planilhas e logs do processamento."
+                  >
+                    {!ataResult ? (
+                      <Alert variant="info">Nenhuma ata foi processada ainda nesta tela. Depois do envio, os arquivos gerados aparecerão aqui.</Alert>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          {[
+                            { label: "Lotes totais", value: ataResult.summary.totalLotes },
+                            { label: "Adjudicados / habilitação", value: ataResult.summary.adjudicados },
+                            { label: "Malsucedidos", value: ataResult.summary.malsucedidos },
+                            { label: "Warnings", value: ataResult.summary.warnings },
+                            { label: "Erros de parsing", value: ataResult.summary.parsingErrors },
+                          ].map((item) => (
+                            <article key={item.label} className="rounded-3xl border border-slate-200 bg-white px-4 py-4">
+                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
+                              <p className="mt-3 text-3xl font-black text-slate-950">{item.value}</p>
+                            </article>
+                          ))}
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
+                          <p><span className="font-semibold text-slate-900">Arquivo de origem:</span> {ataResult.originalFileName ?? ataResult.sourceFile.split(/[\\/]/).pop()}</p>
+                          <p><span className="font-semibold text-slate-900">Gerado em:</span> {formatShortDateTimeBR(ataResult.generatedAt)}</p>
+                        </div>
+
+                        <div className="grid gap-3">
+                          {ataResult.artifacts.map((artifact) => (
+                            <div key={artifact.relativePath} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="font-semibold text-slate-900">{artifact.label}</p>
+                                <p className="text-sm text-slate-500">{artifact.type.toUpperCase()}</p>
+                              </div>
+                              <a href={resolveServerAssetUrl(artifact.downloadUrl) ?? "#"} target="_blank" rel="noreferrer">
+                                <Button type="button" variant="outline" icon={<Download className="h-4 w-4" />}>Baixar</Button>
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </SectionCard>
+                </div>
+              </div>
+            ),
+          },
+          {
             value: "acervo",
             label: "Acervo",
             content: (

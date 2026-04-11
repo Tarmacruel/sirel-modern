@@ -5,6 +5,7 @@ export const ataSessaoProcessInputSchema = z
     sourcePath: z.string().trim().min(3).optional(),
     documentoId: z.number().int().positive().optional(),
     outputDir: z.string().trim().min(3).optional(),
+    generatedByName: z.string().trim().min(2).max(160).optional(),
   })
   .refine((value) => Boolean(value.sourcePath || value.documentoId), {
     message: "Informe sourcePath ou documentoId para processar a ata.",

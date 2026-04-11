@@ -145,3 +145,4 @@ export async function processAtaSessaoDocumento(arquivo: File): Promise<AtaSessa
 
 export const uploadPlanejamentoDocumento = uploadProcessoDocumento;
 export const deletePlanejamentoDocumento = deleteProcessoDocumento;
+

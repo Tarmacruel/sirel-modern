@@ -32,7 +32,7 @@ function parseDate(value?: string) {
 export const relatoriosRouter = router({
   processAtaSessao: protectedProcedure
     .input(ataSessaoProcessInputSchema)
-    .mutation(async ({ input }) => generateAtaSessaoReports(input)),
+    .mutation(async ({ ctx, input }) => generateAtaSessaoReports({ ...input, generatedByName: ctx.user?.name ?? "Usuário SIREL" })),
 
   run: protectedProcedure.input(relatorioRunInputSchema).query(async ({ input }) => {
     const db = requireDb();

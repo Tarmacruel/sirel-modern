@@ -1,7 +1,7 @@
 import "./bootstrap/load-env.js";
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import cors from "cors";
@@ -390,9 +390,9 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
       return;
     }
 
-    const result = await generateAtaSessaoReports({ sourcePath: req.file.path });
+    const result = await generateAtaSessaoReports({ sourcePath: req.file.path, generatedByName: user.name });
     const artifacts = result.artifacts.map((artifact) => {
-      const relativePath = resolve(artifact.path).replace(/\\/g, "/").replace(resolve(ataSessaoReportsRoot).replace(/\\/g, "/"), "").replace(/^\/+/, "");
+      const relativePath = relative(ataSessaoReportsRoot, resolve(artifact.path)).replace(/\\/g, "/").replace(/^\/+/, "");
       return {
         ...artifact,
         relativePath,
@@ -403,7 +403,7 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
     await logAuditoria({ user } as any, {
       tabela: "relatorios_ata_sessao",
       registroId: 0,
-      acao: "PROCESS",
+      acao: "CREATE",
       dadosNovos: {
         arquivoOriginal: req.file.originalname,
         outputDir: result.outputDir,
@@ -455,7 +455,9 @@ app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
 
     res.setHeader("Content-Type", mimeType);
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(relativeFile.split("/").pop() || "relatorio") || "relatorio"}${extension}\"`);
+    const rawName = relativeFile.split("/").pop() || "relatorio";
+    const baseName = rawName.endsWith(extension) ? rawName.slice(0, -extension.length) : rawName;
+    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(baseName) || "relatorio"}${extension}\"`);
     res.sendFile(absolutePath);
   } catch (error) {
     console.error(error);

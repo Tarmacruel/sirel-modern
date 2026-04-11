@@ -207,6 +207,9 @@ def parse_section_participants(section_name: str, section_text: str, logger: log
 
 def fallback_participants_from_movements(movimentos: list[MovimentoLote], known: list[LotParticipant]) -> list[LotParticipant]:
     if known:
+        return []
+
+    if known:
         known_keys = {(item.participante_numero, item.documento, item.razao_social) for item in known}
     else:
         known_keys = set()
@@ -230,8 +233,8 @@ def fallback_participants_from_movements(movimentos: list[MovimentoLote], known:
                 participante_numero=match.group("num"),
                 razao_social=normalize_whitespace(match.group("razao")),
                 documento=None,
-                oferta_inicial=None,
-                oferta_final=parse_brazilian_number(match.group("valor")),
+                oferta_inicial=parse_brazilian_number(match.group("valor")),
+                oferta_final=None,
                 diferenca_percentual=None,
                 me_epp=None,
                 raw_line=movimento.raw_text,
