@@ -1,36 +1,52 @@
-# SIREL 1.0.0
+# SIREL 1.0.1
 
-Base moderna do SIREL em monorepo full-stack, preparada para operação local e publicação web, com foco em gestão de processos, planejamento, licitação, documentos, contratos, workflow, auditoria e importação de bases legadas.
+Base moderna do SIREL em monorepo full-stack, preparada para operacao local e publicacao web, com foco em gestao de processos, planejamento, licitacao, documentos, contratos, workflow, auditoria e importacao de bases legadas.
 
 ## Objetivo
 
-Versão oficial:
+Versao oficial atual:
 
-- `1.0.0`: primeira publicação oficial pronta para produção;
-- próximas entregas seguirão em subversões semânticas como `1.0.1`, `1.0.2` e `1.1.0`.
+- `1.0.1`: primeira revisao oficial da linha `1.0.x`, com reforco de dossies, deduplicacao, experiencia inicial, importacoes e relatorios operacionais;
+- `1.0.0`: marco inicial da publicacao oficial pronta para producao;
+- proximas entregas seguem versionamento semantico em `patch`, `minor` e `major`.
 
-O SIREL 1.0.0 substitui a dependência operacional da base antiga por uma arquitetura moderna, organizada para operação on-premise, publicação web e evolução por módulos.
+O SIREL 1.0.1 consolida a substituicao da base antiga por uma arquitetura moderna, organizada para operacao on-premise, publicacao web e evolucao por modulos.
 
 Diretrizes atuais:
 
-- operação local e confiável;
-- interface em português do Brasil e UTF-8;
+- operacao local e confiavel;
+- interface em portugues do Brasil;
 - responsividade nativa para desktop, tablet e smartphone;
-- rastreabilidade de ações críticas;
+- rastreabilidade de acoes criticas;
 - crescimento modular sem reescrever o sistema inteiro a cada rodada.
 
-## Publicação atual
+## Novidades da 1.0.1
+
+Entraram nesta revisao:
+
+- dossie do item e dossie do fornecedor;
+- navegacao cruzada entre dossies, processos, contratos, licitacao e cadastros;
+- exportacao PDF/XLSX dos novos dossies;
+- fila auditavel de saneamento de fornecedores vencedores importados;
+- confirmacao manual e revisao em lote para saneamento de fornecedores;
+- deduplicacao de itens no modulo de cadastros;
+- revisao da experiencia de entrada com login, dashboard operacional, command palette e tour guiado;
+- nova funcionalidade em `Documentos` para processar `Ata de Sessao` de forma avulsa;
+- geracao automatica de relatorios PDF/XLSX de lotes adjudicados, em habilitacao e malsucedidos;
+- parser e renderer de relatorios de ata com melhor normalizacao, logging e paginação.
+
+## Publicacao atual
 
 - ambiente publicado: `https://www.sirel.com.br`
-- operação local continua suportada para manutenção, backup, migração e recuperação
+- operacao local continua suportada para manutencao, backup, migracao e recuperacao
 
-## Documentação operacional local
+## Documentacao operacional local
 
-Informações sensíveis, credenciais, URLs internas, comandos frequentes e observações de recuperação devem ficar apenas em um arquivo local não versionado:
+Informacoes sensiveis, credenciais, URLs internas, comandos frequentes e observacoes de recuperacao devem ficar apenas em um arquivo local nao versionado:
 
 - `OPERACAO_LOCAL_SENSIVEL.txt`
 
-Esse arquivo é mantido fora do Git e serve como referência rápida para administração do sistema.
+Esse arquivo e mantido fora do Git e serve como referencia rapida para administracao do sistema.
 
 ## Stack
 
@@ -44,6 +60,7 @@ Esse arquivo é mantido fora do Git e serve como referência rápida para admini
 - PostgreSQL
 - TypeScript
 - Vitest
+- Python para rotinas de parser e automacao operacional
 
 ## Estrutura
 
@@ -51,47 +68,46 @@ Esse arquivo é mantido fora do Git e serve como referência rápida para admini
 - `server/`: backend Express + tRPC
 - `shared/`: tipos, schemas e constantes compartilhadas
 - `drizzle/`: schema PostgreSQL e migrations
-- `docs/`: migração, backlog e roadmap
-- `scripts/`: automações operacionais
+- `docs/`: backlog, roadmap e documentacao funcional
+- `scripts/`: automacoes operacionais e utilitarios Python
 - `storage/`: uploads, backups e artefatos locais
 
 ## Estado funcional atual
 
-Já implementado:
+Ja implementado:
 
-- autenticação local por usuário e senha;
+- autenticacao local por usuario e senha;
 - perfis `admin`, `gestor`, `operador`, `auditor` e `user`;
-- troca de senha pelo próprio usuário;
-- redefinição de senha por administrador;
-- log local de autenticação com eventos de login, bloqueio e senha;
-- bloqueio temporário após tentativas inválidas repetidas;
-- dashboard inicial com atalhos e busca rápida;
-- cadastro de processos com número SIREL automático;
+- troca de senha pelo proprio usuario;
+- redefinicao de senha por administrador;
+- log local de autenticacao com eventos de login, bloqueio e senha;
+- bloqueio temporario apos tentativas invalidas repetidas;
+- dashboard inicial com atalhos, busca rapida e entrada operacional;
+- cadastro de processos com numero SIREL automatico;
 - processo regular e processo fora do fluxo;
 - campo de `protocolo` nos processos;
-- workflow operacional entre módulos;
-- Planejamento com DFD, ETP, cotações preliminares e TR externo;
-- catálogo de itens e seleção em formato de carrinho;
-- geração e persistência de HTML/PDF da DFD, mapa comparativo e TR base;
-- módulo de Licitação com subetapas, licitantes, propostas, lances, recursos e documentos da fase;
-- fluxo da Licitação adaptativo por modalidade;
-- inversão de fases configurável por processo, com reordenação visual;
+- workflow operacional entre modulos;
+- Planejamento com DFD, ETP, cotacoes preliminares e TR externo;
+- catalogo de itens e selecao em formato de carrinho;
+- geracao e persistencia de HTML/PDF da DFD, mapa comparativo e TR base;
+- modulo de Licitacao com subetapas, licitantes, propostas, lances, recursos e documentos da fase;
+- fluxo da Licitacao adaptativo por modalidade;
+- inversao de fases configuravel por processo, com reordenacao visual;
 - cronograma manual no modo fora do fluxo;
-- checklist documental dinâmico com opção de "não aplicável" e justificativa;
-- auditoria reforçada campo-a-campo para alterações fora do fluxo;
-- módulo de Itens com rastreabilidade por processo e contrato;
-- módulo de Importações para sincronização pública da BLL via JSON consolidado ou CSV manual;
-- importação e conciliação de base legada, com revisão, vínculo e importação controlada;
-- reaproveitamento de dados do legado no cadastro de processos, incluindo protocolo quando disponível;
+- checklist documental dinamico com opcao de "nao aplicavel" e justificativa;
+- auditoria reforcada campo-a-campo para alteracoes fora do fluxo;
+- modulo de Itens com rastreabilidade por processo e contrato;
+- modulo de Importacoes para sincronizacao publica da BLL via JSON consolidado ou CSV manual;
+- importacao e conciliacao de base legada, com revisao, vinculo e importacao controlada;
+- reaproveitamento de dados do legado no cadastro de processos, incluindo protocolo quando disponivel;
 - central de consultas com busca textual e filtros operacionais;
-- busca ampliada por número SIREL, protocolo, número administrativo e número do edital em Processos, Workflow, Consultas e Dashboard;
-- unificação de fornecedores duplicados sem perder vínculos em processos, cotações, licitações e contratos;
-- unificação de pessoas e servidores duplicados sem perda de vínculos operacionais;
-- unificação em lote de cadastros duplicados;
-- filtros por obras/serviços de engenharia e por grupo de modalidade em Processos, Workflow e Licitação;
-- destaque de processo único na tela de Processos, espelhando o comportamento do Workflow;
-- módulo de Usuários com consulta de acessos recentes;
-- operação em rede local, com frontend e backend escutando em `0.0.0.0`.
+- busca ampliada por numero SIREL, protocolo, numero administrativo e numero do edital em Processos, Workflow, Consultas e Dashboard;
+- unificacao de fornecedores duplicados sem perder vinculos em processos, cotacoes, licitacoes e contratos;
+- unificacao de pessoas e servidores duplicados sem perda de vinculos operacionais;
+- unificacao e deduplicacao de itens;
+- saneamento auditavel de vencedores importados;
+- dossie de processo, item e fornecedor;
+- operacao em rede local, com frontend e backend escutando em `0.0.0.0`.
 
 ## Fluxo de teste recomendado
 
@@ -99,16 +115,17 @@ Já implementado:
 2. criar um processo em `Processos`;
 3. estruturar a DFD em `Planejamento`;
 4. anexar o ETP externo;
-5. registrar cotações preliminares;
+5. registrar cotacoes preliminares;
 6. anexar o TR externo e gerar o documento-base em HTML/PDF;
 7. movimentar o processo no `Workflow`;
-8. conduzir publicação e subetapas no módulo `Licitação`;
+8. conduzir publicacao e subetapas no modulo `Licitacao`;
 9. validar buscas por protocolo, administrativo e edital;
-10. validar importações e unificação de cadastros quando necessário.
+10. validar importacoes, dossies e unificacao de cadastros quando necessario;
+11. em `Documentos`, testar o processamento avulso de `Ata de Sessao`.
 
-## Operação local
+## Operacao local
 
-### Inicialização guiada
+### Inicializacao guiada
 
 ```powershell
 npm run start:local
@@ -117,9 +134,9 @@ npm run start:local
 Esse comando:
 
 - valida Node.js;
-- instala dependências se necessário;
+- instala dependencias se necessario;
 - aplica migrations;
-- verifica seed básico;
+- verifica seed basico;
 - executa seed quando a base estiver vazia;
 - sobe frontend e backend em desenvolvimento.
 
@@ -127,7 +144,7 @@ Script equivalente:
 
 - `Iniciar_SIREL_Local.ps1`
 
-Script legado de conveniência:
+Script legado de conveniencia:
 
 - `Iniciar_SIREL_Beta_2.bat`
 
@@ -142,21 +159,21 @@ Esse comando:
 - gera dump PostgreSQL;
 - compacta `storage/uploads`;
 - monta um pacote `.zip` em `storage/backups/`;
-- mantém os 7 backups mais recentes.
+- mantem os 7 backups mais recentes.
 
 Script utilizado:
 
 - `scripts/backup-local.ps1`
 
-## Banco e seed básico
+## Banco e seed basico
 
 Uso atual do legado:
 
-- seed básico de cadastros;
-- importação e conciliação de processos legados;
-- apoio a saneamento e incorporação gradual na base moderna.
+- seed basico de cadastros;
+- importacao e conciliacao de processos legados;
+- apoio a saneamento e incorporacao gradual na base moderna.
 
-Comandos úteis:
+Comandos uteis:
 
 ```powershell
 npm run db:migrate
@@ -167,25 +184,25 @@ npm run check
 npm run test:all
 ```
 
-## Importações BLL
+## Importacoes BLL
 
-O módulo `Importações` trabalha com a mesma base pública consumida pelo portal:
+O modulo `Importacoes` trabalha com a mesma base publica consumida pelo portal:
 
 - `https://sergiocarneiro-adm.github.io/licitacao/dados.json`
 - `https://sergiocarneiro-adm.github.io/licitacao/dados_compra_direta.json`
 
-Modos disponíveis:
+Modos disponiveis:
 
-- sincronização remota por JSON público;
-- importação manual por dois CSVs: `registros` + `itens`.
+- sincronizacao remota por JSON publico;
+- importacao manual por dois CSVs: `registros` + `itens`.
 
-Rotina automática:
+Rotina automatica:
 
-- executa pela manhã no servidor local;
-- padrão: `07:00`, fuso `America/Sao_Paulo`;
-- grava execuções e acervo importado no banco local.
+- executa pela manha no servidor local;
+- padrao: `07:00`, fuso `America/Sao_Paulo`;
+- grava execucoes e acervo importado no banco local.
 
-Variáveis de ambiente:
+Variaveis de ambiente:
 
 ```env
 IMPORT_BLL_AUTOMATICA=true
@@ -213,10 +230,10 @@ IMPORT_BLL_DAILY_HOUR=7
 IMPORT_BLL_TIMEZONE=America/Sao_Paulo
 ```
 
-Observações:
+Observacoes:
 
-- valores reais de produção, credenciais operacionais, chaves e procedimentos de recuperação devem ficar apenas no arquivo local `OPERACAO_LOCAL_SENSIVEL.txt`;
-- não documente segredos diretamente no Git, em issues, PRs, prints ou mensagens públicas.
+- valores reais de producao, credenciais operacionais, chaves e procedimentos de recuperacao devem ficar apenas no arquivo local `OPERACAO_LOCAL_SENSIVEL.txt`;
+- nao documente segredos diretamente no Git, em issues, PRs, prints ou mensagens publicas;
 - o bootstrap legado ainda aceita `BETA_DEFAULT_PASSWORD`, `BETA_ADMIN_USERNAME`, `BETA_ADMIN_NAME` e `BETA_ADMIN_EMAIL` como fallback de compatibilidade.
 
 ## Scripts principais
@@ -240,35 +257,36 @@ Observações:
 - `npm run legacy:sync:full`
 - `npm run start:local`
 - `npm run backup:local`
+- `npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf"`
 
 ## Roadmap resumido
 
-Frentes prioritárias em andamento:
+Frentes prioritarias em andamento:
 
 - design system institucional e acessibilidade;
 - painel de prazos e alertas locais;
 - central de documentos com metadados e busca;
-- relatórios gerenciais e exportações;
-- auditoria expandida por evento e por alteração;
-- preparação técnica para busca semântica e assistente de IA;
-- rotinas operacionais de publicação e endurecimento do ambiente web.
+- relatorios gerenciais e exportacoes;
+- auditoria expandida por evento e por alteracao;
+- preparacao tecnica para busca semantica e assistente de IA;
+- rotinas operacionais de publicacao e endurecimento do ambiente web.
 
 Detalhamento:
 
 - `docs/backlog-beta-2.md`
 - `docs/roadmap-beta-2.md`
 
-## Validação executada
+## Validacao executada
 
-Validações técnicas mais recentes:
+Validacoes tecnicas mais recentes:
 
 - `npm run check`
 - `npm run build`
 - `npm run test:all`
 
-## Próximas entregas
+## Proximas entregas
 
 - painel de prazos e alertas;
-- relatórios operacionais locais;
-- reforço de segurança com recuperação de senha, envio de e-mail e políticas adicionais;
-- evolução do design system com tema institucional azul royal.
+- relatorios operacionais locais;
+- reforco de seguranca com recuperacao de senha, envio de e-mail e politicas adicionais;
+- evolucao do design system com tema institucional azul royal.
