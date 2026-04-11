@@ -28,6 +28,18 @@ def build_logger(output_dir: Path) -> logging.Logger:
     return logger
 
 
+def build_render_logger(output_dir: Path) -> logging.Logger:
+    logger = logging.getLogger(f"ata_sessao_reports.render.{output_dir.name}")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    file_handler = logging.FileHandler(output_dir / 'erros_renderizacao.log', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
+
+
 def _load_branding(path: str | None) -> dict[str, object] | None:
     if not path:
         return None
@@ -44,19 +56,47 @@ def main() -> int:
     parser.add_argument('--json-out', help='Caminho opcional do JSON consolidado.')
     parser.add_argument('--generated-by', help='Nome do usuário que gerou o relatório.')
     parser.add_argument('--branding-json', help='JSON opcional com linhas institucionais, rodapé e logo.')
+    parser.add_argument('--edital', help='Informação textual do edital/pregão exibida no cabeçalho.')
+    parser.add_argument('--processo-administrativo', help='Processo administrativo exibido no cabeçalho.')
+    parser.add_argument('--arquivo-origem', help='Nome amigável do arquivo de origem exibido no cabeçalho.')
+    parser.add_argument('--data-geracao', help='Data de geração textual exibida no cabeçalho.')
     args = parser.parse_args()
 
     pdf_path = Path(args.input).expanduser().resolve()
     output_dir = ensure_directory(Path(args.output_dir).expanduser().resolve())
     logger = build_logger(output_dir)
+    render_logger = build_render_logger(output_dir)
     parsing_errors_path = output_dir / 'erros_parsing.log'
 
     result = parse_ata_sessao_pdf(pdf_path, logger=logger, parsing_error_log_path=parsing_errors_path)
-    normalized = normalize_report_data(result)
+    normalized = normalize_report_data(
+        result,
+        metadata={
+            'edital': args.edital,
+            'processo_administrativo': args.processo_administrativo,
+            'arquivo_origem': args.arquivo_origem,
+            'data_geracao': args.data_geracao,
+        },
+        logger=render_logger,
+    )
     artifacts = write_reports_workbooks(result, output_dir)
-    artifacts.update(write_report_pdfs(normalized, output_dir, branding=_load_branding(args.branding_json), generated_by=args.generated_by))
+    artifacts.update(
+        write_report_pdfs(
+            normalized,
+            output_dir,
+            branding=_load_branding(args.branding_json),
+            generated_by=args.generated_by,
+            logger=render_logger,
+        )
+    )
 
     payload = result.to_dict()
+    payload['report_metadata'] = {
+        'arquivo_origem': normalized.header.arquivo_origem,
+        'data_geracao': normalized.header.data_geracao,
+        'edital': normalized.header.edital,
+        'processo_administrativo': normalized.header.processo_administrativo,
+    }
     payload['artifacts'] = artifacts
 
     json_out = Path(args.json_out).expanduser().resolve() if args.json_out else output_dir / f"{normalize_ascii_slug(pdf_path.stem)}-relatorio.json"

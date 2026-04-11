@@ -390,7 +390,14 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
       return;
     }
 
-    const result = await generateAtaSessaoReports({ sourcePath: req.file.path, generatedByName: user.name });
+    const result = await generateAtaSessaoReports({
+      sourcePath: req.file.path,
+      generatedByName: user.name,
+      edital: String(req.body.edital ?? "").trim() || undefined,
+      processoAdministrativo: String(req.body.processoAdministrativo ?? "").trim() || undefined,
+      arquivoOrigem: String(req.body.arquivoOrigem ?? req.file.originalname).trim() || undefined,
+      dataGeracao: String(req.body.dataGeracao ?? "").trim() || undefined,
+    });
     const artifacts = result.artifacts.map((artifact) => {
       const relativePath = relative(ataSessaoReportsRoot, resolve(artifact.path)).replace(/\\/g, "/").replace(/^\/+/, "");
       return {

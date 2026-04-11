@@ -2,9 +2,10 @@
 
 import unittest
 
-from scripts.ata_sessao_reports.data_normalizer import normalize_lot
+from scripts.ata_sessao_reports.data_normalizer import normalize_lot, prepare_lote_data
 from scripts.ata_sessao_reports.models import LotItemData, LotParticipant, LotRecord
 from scripts.ata_sessao_reports.parser import (
+    extract_header_metadata,
     parse_brazilian_number,
     parse_participant_row,
     parse_section_participants,
@@ -33,6 +34,13 @@ class AtaSessaoParserTests(unittest.TestCase):
         self.assertEqual(parse_brazilian_number('2.091,72'), 2091.72)
         self.assertEqual(parse_brazilian_number('69,05'), 69.05)
         self.assertIsNone(parse_brazilian_number(''))
+
+    def test_extract_header_metadata(self) -> None:
+        edital, processo = extract_header_metadata(
+            'PREGÃO ELETRÔNICO Nº PE-002-2026\nProcesso Administrativo Nº 1474/2025\n'
+        )
+        self.assertEqual(edital, 'Pregão Eletrônico Nº PE-002-2026')
+        self.assertEqual(processo, '1474/2025')
 
     def test_parse_participant_row(self) -> None:
         row = parse_participant_row('1 VERLUMA COMERCIO LTDA 853 63.679.550/0001-07 7.020,00 2.010,00 Sim')
@@ -91,7 +99,24 @@ class AtaSessaoParserTests(unittest.TestCase):
         normalized = normalize_lot(lot)
         self.assertEqual(len(normalized.participantes_exibidos), 1)
         self.assertEqual(normalized.participantes_exibidos[0].oferta_registrada, 1550.0)
+        self.assertIsNone(normalized.participantes_exibidos[0].oferta_final)
         self.assertEqual(normalized.melhor_oferta, 1550.0)
+
+    def test_prepare_lote_data_deduplicates_reason_and_keeps_best_offer(self) -> None:
+        lot = LotRecord(
+            numero_lote=27,
+            status='CANCELADO',
+            titulo='Drone',
+            item=LotItemData(descricao='Drone profissional', quantidade=1),
+            participantes=[
+                LotParticipant(section='CLASSIFICACAO', ranking=1, participante_numero='321', razao_social='Fornecedor A', documento='11.111.111/0001-11', oferta_inicial=25000.0, oferta_final=23733.0, diferenca_percentual=3.0, me_epp=False),
+            ],
+            melhor_lance=None,
+            motivo_falha='Erro técnico na cotação | Erro técnico na cotação',
+        )
+        normalized = prepare_lote_data(lot)
+        self.assertEqual(normalized.melhor_oferta, 23733.0)
+        self.assertEqual(normalized.motivo_falha, 'Erro técnico na cotação')
 
 
 if __name__ == '__main__':

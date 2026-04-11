@@ -116,7 +116,7 @@ async function resolveBrandingData() {
   }
 }
 
-async function runPythonPipeline(sourceFile: string, outputDir: string, generatedByName?: string) {
+async function runPythonPipeline(input: AtaSessaoProcessInput, sourceFile: string, outputDir: string) {
   ensureDirectory(outputDir);
   const jsonOutput = join(outputDir, "ata-sessao-relatorio.json");
   const brandingJsonPath = join(outputDir, "ata-sessao-branding.json");
@@ -135,8 +135,20 @@ async function runPythonPipeline(sourceFile: string, outputDir: string, generate
     "--branding-json",
     brandingJsonPath,
   ];
-  if (generatedByName?.trim()) {
-    args.push("--generated-by", generatedByName.trim());
+  if (input.generatedByName?.trim()) {
+    args.push("--generated-by", input.generatedByName.trim());
+  }
+  if (input.edital?.trim()) {
+    args.push("--edital", input.edital.trim());
+  }
+  if (input.processoAdministrativo?.trim()) {
+    args.push("--processo-administrativo", input.processoAdministrativo.trim());
+  }
+  if (input.arquivoOrigem?.trim()) {
+    args.push("--arquivo-origem", input.arquivoOrigem.trim());
+  }
+  if (input.dataGeracao?.trim()) {
+    args.push("--data-geracao", input.dataGeracao.trim());
   }
 
   await execFileAsync(python.command, args, { cwd: repoRoot, windowsHide: true, maxBuffer: 1024 * 1024 * 10 });
@@ -155,7 +167,7 @@ export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Pr
     : join(reportsRoot, `${Date.now()}-${slugifyFileName(basename(sourceFile, ".pdf"))}`);
   ensureDirectory(outputDir);
 
-  const jsonPath = await runPythonPipeline(sourceFile, outputDir, input.generatedByName);
+  const jsonPath = await runPythonPipeline(input, sourceFile, outputDir);
   const parsed = JSON.parse(readFileSync(jsonPath, "utf-8")) as ParsedPayload;
 
   const artifacts = [
@@ -166,6 +178,7 @@ export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Pr
     { label: "Relatório Malsucedidos (XLSX)", path: String(parsed.artifacts?.malsucedidos_xlsx ?? join(outputDir, "Relatorio_MalSucedidos.xlsx")), type: "xlsx" as const },
     { label: "Warnings", path: join(outputDir, "warnings.log"), type: "log" as const },
     { label: "Erros de parsing", path: join(outputDir, "erros_parsing.log"), type: "log" as const },
+    { label: "Erros de renderização", path: join(outputDir, "erros_renderizacao.log"), type: "log" as const },
   ];
 
   return ataSessaoProcessResultSchema.parse({

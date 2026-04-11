@@ -14,12 +14,20 @@ async function main() {
   const documentoIdArg = parseArg("--documento-id");
   const outputDir = parseArg("--output-dir");
   const generatedByName = parseArg("--generated-by");
+  const edital = parseArg("--edital");
+  const processoAdministrativo = parseArg("--processo-administrativo");
+  const arquivoOrigem = parseArg("--arquivo-origem");
+  const dataGeracao = parseArg("--data-geracao");
 
   const input = ataSessaoProcessInputSchema.parse({
     sourcePath,
     documentoId: documentoIdArg ? Number(documentoIdArg) : undefined,
     outputDir,
     generatedByName,
+    edital,
+    processoAdministrativo,
+    arquivoOrigem,
+    dataGeracao,
   });
 
   const result = await generateAtaSessaoReports(input);

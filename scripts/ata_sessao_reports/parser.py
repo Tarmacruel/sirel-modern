@@ -14,6 +14,11 @@ from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord
 
 LOT_HEADER_RE = re.compile(r"LOTE\s+(?P<numero>\d+)\s*-\s*(?P<status>[A-ZÇÃÉÊÍÓÔÕÚ]+)", re.IGNORECASE)
 SECTION_HEADER_RE = re.compile(r"^Razão Social Num Documento Oferta Inicial Oferta Final Dif\.\(%\) ME$", re.IGNORECASE)
+EDITAL_RE = re.compile(
+    r"(?P<label>PREG[ÃA]O\s+ELETR[ÔO]NICO|DISPENSA(?:\s+ELETR[ÔO]NICA)?)\s+N[ºo°]\s*(?P<edital>[A-Z0-9./-]+)",
+    re.IGNORECASE,
+)
+PROCESSO_ADMIN_RE = re.compile(r"PROCESSO\s+ADMINISTRATIVO\s+N[ºo°]\s*(?P<processo>[A-Z0-9./-]+)", re.IGNORECASE)
 PARTICIPANT_ROW_RE = re.compile(
     r"^(?:(?P<ranking>\d+)\s+)?"
     r"(?P<razao>.+?)\s+"
@@ -82,6 +87,20 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 
 def split_lot_blocks(text: str) -> list[str]:
     return [block.strip() for block in re.split(r"(?=LOTE\s+\d+\s*-)", text) if block.strip().startswith("LOTE ")]
+
+
+def extract_header_metadata(text: str) -> tuple[str | None, str | None]:
+    edital_match = EDITAL_RE.search(text)
+    processo_match = PROCESSO_ADMIN_RE.search(text)
+    edital = None
+    processo_administrativo = None
+    if edital_match:
+        label = normalize_whitespace(edital_match.group("label"))
+        numero = normalize_whitespace(edital_match.group("edital"))
+        edital = f"{label.title()} Nº {numero}"
+    if processo_match:
+        processo_administrativo = normalize_whitespace(processo_match.group("processo"))
+    return edital, processo_administrativo
 
 
 def extract_section(block: str, start_marker: str, end_markers: Iterable[str]) -> str:
@@ -380,6 +399,7 @@ def parse_ata_sessao_pdf(pdf_path: str | Path, logger: logging.Logger | None = N
         source_path=str(pdf_path),
         generated_at=datetime.now().isoformat(),
     )
+    result.edital, result.processo_administrativo = extract_header_metadata(text)
 
     parsing_error_file = Path(parsing_error_log_path) if parsing_error_log_path else None
     if parsing_error_file:

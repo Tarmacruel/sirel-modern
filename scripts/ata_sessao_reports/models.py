@@ -88,6 +88,8 @@ class LotRecord:
 class AtaSessaoParseResult:
     source_path: str
     generated_at: str
+    edital: str | None = None
+    processo_administrativo: str | None = None
     lotes: list[LotRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     parsing_errors: list[dict[str, str]] = field(default_factory=list)
@@ -113,6 +115,8 @@ class AtaSessaoParseResult:
         return {
             "source_path": self.source_path,
             "generated_at": self.generated_at,
+            "edital": self.edital,
+            "processo_administrativo": self.processo_administrativo,
             "summary": self.build_summary(),
             "warnings": self.warnings,
             "parsing_errors": self.parsing_errors,

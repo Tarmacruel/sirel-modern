@@ -38,6 +38,13 @@ export interface AtaSessaoStandaloneProcessResult {
   artifacts: AtaSessaoStandaloneArtifact[];
 }
 
+export interface ProcessAtaSessaoDocumentoOptions {
+  edital?: string;
+  processoAdministrativo?: string;
+  arquivoOrigem?: string;
+  dataGeracao?: string;
+}
+
 export function resolveServerBaseUrl() {
   const configuredUrl = String(import.meta.env.VITE_API_URL ?? "").trim();
   if (configuredUrl) {
@@ -126,9 +133,16 @@ export async function deleteProcessoDocumento(documentoId: number) {
   return response.json();
 }
 
-export async function processAtaSessaoDocumento(arquivo: File): Promise<AtaSessaoStandaloneProcessResult> {
+export async function processAtaSessaoDocumento(
+  arquivo: File,
+  options: ProcessAtaSessaoDocumentoOptions = {},
+): Promise<AtaSessaoStandaloneProcessResult> {
   const formData = new FormData();
   formData.append("arquivo", arquivo);
+  if (options.edital?.trim()) formData.append("edital", options.edital.trim());
+  if (options.processoAdministrativo?.trim()) formData.append("processoAdministrativo", options.processoAdministrativo.trim());
+  if (options.arquivoOrigem?.trim()) formData.append("arquivoOrigem", options.arquivoOrigem.trim());
+  if (options.dataGeracao?.trim()) formData.append("dataGeracao", options.dataGeracao.trim());
 
   const response = await fetch(`${resolveServerBaseUrl()}/api/relatorios/ata-sessao/processar`, {
     method: "POST",
