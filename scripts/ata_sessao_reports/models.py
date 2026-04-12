@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-
 ADJUDICAVEL_STATUSES = {"ADJUDICADO", "HABILITACAO", "HABILITAÇÃO", "HABILITA"}
 MALSUCEDIDO_STATUSES = {"FRACASSADO", "DESERTO", "CANCELADO"}
 
@@ -67,7 +66,7 @@ class LotRecord:
     numero_lote: int
     status: str
     titulo: str
-    item: LotItemData = field(default_factory=LotItemData)
+    itens: list[LotItemData] = field(default_factory=list)  # Alterado para lista
     participantes: list[LotParticipant] = field(default_factory=list)
     movimentos: list[MovimentoLote] = field(default_factory=list)
     vencedor: str | None = None
@@ -80,7 +79,7 @@ class LotRecord:
         data = asdict(self)
         data["participantes"] = [item.to_dict() for item in self.participantes]
         data["movimentos"] = [item.to_dict() for item in self.movimentos]
-        data["item"] = self.item.to_dict()
+        data["itens"] = [item.to_dict() for item in self.itens]
         return data
 
 

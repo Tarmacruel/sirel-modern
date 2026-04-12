@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal
 
-from .models import AtaSessaoParseResult, LotParticipant, LotRecord
+from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord
 
-DisplaySection = Literal['CLASSIFICACAO', 'DESCLASSIFICADOS', 'INABILITADOS', 'MOVIMENTOS']
+DisplaySection = Literal["CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS"]
 
 SECTION_LABELS: dict[str, str] = {
-    'CLASSIFICACAO': 'Classificação',
-    'DESCLASSIFICADOS': 'Desclassificados',
-    'INABILITADOS': 'Inabilitados',
-    'MOVIMENTOS': 'Participantes detectados nos movimentos',
+    "CLASSIFICACAO": "Classificação",
+    "DESCLASSIFICADOS": "Desclassificados",
+    "INABILITADOS": "Inabilitados",
+    "MOVIMENTOS": "Participantes detectados nos movimentos",
 }
 
-MALSUCEDIDO_STATUSES = {'FRACASSADO', 'DESERTO', 'CANCELADO'}
+MALSUCEDIDO_STATUSES = {"FRACASSADO", "DESERTO", "CANCELADO"}
 
 
 @dataclass(slots=True)
@@ -43,21 +43,34 @@ class NormalizedParticipant:
 
 
 @dataclass(slots=True)
+class NormalizedItem:
+    item_numero: str | None
+    unidade: str | None
+    descricao: str | None
+    quantidade: float | None
+    valor_unitario: float | None
+    valor_total: float | None
+    valor_unitario_estimado: float | None
+    marca: str | None
+    modelo: str | None
+
+
+@dataclass(slots=True)
 class NormalizedLot:
     numero_lote: int
     status: str
     titulo: str
     descricao: str
-    quantidade: float | None
+    total_itens: int
+    quantidade_total: float | None
+    valor_total_lote: float | None
     marca: str | None
     modelo: str | None
-    valor_unitario: float | None
-    valor_total: float | None
-    valor_unitario_estimado: float | None
     vencedor: str | None
     cnpj_vencedor: str | None
     melhor_oferta: float | None
     motivo_falha: str | None
+    itens: list[NormalizedItem]
     participantes_exibidos: list[NormalizedParticipant]
     participantes_totais: int
     classificados: int
@@ -82,51 +95,52 @@ def _warn(logger: logging.Logger | None, message: str) -> None:
 
 
 def _positive_values(*values: float | None) -> list[float]:
-    result: list[float] = []
-    for value in values:
-        if value is None:
-            continue
-        parsed = float(value)
-        if parsed > 0:
-            result.append(parsed)
-    return result
+    return [float(v) for v in values if v is not None and float(v) > 0]
 
 
 def _best_offer_from_participants(participantes: Iterable[LotParticipant]) -> float | None:
     candidates: list[float] = []
-    for participant in participantes:
-        candidates.extend(_positive_values(participant.oferta_final, participant.oferta_inicial))
+    for p in participantes:
+        candidates.extend(_positive_values(p.oferta_final, p.oferta_inicial))
     return min(candidates) if candidates else None
 
 
 def _normalize_reason(reason: str | None) -> str | None:
-    text = ' '.join(str(reason or '').replace('\n', ' ').split()).strip(' |')
+    text = " ".join(str(reason or "").replace("\n", " ").split()).strip(" |")
     if not text:
         return None
 
     normalized_parts: list[str] = []
     seen: set[str] = set()
-    for chunk in text.split('|'):
-        candidate = ' '.join(chunk.split()).strip(' .;')
-        if not candidate:
-            continue
-        key = candidate.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized_parts.append(candidate)
+    for chunk in text.split("|"):
+        candidate = " ".join(chunk.split()).strip(" .;")
+        if candidate and candidate.casefold() not in seen:
+            seen.add(candidate.casefold())
+            normalized_parts.append(candidate)
 
-    if not normalized_parts:
-        return None
-    return ' | '.join(normalized_parts)
+    return " | ".join(normalized_parts) if normalized_parts else None
+
+
+def _normalize_item(item: LotItemData) -> NormalizedItem:
+    return NormalizedItem(
+        item_numero=item.item_numero,
+        unidade=item.unidade,
+        descricao=item.descricao,
+        quantidade=item.quantidade,
+        valor_unitario=item.valor_unitario,
+        valor_total=item.valor_total,
+        valor_unitario_estimado=item.valor_unitario_estimado,
+        marca=item.marca,
+        modelo=item.modelo,
+    )
 
 
 def _normalize_participant(participant: LotParticipant) -> NormalizedParticipant:
-    if participant.section == 'MOVIMENTOS':
+    if participant.section == "MOVIMENTOS":
         oferta_registrada = next(iter(_positive_values(participant.oferta_inicial, participant.oferta_final)), None)
         return NormalizedParticipant(
-            section='MOVIMENTOS',
-            section_label=SECTION_LABELS['MOVIMENTOS'],
+            section="MOVIMENTOS",
+            section_label=SECTION_LABELS["MOVIMENTOS"],
             ranking=participant.ranking,
             participante_numero=participant.participante_numero,
             razao_social=participant.razao_social,
@@ -138,10 +152,10 @@ def _normalize_participant(participant: LotParticipant) -> NormalizedParticipant
             me_epp=participant.me_epp,
         )
 
-    section = participant.section if participant.section in SECTION_LABELS else 'CLASSIFICACAO'
+    section = participant.section if participant.section in SECTION_LABELS else "CLASSIFICACAO"
     return NormalizedParticipant(
         section=section,  # type: ignore[arg-type]
-        section_label=SECTION_LABELS.get(section, 'Classificação'),
+        section_label=SECTION_LABELS.get(section, "Classificação"),
         ranking=participant.ranking,
         participante_numero=participant.participante_numero,
         razao_social=participant.razao_social,
@@ -158,60 +172,75 @@ def prepare_lote_data(lot: LotRecord, logger: logging.Logger | None = None) -> N
     structured_raw = [
         participant
         for participant in lot.participantes
-        if participant.section in {'CLASSIFICACAO', 'DESCLASSIFICADOS', 'INABILITADOS'}
+        if participant.section in {"CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS"}
     ]
-    movement_raw = [participant for participant in lot.participantes if participant.section == 'MOVIMENTOS']
+    movement_raw = [participant for participant in lot.participantes if participant.section == "MOVIMENTOS"]
     display_participants = structured_raw if structured_raw else movement_raw
 
     structured_best = _best_offer_from_participants(structured_raw)
     movement_best = _best_offer_from_participants(movement_raw)
-    best_offer = lot.melhor_lance or structured_best or movement_best or lot.item.valor_unitario_estimado
+    best_offer = lot.melhor_lance or structured_best or movement_best
+
+    quantidade_total_raw = sum(i.quantidade or 0 for i in lot.itens)
+    valor_total_lote_raw = sum(i.valor_total or 0 for i in lot.itens)
+    total_itens = len(lot.itens)
+
+    quantidade_total = quantidade_total_raw if quantidade_total_raw > 0 else None
+    valor_total_lote = valor_total_lote_raw if valor_total_lote_raw > 0 else None
+
+    primeiro = lot.itens[0] if lot.itens else None
+
+    # Regra:
+    # - lote com 1 item: pode herdar descricao/marca/modelo do item
+    # - lote com vários itens: usa o título do lote e NÃO replica marca/modelo do item 1
+    if total_itens <= 1:
+        descricao = (primeiro.descricao if primeiro and primeiro.descricao else None) or lot.titulo or "-"
+        marca = primeiro.marca if primeiro and primeiro.marca else None
+        modelo = primeiro.modelo if primeiro and primeiro.modelo else None
+    else:
+        descricao = lot.titulo or (primeiro.descricao if primeiro and primeiro.descricao else "-")
+        marca = None
+        modelo = None
+
     reason = _normalize_reason(lot.motivo_falha)
 
     if lot.status.strip().upper() in MALSUCEDIDO_STATUSES and not reason:
-        _warn(logger, f'Lote {lot.numero_lote}: motivo consolidado não identificado para status {lot.status}.')
+        _warn(logger, f"Lote {lot.numero_lote}: motivo consolidado não identificado para status {lot.status}.")
     if not best_offer:
-        _warn(logger, f'Lote {lot.numero_lote}: melhor oferta não identificada no bloco renderizável.')
+        _warn(logger, f"Lote {lot.numero_lote}: melhor oferta não identificada no bloco renderizável.")
 
-    descricao = ' '.join((lot.item.descricao or lot.titulo or '').split()).strip()
     return NormalizedLot(
         numero_lote=lot.numero_lote,
         status=lot.status,
         titulo=lot.titulo,
         descricao=descricao,
-        quantidade=lot.item.quantidade,
-        marca=lot.item.marca,
-        modelo=lot.item.modelo,
-        valor_unitario=lot.item.valor_unitario,
-        valor_total=lot.item.valor_total,
-        valor_unitario_estimado=lot.item.valor_unitario_estimado,
+        total_itens=total_itens,
+        quantidade_total=quantidade_total,
+        valor_total_lote=valor_total_lote,
+        marca=marca,
+        modelo=modelo,
         vencedor=lot.vencedor,
         cnpj_vencedor=lot.cnpj_vencedor,
         melhor_oferta=best_offer,
         motivo_falha=reason,
+        itens=[_normalize_item(item) for item in lot.itens],
         participantes_exibidos=[_normalize_participant(participant) for participant in display_participants],
         participantes_totais=len(display_participants) if display_participants else len(lot.participantes),
-        classificados=sum(1 for participant in structured_raw if participant.section == 'CLASSIFICACAO'),
-        desclassificados=sum(1 for participant in structured_raw if participant.section == 'DESCLASSIFICADOS'),
-        inabilitados=sum(1 for participant in structured_raw if participant.section == 'INABILITADOS'),
+        classificados=sum(1 for participant in structured_raw if participant.section == "CLASSIFICACAO"),
+        desclassificados=sum(1 for participant in structured_raw if participant.section == "DESCLASSIFICADOS"),
+        inabilitados=sum(1 for participant in structured_raw if participant.section == "INABILITADOS"),
     )
-
-
-def normalize_lot(lot: LotRecord, logger: logging.Logger | None = None) -> NormalizedLot:
-    return prepare_lote_data(lot, logger=logger)
-
 
 def _build_header_metadata(
     result: AtaSessaoParseResult,
     metadata: dict[str, str | None] | None = None,
 ) -> ReportHeaderMetadata:
-    source_file_name = Path(result.source_path).name
     metadata = metadata or {}
     return ReportHeaderMetadata(
-        arquivo_origem=(metadata.get('arquivo_origem') or source_file_name).strip(),
-        data_geracao=(metadata.get('data_geracao') or result.generated_at).strip(),
-        edital=(metadata.get('edital') or result.edital or '').strip() or None,
-        processo_administrativo=(metadata.get('processo_administrativo') or result.processo_administrativo or '').strip() or None,
+        arquivo_origem=(metadata.get("arquivo_origem") or Path(result.source_path).name).strip(),
+        data_geracao=(metadata.get("data_geracao") or result.generated_at).strip(),
+        edital=(metadata.get("edital") or result.edital or "").strip() or None,
+        processo_administrativo=(metadata.get("processo_administrativo") or result.processo_administrativo or "").strip() or None,
     )
 
 
@@ -221,14 +250,12 @@ def normalize_report_data(
     metadata: dict[str, str | None] | None = None,
     logger: logging.Logger | None = None,
 ) -> NormalizedReportData:
-    adjudicados = [prepare_lote_data(lot, logger=logger) for lot in result.adjudicados]
-    malsucedidos = [prepare_lote_data(lot, logger=logger) for lot in result.malsucedidos]
     return NormalizedReportData(
         source_path=result.source_path,
         source_file_name=Path(result.source_path).name,
         generated_at=result.generated_at,
-        header=_build_header_metadata(result, metadata=metadata),
+        header=_build_header_metadata(result, metadata),
         summary=result.build_summary(),
-        adjudicados=adjudicados,
-        malsucedidos=malsucedidos,
+        adjudicados=[prepare_lote_data(lot, logger) for lot in result.adjudicados],
+        malsucedidos=[prepare_lote_data(lot, logger) for lot in result.malsucedidos],
     )

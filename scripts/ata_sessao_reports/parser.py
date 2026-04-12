@@ -12,30 +12,33 @@ import pdfplumber
 
 from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord, MovimentoLote, is_malsucedido_status
 
+# Regex corrigidas (removidos espaços antes das aspas)
 LOT_HEADER_RE = re.compile(r"LOTE\s+(?P<numero>\d+)\s*-\s*(?P<status>[A-ZÇÃÉÊÍÓÔÕÚ]+)", re.IGNORECASE)
-SECTION_HEADER_RE = re.compile(r"^Razão Social Num Documento Oferta Inicial Oferta Final Dif\.\(%\) ME$", re.IGNORECASE)
-EDITAL_RE = re.compile(
-    r"(?P<label>PREG[ÃA]O\s+ELETR[ÔO]NICO|DISPENSA(?:\s+ELETR[ÔO]NICA)?)\s+N[ºo°]\s*(?P<edital>[A-Z0-9./-]+)",
-    re.IGNORECASE,
-)
+SECTION_HEADER_RE = re.compile(r"^Razão Social\s+Num\s+Documento\s+Oferta Inicial\s+Oferta Final\s+Dif.(%)?\s*ME$", re.IGNORECASE)
+EDITAL_RE = re.compile(r"(?P<label>PREG[ÃA]O\s+ELETR[ÔO]NICO|DISPENSA(?:\s+ELETR[ÔO]NICA)?)\s+N[ºo°]\s*(?P<edital>[A-Z0-9./-]+)", re.IGNORECASE)
 PROCESSO_ADMIN_RE = re.compile(r"PROCESSO\s+ADMINISTRATIVO\s+N[ºo°]\s*(?P<processo>[A-Z0-9./-]+)", re.IGNORECASE)
+
 PARTICIPANT_ROW_RE = re.compile(
     r"^(?:(?P<ranking>\d+)\s+)?"
     r"(?P<razao>.+?)\s+"
     r"(?P<num>\d{1,4})\s+"
     r"(?P<documento>(?:\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})|(?:\d{3}\.\d{3}\.\d{3}-\d{2})|(?:\d{11,14}))\s+"
-    r"(?P<oferta_inicial>[\d\.,]+)\s+"
-    r"(?P<oferta_final>[\d\.,]+)"
-    r"(?:\s+(?P<diferenca>[\d\.,-]+))?\s+"
+    r"(?P<oferta_inicial>[\d.,]+)\s+"
+    r"(?P<oferta_final>[\d.,]+)"
+    r"(?:\s+(?P<diferenca>[\d.,-]+))?\s+"
     r"(?P<me>Sim|N[aã]o)$",
     re.IGNORECASE,
 )
+
 MOVIMENTO_RE = re.compile(r"^(?P<data>\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2})\s+(?P<body>.+)$")
-REFERENCE_VALUE_RE = re.compile(r"valor de refer[êe]ncia para o LOTE é de R\$(?P<valor>[\d\.,]+)", re.IGNORECASE)
+REFERENCE_VALUE_RE = re.compile(r"valor de refer[êe]ncia para o LOTE é de R\$(?P<valor>[\d.,]+)", re.IGNORECASE)
 REASON_RE = re.compile(r"Motivo:\s*(?P<motivo>.+)$", re.IGNORECASE)
+
 SECTION_TITLES = ("CLASSIFICAÇÃO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS DO LOTE")
+
+
 def normalize_whitespace(value: str) -> str:
-    return re.sub(r"\s+", " ", value or "").strip()
+    return re.sub(r"\s+", " ", value or " ").strip()
 
 
 def normalize_status(value: str | None) -> str:
@@ -126,38 +129,55 @@ def parse_status(block: str) -> tuple[int, str, str]:
     return numero, status, titulo
 
 
-def parse_item_section(block: str, logger: logging.Logger) -> LotItemData:
+def parse_item_section(block: str, logger: logging.Logger) -> list[LotItemData]:
+    """Extrai TODOS os itens de um lote."""
     item_block = extract_section(block, "VALORES UNITÁRIOS FINAIS", SECTION_TITLES)
-    item = LotItemData()
     if not item_block:
         logger.warning("Bloco de valores unitários finais ausente no lote.")
-        return item
+        return []
 
-    header_match = re.search(
-        r"Item:\s*(?P<item>[^\n]+?)\s+Unidade:\s*(?P<unidade>[^\n]+?)\s+Marca:\s*(?P<marca>.*?)\s+Modelo:\s*(?P<modelo>.*?)(?:\n|Descrição:)",
-        item_block,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if header_match:
-        item.item_numero = normalize_whitespace(header_match.group("item"))
-        item.unidade = normalize_whitespace(header_match.group("unidade"))
-        item.marca = normalize_whitespace(header_match.group("marca")) or None
-        item.modelo = normalize_whitespace(header_match.group("modelo")) or None
+    itens: list[LotItemData] = []
+    
+    # Divide o bloco por "Item: " para processar cada um separadamente
+    parts = re.split(r"(?=Item:\s*\d+)", item_block, flags=re.IGNORECASE)
+    
+    for part in parts:
+        if not part.strip():
+            continue
+            
+        item = LotItemData()
+        
+        # Extração do número e unidade
+        header_match = re.search(
+            r"Item:\s*(?P<item>\d+)\s+Unidade:\s*(?P<unidade>[^\n]+?)\s+Marca:\s*(?P<marca>.*?)\s+Modelo:\s*(?P<modelo>.*?)(?:\n|Descrição:)",
+            part,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if header_match:
+            item.item_numero = normalize_whitespace(header_match.group("item"))
+            item.unidade = normalize_whitespace(header_match.group("unidade"))
+            item.marca = normalize_whitespace(header_match.group("marca")) or None
+            item.modelo = normalize_whitespace(header_match.group("modelo")) or None
 
-    description_match = re.search(
-        r"Descrição:\s*(?P<descricao>.*?)\s+Quantidade:\s*(?P<quantidade>[\d\.,]+)\s+Valor Unit\.:\s*(?P<valor_unitario>[\d\.,]+)\s+Valor Total:\s*(?P<valor_total>[\d\.,]+)",
-        item_block,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if description_match:
-        item.descricao = normalize_whitespace(description_match.group("descricao"))
-        item.quantidade = parse_brazilian_number(description_match.group("quantidade"))
-        item.valor_unitario = parse_brazilian_number(description_match.group("valor_unitario"))
-        item.valor_total = parse_brazilian_number(description_match.group("valor_total"))
-    else:
-        logger.warning("Não foi possível extrair descrição/quantidade/valores do item.")
+        # Extração de descrição e valores
+        desc_match = re.search(
+            r"Descrição:\s*(?P<descricao>.*?)\s+Quantidade:\s*(?P<quantidade>[\d\.,]+)\s+Valor Unit\.:\s*(?P<valor_unitario>[\d\.,]+)\s+Valor Total:\s*(?P<valor_total>[\d\.,]+)",
+            part,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if desc_match:
+            item.descricao = normalize_whitespace(desc_match.group("descricao"))
+            item.quantidade = parse_brazilian_number(desc_match.group("quantidade"))
+            item.valor_unitario = parse_brazilian_number(desc_match.group("valor_unitario"))
+            item.valor_total = parse_brazilian_number(desc_match.group("valor_total"))
+        else:
+            logger.warning("Não foi possível extrair descrição/quantidade/valores do item.")
 
-    return item
+        # Só adiciona se tiver número ou descrição
+        if item.item_numero or item.descricao:
+            itens.append(item)
+
+    return itens
 
 
 def parse_participant_row(raw_line: str) -> LotParticipant | None:
@@ -183,13 +203,21 @@ def parse_participant_row(raw_line: str) -> LotParticipant | None:
 def parse_section_participants(section_name: str, section_text: str, logger: logging.Logger, warnings: list[str]) -> list[LotParticipant]:
     if not section_text:
         return []
-
     rows: list[LotParticipant] = []
     buffer = ""
+    
+    # Keywords para identificar e pular a linha de cabeçalho da tabela
+    HEADER_KEYWORDS = {"Razão Social", "Num", "Documento", "Oferta Inicial", "Oferta Final"}
+
     for raw_line in section_text.splitlines():
         line = raw_line.strip()
-        if not line or SECTION_HEADER_RE.match(line):
+        if not line:
             continue
+        
+        # Pula explicitamente o cabeçalho da tabela
+        if SECTION_HEADER_RE.match(line) or all(kw in line for kw in HEADER_KEYWORDS):
+            continue
+
         if (
             not buffer
             and rows
@@ -199,6 +227,7 @@ def parse_section_participants(section_name: str, section_text: str, logger: log
             rows[-1].razao_social = normalize_whitespace(f"{rows[-1].razao_social} {line}")
             rows[-1].raw_line = normalize_whitespace(f"{rows[-1].raw_line} {line}")
             continue
+
         buffer = f"{buffer} {line}".strip() if buffer else line
         if re.search(r"\b(Sim|N[aã]o)\s*$", buffer, re.IGNORECASE):
             participant = parse_participant_row(buffer)
@@ -223,11 +252,7 @@ def parse_section_participants(section_name: str, section_text: str, logger: log
 
     return rows
 
-
 def fallback_participants_from_movements(movimentos: list[MovimentoLote], known: list[LotParticipant]) -> list[LotParticipant]:
-    if known:
-        return []
-
     if known:
         known_keys = {(item.participante_numero, item.documento, item.razao_social) for item in known}
     else:
@@ -267,7 +292,6 @@ def parse_movements(block: str) -> list[MovimentoLote]:
     section_text = extract_section(block, "MOVIMENTOS DO LOTE", ["LOTE "])
     if not section_text:
         return []
-
     movements: list[MovimentoLote] = []
     current: str | None = None
     for raw_line in section_text.splitlines():
@@ -289,21 +313,20 @@ def _build_movement(raw_text: str) -> MovimentoLote:
     match = MOVIMENTO_RE.match(raw_text)
     if not match:
         return MovimentoLote(timestamp="", evento="", detalhe=normalize_whitespace(raw_text), raw_text=normalize_whitespace(raw_text))
-
     body = normalize_whitespace(match.group("body"))
     evento = body
     detalhe = ""
-    if " Motivo:" in body:
-        evento = normalize_whitespace(body.split(" Motivo:", 1)[0])
-        detalhe = normalize_whitespace(body.split(" Motivo:", 1)[1])
+    if " Motivo: " in body:
+        evento = normalize_whitespace(body.split(" Motivo: ", 1)[0])
+        detalhe = normalize_whitespace(body.split(" Motivo: ", 1)[1])
     elif " PARA PARTICIPANTE " in body:
-        evento = normalize_whitespace(body.split(":", 1)[0])
-        detalhe = normalize_whitespace(body.split(":", 1)[1]) if ":" in body else ""
+        evento = normalize_whitespace(body.split(": ", 1)[0])
+        detalhe = normalize_whitespace(body.split(": ", 1)[1]) if ": " in body else ""
     elif re.search(r"\b(PREGOEIRO|SISTEMA|PARTICIPANTE)\b", body):
-        tokens = body.split(" ", 3)
+        tokens = body.split("  ", 3)
         if len(tokens) >= 3:
-            evento = " ".join(tokens[: min(3, len(tokens))])
-            detalhe = normalize_whitespace(body[len(evento) :])
+            evento = "  ".join(tokens[:min(3, len(tokens))])
+            detalhe = normalize_whitespace(body[len(evento):])
     return MovimentoLote(
         timestamp=match.group("data"),
         evento=evento,
@@ -335,6 +358,8 @@ def parse_failure_reason(lot: LotRecord) -> str | None:
 
 
 def apply_estimated_value_from_movements(lot: LotRecord) -> None:
+    if not lot.itens:
+        return
     for movement in lot.movimentos:
         match = REFERENCE_VALUE_RE.search(movement.raw_text)
         if not match:
@@ -342,13 +367,18 @@ def apply_estimated_value_from_movements(lot: LotRecord) -> None:
         valor_total = parse_brazilian_number(match.group("valor"))
         if valor_total is None:
             continue
-        if lot.item.quantidade and lot.item.quantidade > 0:
-            lot.item.valor_unitario_estimado = valor_total / lot.item.quantidade
+        
+        # Aplica ao primeiro item (ou divide se necessário, mas aqui assume referência ao lote)
+        # Se quiser distribuir, teria que mudar a lógica. 
+        # Mantendo simples: atualiza o primeiro item se existir.
+        if lot.itens[0].quantidade and lot.itens[0].quantidade > 0:
+            lot.itens[0].valor_unitario_estimado = valor_total / lot.itens[0].quantidade
         else:
-            lot.item.valor_unitario_estimado = valor_total
+            lot.itens[0].valor_unitario_estimado = valor_total
         return
-    if lot.item.valor_unitario and lot.item.valor_unitario > 0:
-        lot.item.valor_unitario_estimado = lot.item.valor_unitario
+    
+    if lot.itens[0].valor_unitario and lot.itens[0].valor_unitario > 0:
+        lot.itens[0].valor_unitario_estimado = lot.itens[0].valor_unitario
 
 
 def resolve_winner(lot: LotRecord) -> None:
@@ -370,8 +400,7 @@ def resolve_winner(lot: LotRecord) -> None:
 def parse_lot_block(block: str, logger: logging.Logger) -> LotRecord:
     numero_lote, status, titulo = parse_status(block)
     lot = LotRecord(numero_lote=numero_lote, status=status, titulo=titulo)
-    lot.item = parse_item_section(block, logger)
-
+    lot.itens = parse_item_section(block, logger)  # Agora retorna lista
     warnings: list[str] = []
     classificacao_text = extract_section(block, "CLASSIFICAÇÃO", ("DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS DO LOTE"))
     desclassificados_text = extract_section(block, "DESCLASSIFICADOS", ("INABILITADOS", "MOVIMENTOS DO LOTE"))
@@ -400,7 +429,6 @@ def parse_ata_sessao_pdf(pdf_path: str | Path, logger: logging.Logger | None = N
         generated_at=datetime.now().isoformat(),
     )
     result.edital, result.processo_administrativo = extract_header_metadata(text)
-
     parsing_error_file = Path(parsing_error_log_path) if parsing_error_log_path else None
     if parsing_error_file:
         parsing_error_file.parent.mkdir(parents=True, exist_ok=True)
