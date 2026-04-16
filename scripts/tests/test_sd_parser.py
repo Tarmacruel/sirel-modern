@@ -33,6 +33,19 @@ Valor Total: R$ 196.500,00
         self.assertEqual(result.metadata.valor_total, Decimal("196500.00"))
         self.assertFalse(result.warnings)
 
+    def test_parse_sd_text_supports_multiline_description_and_unit_with_dot(self) -> None:
+        text = """
+SD 190/2026
+001 9000515389 ALFINETE NIQUELADO: Alfinete niquelado número 32.
+Embalagem com 50 unidades. 20,00 1,00 m. 8,72 174,40
+Valor Total: R$ 174,40
+"""
+        result = parse_sd_text(text)
+        self.assertEqual(len(result.itens), 1)
+        self.assertEqual(result.itens[0].numero, 1)
+        self.assertEqual(result.itens[0].unidade, "M.")
+        self.assertIn("ALFINETE NIQUELADO", result.itens[0].descricao)
+
     def test_parse_sd_text_warns_total_divergence(self) -> None:
         text = """
 SD 200/2026

@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-import pdfplumber
-
 from .models import LotItemData
 
 SD_NUMBER_RE = re.compile(r"(?:\bSD\s+)?(?P<numero>\d{1,4})\s*/\s*(?P<ano>\d{4})", re.IGNORECASE)
@@ -26,15 +24,20 @@ FONTE_RECURSO_RE = re.compile(r"Fonte\s+de\s+Recurso\s*:?\s*(?P<fonte>[^\n]+)", 
 ASSUNTO_RE = re.compile(r"Assunto\s*:?\s*(?P<assunto>[^\n]+)", re.IGNORECASE)
 TOTAL_VALUE_RE = re.compile(r"Valor\s+Total\s*:?\s*R\$\s*(?P<valor>[\d.,]+)", re.IGNORECASE)
 
-ITEM_ROW_RE = re.compile(
-    r"^(?P<item>\d{1,3})\s+"
-    r"(?:(?P<catmat>\d{3,}(?:/\d+)?)\s+)?"
-    r"(?P<descricao>.+?)\s+"
+ITEM_START_RE = re.compile(r"^(?P<item>\d{1,3})\b")
+ITEM_TAIL_RE = re.compile(
     r"(?P<qtd>\d[\d.,]*)\s+"
     r"(?P<per>\d[\d.,]*)\s+"
-    r"(?P<unid>[A-Z]{2,5})\s+"
+    r"(?P<unid>[A-Z0-9º°ª²³./-]{1,8})\s+"
     r"(?P<preco>\d[\d.,]*)\s+"
     r"(?P<total>\d[\d.,]*)$",
+    re.IGNORECASE,
+)
+ITEM_HEADER_HINT_RE = re.compile(r"^\s*ITEM\s+CATMAT", re.IGNORECASE)
+NON_ITEM_LINE_RE = re.compile(
+    r"^(?:Valor\s+Total|Classifica[cç][aã]o\s+Or[cç]ament[áa]ria|"
+    r"Centro\s+de\s+Custo|Processo\s+Administrativo|Fonte\s+de\s+Recurso|"
+    r"Unidade\s+Or[cç]ament[áa]ria|Elemento\s+da\s+Despesa|Assunto|Justificativa)\b",
     re.IGNORECASE,
 )
 
@@ -104,6 +107,8 @@ def _parse_decimal_ptbr(value: str | None) -> Decimal | None:
 
 
 def extract_text_from_pdf(pdf_path: str | Path) -> str:
+    import pdfplumber
+
     pages: list[str] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page in pdf.pages:
@@ -113,43 +118,93 @@ def extract_text_from_pdf(pdf_path: str | Path) -> str:
     return "\n".join(pages)
 
 
-def _extract_items(text: str) -> tuple[list[SDItem], list[str]]:
-    items: list[SDItem] = []
-    warnings: list[str] = []
+def _build_item_blocks(text: str) -> list[str]:
+    blocks: list[str] = []
+    current_lines: list[str] = []
 
     for raw_line in text.splitlines():
         line = _normalize_whitespace(raw_line)
         if not line:
             continue
-        match = ITEM_ROW_RE.match(line)
-        if not match:
+        if ITEM_HEADER_HINT_RE.search(line):
+            continue
+        if NON_ITEM_LINE_RE.match(line):
+            if current_lines:
+                blocks.append(" ".join(current_lines))
+                current_lines = []
             continue
 
-        qtd = _parse_decimal_ptbr(match.group("qtd"))
-        per = _parse_decimal_ptbr(match.group("per")) or Decimal("0")
-        preco = _parse_decimal_ptbr(match.group("preco"))
-        total = _parse_decimal_ptbr(match.group("total"))
-        if qtd is None or preco is None or total is None:
-            warnings.append(f"Linha ignorada por número inválido: {line}")
+        if ITEM_START_RE.match(line):
+            if current_lines:
+                blocks.append(" ".join(current_lines))
+            current_lines = [line]
             continue
 
-        descricao = _normalize_whitespace(match.group("descricao"))
-        if len(descricao) < 10:
-            warnings.append(f"Item {match.group('item')} com descrição curta para revisão manual.")
+        if current_lines:
+            current_lines.append(line)
 
-        items.append(
-            SDItem(
-                numero=int(match.group("item")),
-                catmat_catser=_normalize_whitespace(match.group("catmat")) or None,
-                descricao=descricao,
-                quantidade=qtd,
-                percentual=per,
-                unidade=_normalize_whitespace(match.group("unid")).upper(),
-                preco_unitario=preco,
-                preco_total=total,
-                raw_line=line,
-            )
-        )
+    if current_lines:
+        blocks.append(" ".join(current_lines))
+
+    return blocks
+
+
+def _extract_item_from_block(block: str) -> SDItem | str | None:
+    tail_match = ITEM_TAIL_RE.search(block)
+    if not tail_match:
+        return f"Bloco de item sem colunas finais reconhecíveis: {block[:120]}..."
+
+    prefix = _normalize_whitespace(block[: tail_match.start()])
+    start_match = ITEM_START_RE.match(prefix)
+    if not start_match:
+        return f"Bloco de item sem número inicial: {block[:120]}..."
+
+    item_num = int(start_match.group("item"))
+    rest = _normalize_whitespace(prefix[start_match.end() :])
+    if not rest:
+        return f"Item {item_num:03d} sem descrição."
+
+    catmat_catser: str | None = None
+    token, _, rem = rest.partition(" ")
+    if token and rem and re.fullmatch(r"\d{6,}(?:/\d+)?", token):
+        catmat_catser = token
+        descricao = _normalize_whitespace(rem)
+    else:
+        descricao = rest
+
+    qtd = _parse_decimal_ptbr(tail_match.group("qtd"))
+    per = _parse_decimal_ptbr(tail_match.group("per")) or Decimal("0")
+    preco = _parse_decimal_ptbr(tail_match.group("preco"))
+    total = _parse_decimal_ptbr(tail_match.group("total"))
+    if qtd is None or preco is None or total is None:
+        return f"Item {item_num:03d} ignorado por número inválido."
+
+    return SDItem(
+        numero=item_num,
+        catmat_catser=catmat_catser,
+        descricao=descricao,
+        quantidade=qtd,
+        percentual=per,
+        unidade=_normalize_whitespace(tail_match.group("unid")).upper(),
+        preco_unitario=preco,
+        preco_total=total,
+        raw_line=block,
+    )
+
+
+def _extract_items(text: str) -> tuple[list[SDItem], list[str]]:
+    items: list[SDItem] = []
+    warnings: list[str] = []
+    for block in _build_item_blocks(text):
+        parsed = _extract_item_from_block(block)
+        if isinstance(parsed, str):
+            warnings.append(parsed)
+            continue
+        if parsed is None:
+            continue
+        if len(parsed.descricao) < 10:
+            warnings.append(f"Item {parsed.numero:03d} com descrição curta para revisão manual.")
+        items.append(parsed)
 
     return items, warnings
 
