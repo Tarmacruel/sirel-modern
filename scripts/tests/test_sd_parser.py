@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from scripts.ata_sessao_reports.sd_parser import (
     SDItemExtractionError,
+    _extract_metadata,
     _extract_items_from_table_rows,
     map_sd_item_to_lot_item,
     parse_sd_text,
@@ -88,6 +89,20 @@ SD 301/2026
         self.assertFalse(warnings)
         self.assertIn("Complemento da descrição", items[0].descricao)
         self.assertEqual(items[1].preco_total, Decimal("12712.50"))
+
+    def test_extract_metadata_prioritizes_sd_number_and_total(self) -> None:
+        text = """
+CNPJ: 13.650.403/0001-28
+N° 190 / 2026
+ASSUNTO / OBJETO SOLICITADO: Teixeira de Freitas, BA 19/03/2026
+Contratação de empresa especializada em fornecimento de materiais.
+Valor Total: 496.110,54
+"""
+        metadata = _extract_metadata(text)
+        self.assertEqual(metadata.numero_sd, "190/2026")
+        self.assertEqual(metadata.processo_administrativo, "190/2026")
+        self.assertEqual(metadata.assunto_objeto, "Contratação de empresa especializada em fornecimento de materiais.")
+        self.assertEqual(metadata.valor_total, Decimal("496110.54"))
 
 
 if __name__ == "__main__":
