@@ -140,6 +140,40 @@ Valor Total: 496.110,54
         self.assertEqual(item_22.preco_total, Decimal("480.50"))
         self.assertFalse(warnings)
 
+    def test_extract_items_from_table_rows_handles_page_break_shifted_cells(self) -> None:
+        rows = [
+            ["022", "", "", "310,00", "1,00", "", "", ""],
+            ["9900515409 LIXA GRAO 50:Folha tipo grao 50", "UND", "1,55", "480,50"],
+            ["023", "", "PALITO DE PICOLÉ", "120,00", "1,00", "PC", "3,17", "380,40"],
+        ]
+        items, warnings = _extract_items_from_table_rows(rows)
+        self.assertEqual(len(items), 2)
+        item_22 = items[0]
+        self.assertEqual(item_22.numero, 22)
+        self.assertEqual(item_22.catmat_catser, "9900515409")
+        self.assertEqual(item_22.unidade, "UND")
+        self.assertEqual(item_22.preco_unitario, Decimal("1.55"))
+        self.assertEqual(item_22.preco_total, Decimal("480.50"))
+        self.assertFalse(warnings)
+
+    def test_extract_items_from_table_rows_keeps_existing_prices_from_primary_row(self) -> None:
+        rows = [
+            ["022", "", "", "310,00", "1,00", "UND", "1,55", "480,50"],
+            ["9900515409 LIXA GRAO 50:Folha tipo grao 50", "UND", "99,99", "999,99"],
+            ["023", "", "PALITO DE PICOLÉ", "120,00", "1,00", "PC", "3,17", "380,40"],
+        ]
+
+        items, warnings = _extract_items_from_table_rows(rows)
+
+        self.assertEqual(len(items), 2)
+        item_22 = items[0]
+        self.assertEqual(item_22.numero, 22)
+        self.assertEqual(item_22.catmat_catser, "9900515409")
+        self.assertEqual(item_22.unidade, "UND")
+        self.assertEqual(item_22.preco_unitario, Decimal("1.55"))
+        self.assertEqual(item_22.preco_total, Decimal("480.50"))
+        self.assertFalse(warnings)
+
     def test_extract_metadata_collects_multiple_classificacoes(self) -> None:
         text = """
 N° 190/2026
