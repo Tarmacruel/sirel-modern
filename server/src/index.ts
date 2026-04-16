@@ -18,6 +18,7 @@ import { verifySessionToken } from "./lib/auth-session.js";
 import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
 import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
+import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
 
 const app = express();
@@ -30,6 +31,8 @@ const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
 const ataSessaoReportsRoot = resolve(currentDir, "../../storage/reports/atas-sessao");
 const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
+const sdReportsRoot = resolve(currentDir, "../../storage/reports/sd");
+const sdUploadsRoot = join(sdReportsRoot, "uploads");
 
 if (!existsSync(uploadsRoot)) {
   mkdirSync(uploadsRoot, { recursive: true });
@@ -39,6 +42,9 @@ if (!existsSync(cadastroAssetsRoot)) {
 }
 if (!existsSync(ataSessaoUploadsRoot)) {
   mkdirSync(ataSessaoUploadsRoot, { recursive: true });
+}
+if (!existsSync(sdUploadsRoot)) {
+  mkdirSync(sdUploadsRoot, { recursive: true });
 }
 
 function resolveDocumentoPath(arquivoChave: string) {
@@ -185,6 +191,23 @@ const ataSessaoStorage = multer.diskStorage({
 const ataSessaoUpload = multer({
   storage: ataSessaoStorage,
   limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+const sdStorage = multer.diskStorage({
+  destination(_req, _file, callback) {
+    mkdirSync(sdUploadsRoot, { recursive: true });
+    callback(null, sdUploadsRoot);
+  },
+  filename(_req, file, callback) {
+    const extension = extname(file.originalname) || ".pdf";
+    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "sd";
+    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+  },
+});
+
+const sdUpload = multer({
+  storage: sdStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 app.use(cors({
@@ -430,6 +453,54 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
   }
 });
 
+app.post("/api/relatorios/sd/processar", sdUpload.single("arquivo"), async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    if (!req.file) {
+      res.status(400).json({ message: "Selecione um arquivo PDF da SD para processar." });
+      return;
+    }
+
+    const extension = extname(req.file.originalname).toLowerCase();
+    if (extension !== ".pdf") {
+      res.status(400).json({ message: "Somente arquivos PDF de Solicitação de Despesa são aceitos." });
+      return;
+    }
+
+    const result = await parseSdReport(req.file.path);
+    const relativeJsonPath = relative(sdReportsRoot, resolve(result.outputDir, "sd-parsed.json"))
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+
+    await logAuditoria({ user } as any, {
+      tabela: "relatorios_sd",
+      registroId: 0,
+      acao: "CREATE",
+      dadosNovos: {
+        arquivoOriginal: req.file.originalname,
+        outputDir: result.outputDir,
+        summary: result.summary,
+        metadata: result.metadata,
+      },
+      descricao: `Processamento avulso de SD em Documentos: ${req.file.originalname}`,
+    });
+
+    res.status(201).json({
+      ...result,
+      originalFileName: req.file.originalname,
+      artifact: {
+        label: "JSON SD parseado",
+        relativePath: relativeJsonPath,
+        downloadUrl: `/api/relatorios/sd/download?file=${encodeURIComponent(relativeJsonPath)}`,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao processar a SD enviada." });
+  }
+});
+
 app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   try {
     const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
@@ -469,6 +540,37 @@ app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Falha ao disponibilizar o relatório da ata." });
+  }
+});
+
+app.get("/api/relatorios/sd/download", async (req, res) => {
+  try {
+    const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!relativeFile) {
+      res.status(400).json({ message: "Arquivo do parse de SD não informado." });
+      return;
+    }
+
+    const absolutePath = resolve(sdReportsRoot, relativeFile);
+    const normalizedRoot = resolve(sdReportsRoot).replace(/\\/g, "/");
+    const normalizedTarget = absolutePath.replace(/\\/g, "/");
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      res.status(400).json({ message: "Arquivo de parse inválido." });
+      return;
+    }
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Arquivo de parse não encontrado." });
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
+    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
+    res.sendFile(absolutePath);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao baixar o parse de SD." });
   }
 });
 
