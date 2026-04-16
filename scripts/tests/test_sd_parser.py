@@ -2,14 +2,33 @@ from __future__ import annotations
 
 import unittest
 from decimal import Decimal
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+import sys
+import types
 
-from scripts.ata_sessao_reports.sd_parser import (
-    SDItemExtractionError,
-    _extract_metadata,
-    _extract_items_from_table_rows,
-    map_sd_item_to_lot_item,
-    parse_sd_text,
-)
+PACKAGE_DIR = Path(__file__).resolve().parents[1] / "ata_sessao_reports"
+package = types.ModuleType("ata_sessao_reports")
+package.__path__ = [str(PACKAGE_DIR)]
+sys.modules.setdefault("ata_sessao_reports", package)
+
+MODELS_SPEC = spec_from_file_location("ata_sessao_reports.models", PACKAGE_DIR / "models.py")
+assert MODELS_SPEC and MODELS_SPEC.loader
+MODELS_MODULE = module_from_spec(MODELS_SPEC)
+sys.modules["ata_sessao_reports.models"] = MODELS_MODULE
+MODELS_SPEC.loader.exec_module(MODELS_MODULE)
+
+SD_SPEC = spec_from_file_location("ata_sessao_reports.sd_parser", PACKAGE_DIR / "sd_parser.py")
+assert SD_SPEC and SD_SPEC.loader
+SD_MODULE = module_from_spec(SD_SPEC)
+sys.modules["ata_sessao_reports.sd_parser"] = SD_MODULE
+SD_SPEC.loader.exec_module(SD_MODULE)
+
+SDItemExtractionError = SD_MODULE.SDItemExtractionError
+_extract_metadata = SD_MODULE._extract_metadata
+_extract_items_from_table_rows = SD_MODULE._extract_items_from_table_rows
+map_sd_item_to_lot_item = SD_MODULE.map_sd_item_to_lot_item
+parse_sd_text = SD_MODULE.parse_sd_text
 
 
 class SDParserTests(unittest.TestCase):
