@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from scripts.ata_sessao_reports.sd_parser import SDItem, SDParsingError, parse_sd_pdf
+from ata_sessao_reports.sd_parser import SDItem, SDParsingError, parse_sd_pdf
 
 
 def _decimal_to_number(value: Decimal | None) -> float | None:
