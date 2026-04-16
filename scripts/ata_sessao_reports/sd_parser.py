@@ -40,6 +40,18 @@ NON_ITEM_LINE_RE = re.compile(
     r"Unidade\s+Or[cç]ament[áa]ria|Elemento\s+da\s+Despesa|Assunto|Justificativa)\b",
     re.IGNORECASE,
 )
+TABLE_UNIT_RE = r"(?:Und\.|PCT|CX|RL|ROL|FL|m\.|KG|MT|ENV|CJ|FR|Und|UND|UN\b|L\b|UNI|KIT|PC|M3|M2|M\b)"
+TABLE_ROW_COMPACT_RE = re.compile(
+    r"^(?P<item>\d{3})\s+(?P<catmat>\d{5,12})\s+(?P<descricao>.+?)\s+"
+    r"(?P<qtd>[\d\.]+,\d{2})\s+(?P<per>[\d,]+)\s+(?P<unid>" + TABLE_UNIT_RE + r")\s+"
+    r"(?P<preco>[\d\.]+,\d{2})\s+(?P<total>[\d\.]+,\d{2})\s*$",
+    re.IGNORECASE,
+)
+TABLE_SKIP_RE = re.compile(
+    r"^(ITEM$|OS RECURSOS|CLASSIFICAÇÃO|Valor\s+Total|Lote\s+\d|FUNDO|AVENIDA|"
+    r"CNPJ|Teixeira|PREFEITURA|SECRETARIA|Secretário|R\.\s+Dr|Ouro)",
+    re.IGNORECASE,
+)
 
 
 class SDParsingError(Exception):
@@ -116,6 +128,151 @@ def extract_text_from_pdf(pdf_path: str | Path) -> str:
             if page_text.strip():
                 pages.append(page_text)
     return "\n".join(pages)
+
+
+def _extract_catmat_descricao(value: str) -> tuple[str | None, str]:
+    text = _normalize_whitespace(value)
+    match = re.match(r"^(?P<catmat>\d{5,12})\s+(?P<descricao>.*)$", text, re.DOTALL)
+    if match:
+        return match.group("catmat"), _normalize_whitespace(match.group("descricao"))
+    return None, text
+
+
+def _build_sd_item(
+    item_raw: str,
+    catmat_raw: str | None,
+    descricao_raw: str,
+    qtd_raw: str,
+    per_raw: str,
+    unid_raw: str,
+    preco_raw: str,
+    total_raw: str,
+    raw_line: str,
+) -> SDItem | None:
+    qtd = _parse_decimal_ptbr(qtd_raw)
+    per = _parse_decimal_ptbr(per_raw) or Decimal("0")
+    preco = _parse_decimal_ptbr(preco_raw)
+    total = _parse_decimal_ptbr(total_raw)
+    if qtd is None or preco is None or total is None:
+        return None
+    return SDItem(
+        numero=int(item_raw),
+        catmat_catser=_normalize_whitespace(catmat_raw) if catmat_raw else None,
+        descricao=_normalize_whitespace(descricao_raw),
+        quantidade=qtd,
+        percentual=per,
+        unidade=_normalize_whitespace(unid_raw).upper(),
+        preco_unitario=preco,
+        preco_total=total,
+        raw_line=raw_line,
+    )
+
+
+def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[SDItem], list[str]]:
+    items: list[SDItem] = []
+    warnings: list[str] = []
+    pending: list[str] = []
+    current_item: SDItem | None = None
+
+    def flush_pending() -> None:
+        nonlocal pending, current_item
+        if current_item and pending:
+            current_item.descricao = _normalize_whitespace(f"{current_item.descricao} {' '.join(pending)}")
+            pending = []
+
+    for row in raw_rows:
+        col0_raw = str(row[0] or "") if row else ""
+        col0 = _normalize_whitespace(col0_raw)
+        col1 = _normalize_whitespace(str(row[1] or "")) if len(row) > 1 else ""
+        col2 = _normalize_whitespace(str(row[2] or "")) if len(row) > 2 else ""
+
+        if (col0 in {"", "ITEM"} and col2 in {"", "DESCRIÇÃO / ESPECIFICAÇÃO"}) or TABLE_SKIP_RE.match(col0) or TABLE_SKIP_RE.match(col2):
+            continue
+
+        if re.fullmatch(r"\d{3}", col0):
+            flush_pending()
+            if current_item:
+                items.append(current_item)
+            catmat = col1 if re.fullmatch(r"\d{5,12}", col1) else None
+            descricao = re.sub(r"^\d{5,12}\s+", "", col2).strip() if catmat else col2
+            if not catmat:
+                catmat, descricao = _extract_catmat_descricao(col2)
+            current_item = _build_sd_item(
+                item_raw=col0,
+                catmat_raw=catmat,
+                descricao_raw=descricao,
+                qtd_raw=str(row[3] or "") if len(row) > 3 else "",
+                per_raw=str(row[4] or "") if len(row) > 4 else "",
+                unid_raw=str(row[5] or "") if len(row) > 5 else "",
+                preco_raw=str(row[6] or "") if len(row) > 6 else "",
+                total_raw=str(row[7] or "") if len(row) > 7 else "",
+                raw_line=" | ".join(_normalize_whitespace(str(col or "")) for col in row),
+            )
+            if current_item is None:
+                warnings.append(f"Item {col0} ignorado por números inválidos na linha da tabela.")
+            pending = []
+            continue
+
+        split_lines = [line.strip() for line in col0_raw.splitlines() if line.strip()]
+        compact_match = TABLE_ROW_COMPACT_RE.match(split_lines[0]) if split_lines else None
+        if compact_match:
+            flush_pending()
+            if current_item:
+                items.append(current_item)
+            descricao = _normalize_whitespace(compact_match.group("descricao"))
+            if len(split_lines) > 1:
+                descricao = _normalize_whitespace(f"{descricao} {' '.join(split_lines[1:])}")
+            current_item = _build_sd_item(
+                item_raw=compact_match.group("item"),
+                catmat_raw=compact_match.group("catmat"),
+                descricao_raw=descricao,
+                qtd_raw=compact_match.group("qtd"),
+                per_raw=compact_match.group("per"),
+                unid_raw=compact_match.group("unid"),
+                preco_raw=compact_match.group("preco"),
+                total_raw=compact_match.group("total"),
+                raw_line=_normalize_whitespace(col0_raw),
+            )
+            if current_item is None:
+                warnings.append(f"Item {compact_match.group('item')} ignorado por números inválidos no formato compacto.")
+            pending = []
+            continue
+
+        if current_item:
+            if col2:
+                pending.append(col2.replace("\n", " "))
+            elif col0 and not TABLE_SKIP_RE.match(col0):
+                pending.append(" ".join(split_lines))
+
+    flush_pending()
+    if current_item:
+        items.append(current_item)
+
+    return items, warnings
+
+
+def _extract_items_from_pdf_tables(pdf_path: str | Path) -> tuple[list[SDItem], list[str]]:
+    import pdfplumber
+
+    raw_rows: list[list[object]] = []
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        for page in pdf.pages:
+            for table in page.extract_tables() or []:
+                has_items = any(
+                    row and row[0] and re.match(r"^\d{3}$", _normalize_whitespace(str(row[0])))
+                    for row in table
+                    if row
+                )
+                has_header = any(
+                    row and _normalize_whitespace(str(row[0] or "")).upper() == "ITEM"
+                    for row in table
+                    if row
+                )
+                if has_items or has_header:
+                    for row in table:
+                        if row and any(str(cell or "").strip() for cell in row):
+                            raw_rows.append(list(row))
+    return _extract_items_from_table_rows(raw_rows)
 
 
 def _build_item_blocks(text: str) -> list[str]:
@@ -242,15 +399,16 @@ def _extract_metadata(text: str) -> SDMetadata:
     )
 
 
-def parse_sd_text(text: str, source_path: str = "<text>", logger: logging.Logger | None = None) -> SDRecord:
-    logger = logger or logging.getLogger(__name__)
-    metadata = _extract_metadata(text)
-    items, item_warnings = _extract_items(text)
-
+def _build_record(
+    source_path: str,
+    metadata: SDMetadata,
+    items: list[SDItem],
+    warnings: list[str],
+    logger: logging.Logger,
+) -> SDRecord:
     if not items:
         raise SDItemExtractionError("Nenhum item foi extraído da SD.")
 
-    warnings = list(item_warnings)
     total_items = sum((item.preco_total for item in items), start=Decimal("0"))
     if metadata.valor_total is not None and metadata.valor_total > 0:
         delta = abs(total_items - metadata.valor_total) / metadata.valor_total
@@ -266,13 +424,40 @@ def parse_sd_text(text: str, source_path: str = "<text>", logger: logging.Logger
     return SDRecord(source_path=source_path, metadata=metadata, itens=items, warnings=warnings)
 
 
+def parse_sd_text(text: str, source_path: str = "<text>", logger: logging.Logger | None = None) -> SDRecord:
+    logger = logger or logging.getLogger(__name__)
+    metadata = _extract_metadata(text)
+    items, item_warnings = _extract_items(text)
+    return _build_record(source_path=source_path, metadata=metadata, items=items, warnings=list(item_warnings), logger=logger)
+
+
 def parse_sd_pdf(pdf_path: str | Path, logger: logging.Logger | None = None) -> SDRecord:
+    logger = logger or logging.getLogger(__name__)
     text = extract_text_from_pdf(pdf_path)
     if not _normalize_whitespace(text):
         raise SDStructureError(
             "PDF sem camada de texto detectável. Gere um PDF pesquisável (OCR) e tente novamente."
         )
-    return parse_sd_text(text=text, source_path=str(pdf_path), logger=logger)
+    metadata = _extract_metadata(text)
+    table_items, table_warnings = _extract_items_from_pdf_tables(pdf_path)
+    if table_items:
+        return _build_record(
+            source_path=str(pdf_path),
+            metadata=metadata,
+            items=table_items,
+            warnings=list(table_warnings),
+            logger=logger,
+        )
+
+    text_items, text_warnings = _extract_items(text)
+    warnings = list(table_warnings) + list(text_warnings)
+    return _build_record(
+        source_path=str(pdf_path),
+        metadata=metadata,
+        items=text_items,
+        warnings=warnings,
+        logger=logger,
+    )
 
 
 def map_sd_item_to_lot_item(sd_item: SDItem) -> LotItemData:

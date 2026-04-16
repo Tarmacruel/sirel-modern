@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from scripts.ata_sessao_reports.sd_parser import (
     SDItemExtractionError,
+    _extract_items_from_table_rows,
     map_sd_item_to_lot_item,
     parse_sd_text,
 )
@@ -74,6 +75,19 @@ SD 301/2026
         mapped = map_sd_item_to_lot_item(record.itens[0])
         self.assertEqual(mapped.item_numero, "001")
         self.assertEqual(mapped.valor_total, 2400.0)
+
+    def test_extract_items_from_table_rows_handles_wrapped_description(self) -> None:
+        rows = [
+            ["ITEM", "CATMAT/CATSER", "DESCRIÇÃO / ESPECIFICAÇÃO", "QTD.", "PER.", "UNID", "PREÇO", "TOTAL"],
+            ["001", "9007000131", "Bola de handebol profissional tamanho H2", "45,00", "1,00", "UND", "224,51", "10.102,95"],
+            ["", "", "Complemento da descrição em linha extra", "", "", "", "", ""],
+            ["002", "36848", "Bola de handebol profissional tamanho H3", "45,00", "1,00", "UND", "282,50", "12.712,50"],
+        ]
+        items, warnings = _extract_items_from_table_rows(rows)
+        self.assertEqual(len(items), 2)
+        self.assertFalse(warnings)
+        self.assertIn("Complemento da descrição", items[0].descricao)
+        self.assertEqual(items[1].preco_total, Decimal("12712.50"))
 
 
 if __name__ == "__main__":
