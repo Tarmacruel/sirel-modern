@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
+import { getStoredAuthToken, loadStoredSession } from "@/lib/auth-session";
 import { formatCurrencyBRL, formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
 import {
   exportReportToCsv,
@@ -20,6 +21,29 @@ import {
   openPrintableReport,
 } from "@/lib/report-export";
 import { trpc } from "@/lib/trpc";
+
+type SdParseResult = {
+  summary: {
+    totalItens: number;
+    warnings: number;
+    parsingErrors: number;
+  };
+  metadata: {
+    numero_sd?: string | null;
+    valor_total?: number | null;
+  };
+  itens: Array<{
+    numero?: number;
+    descricao?: string;
+    unidade?: string;
+    quantidade?: number;
+    preco_unitario?: number;
+    preco_total?: number;
+  }>;
+  artifact?: {
+    downloadUrl: string;
+  };
+};
 
 function formatReportValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
@@ -66,6 +90,40 @@ export function RelatoriosPage() {
   });
 
   const report = reportQuery.data;
+  const [sdFile, setSdFile] = useState<File | null>(null);
+  const [sdParsing, setSdParsing] = useState(false);
+  const [sdError, setSdError] = useState<string | null>(null);
+  const [sdResult, setSdResult] = useState<SdParseResult | null>(null);
+
+  async function handleParseSd() {
+    if (!sdFile || sdParsing) return;
+    setSdParsing(true);
+    setSdError(null);
+    setSdResult(null);
+    try {
+      const session = loadStoredSession();
+      const token = getStoredAuthToken();
+      const payload = new FormData();
+      payload.append("arquivo", sdFile);
+      const response = await fetch("/api/relatorios/sd/processar", {
+        method: "POST",
+        body: payload,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session?.user.role ? { "x-sirel-role": session.user.role } : {}),
+        },
+      });
+      const json = (await response.json()) as SdParseResult | { message?: string };
+      if (!response.ok) {
+        throw new Error((json as { message?: string }).message ?? "Falha ao processar SD.");
+      }
+      setSdResult(json as SdParseResult);
+    } catch (error) {
+      setSdError(error instanceof Error ? error.message : "Falha ao processar SD.");
+    } finally {
+      setSdParsing(false);
+    }
+  }
 
   function handleExportCsv() {
     if (!report) return;
@@ -127,6 +185,98 @@ export function RelatoriosPage() {
 
   return (
     <div className="space-y-6">
+      <SectionCard
+        title="Teste rápido: Parsing de SD"
+        description="Faça upload de um PDF de Solicitação de Despesa e valide os itens extraídos diretamente na interface."
+      >
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <FormField label="Arquivo PDF da SD">
+            <Input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(event) => setSdFile(event.target.files?.[0] ?? null)}
+            />
+          </FormField>
+          <div className="flex items-end">
+            <Button onClick={() => void handleParseSd()} disabled={!sdFile || sdParsing}>
+              <FileText className="h-4 w-4" />
+              {sdParsing ? "Processando SD..." : "Processar SD"}
+            </Button>
+          </div>
+        </div>
+
+        {sdError ? <Alert variant="error">{sdError}</Alert> : null}
+
+        {sdResult ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">SD</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.metadata.numero_sd ?? "-"}</p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Itens</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.summary.totalItens}</p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Valor total</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                  {typeof sdResult.metadata.valor_total === "number"
+                    ? formatCurrencyBRL(sdResult.metadata.valor_total)
+                    : "-"}
+                </p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Warnings</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.summary.warnings}</p>
+              </article>
+            </div>
+
+            {sdResult.artifact?.downloadUrl ? (
+              <div>
+                <a
+                  href={sdResult.artifact.downloadUrl}
+                  className="inline-flex items-center rounded-full border border-[var(--color-primary-300)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-700)] hover:bg-[var(--color-primary-50)]"
+                >
+                  <FileJson className="mr-2 h-4 w-4" />
+                  Baixar JSON parseado
+                </a>
+              </div>
+            ) : null}
+
+            <div className="overflow-auto rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white">
+              <Table>
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>Item</TableHeaderCell>
+                    <TableHeaderCell>Descrição</TableHeaderCell>
+                    <TableHeaderCell>Unid</TableHeaderCell>
+                    <TableHeaderCell>Qtd</TableHeaderCell>
+                    <TableHeaderCell>Vlr. unit.</TableHeaderCell>
+                    <TableHeaderCell>Total</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {sdResult.itens.slice(0, 30).map((item, index) => (
+                    <TableRow key={`${item.numero ?? index}-${index}`}>
+                      <TableCell>{item.numero ?? "-"}</TableCell>
+                      <TableCell className="max-w-[560px] whitespace-normal">{item.descricao ?? "-"}</TableCell>
+                      <TableCell>{item.unidade ?? "-"}</TableCell>
+                      <TableCell>{typeof item.quantidade === "number" ? item.quantidade.toLocaleString("pt-BR") : "-"}</TableCell>
+                      <TableCell>{typeof item.preco_unitario === "number" ? formatCurrencyBRL(item.preco_unitario) : "-"}</TableCell>
+                      <TableCell>{typeof item.preco_total === "number" ? formatCurrencyBRL(item.preco_total) : "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {sdResult.itens.length > 30 ? (
+              <p className="text-xs text-[var(--color-neutral-600)]">Exibindo 30 de {sdResult.itens.length} itens.</p>
+            ) : null}
+          </div>
+        ) : null}
+      </SectionCard>
+
       <SectionCard
         title="Central de Relatórios e Exportação"
         description="Gere consolidações operacionais da SIREL com filtros de período, secretaria, modalidade e status."
@@ -301,4 +451,3 @@ export function RelatoriosPage() {
     </div>
   );
 }
-

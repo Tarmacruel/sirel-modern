@@ -8,7 +8,6 @@ from .models import (
     LotRecord,
     MovimentoLote,
 )
-<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-fmbwjw
 from .sd_parser import SDItem, SDMetadata, SDRecord, map_sd_item_to_lot_item, parse_sd_pdf
 
 
@@ -29,11 +28,6 @@ def write_reports_workbooks(*args, **kwargs):
 
     return _impl(*args, **kwargs)
 
-=======
-from .parser import parse_ata_sessao_pdf
-from .pdf_renderer import write_report_pdfs
-from .sd_parser import SDItem, SDMetadata, SDRecord, map_sd_item_to_lot_item, parse_sd_pdf
->>>>>>> beta-2.0-modern
 
 __all__ = [
     "AtaSessaoParseResult",
