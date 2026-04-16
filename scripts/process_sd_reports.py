@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from scripts.ata_sessao_reports.sd_parser import SDItem, parse_sd_pdf
+from scripts.ata_sessao_reports.sd_parser import SDItem, SDParsingError, parse_sd_pdf
 
 
 def _decimal_to_number(value: Decimal | None) -> float | None:
@@ -41,7 +42,11 @@ def main() -> int:
     output_path = Path(args.json_out).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    parsed = parse_sd_pdf(input_path)
+    try:
+        parsed = parse_sd_pdf(input_path)
+    except SDParsingError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     payload = {
         "source_path": str(input_path),
         "generated_at": datetime.now().isoformat(),

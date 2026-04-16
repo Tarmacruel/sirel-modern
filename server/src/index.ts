@@ -497,7 +497,9 @@ app.post("/api/relatorios/sd/processar", sdUpload.single("arquivo"), async (req,
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Falha ao processar a SD enviada." });
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Falha ao processar a SD enviada.",
+    });
   }
 });
 

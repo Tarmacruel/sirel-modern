@@ -204,6 +204,9 @@ export function RelatoriosPage() {
             </Button>
           </div>
         </div>
+        <p className="text-xs text-[var(--color-neutral-600)]">
+          Dica: para SD digitalizada (imagem), gere antes um PDF pesquisável com OCR.
+        </p>
 
         {sdError ? <Alert variant="error">{sdError}</Alert> : null}
 

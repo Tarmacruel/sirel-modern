@@ -268,6 +268,10 @@ def parse_sd_text(text: str, source_path: str = "<text>", logger: logging.Logger
 
 def parse_sd_pdf(pdf_path: str | Path, logger: logging.Logger | None = None) -> SDRecord:
     text = extract_text_from_pdf(pdf_path)
+    if not _normalize_whitespace(text):
+        raise SDStructureError(
+            "PDF sem camada de texto detectável. Gere um PDF pesquisável (OCR) e tente novamente."
+        )
     return parse_sd_text(text=text, source_path=str(pdf_path), logger=logger)
 
 

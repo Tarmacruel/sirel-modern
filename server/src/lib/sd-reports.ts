@@ -55,11 +55,18 @@ export async function parseSdReport(sourceFile: string): Promise<SdProcessResult
   const jsonOutput = join(outputDir, "sd-parsed.json");
 
   const python = resolvePythonCommand();
-  await execFileAsync(
-    python.command,
-    [...python.args, pythonScriptPath, "--input", sourceFile, "--json-out", jsonOutput],
-    { cwd: repoRoot, windowsHide: true, maxBuffer: 1024 * 1024 * 10 },
-  );
+  try {
+    await execFileAsync(
+      python.command,
+      [...python.args, pythonScriptPath, "--input", sourceFile, "--json-out", jsonOutput],
+      { cwd: repoRoot, windowsHide: true, maxBuffer: 1024 * 1024 * 10 },
+    );
+  } catch (error) {
+    const stderr = String((error as { stderr?: string })?.stderr ?? "").trim();
+    const stdout = String((error as { stdout?: string })?.stdout ?? "").trim();
+    const details = stderr || stdout || "Erro desconhecido ao executar parser de SD.";
+    throw new Error(`Falha no parser de SD: ${details}`);
+  }
 
   const parsed = JSON.parse(readFileSync(jsonOutput, "utf-8")) as {
     source_path: string;
