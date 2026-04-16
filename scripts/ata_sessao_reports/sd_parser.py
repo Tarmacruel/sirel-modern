@@ -8,27 +8,40 @@ from pathlib import Path
 
 from .models import LotItemData
 
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
 SD_NUMBER_RE = re.compile(
     r"(?:\bSD\b|N[º°o])\s*[:\-]?\s*(?P<numero>\d{1,4})\s*/\s*(?P<ano>20\d{2})",
     re.IGNORECASE,
 )
+=======
+SD_NUMBER_RE = re.compile(r"(?:\bSD\s+)?(?P<numero>\d{1,4})\s*/\s*(?P<ano>\d{4})", re.IGNORECASE)
+>>>>>>> beta-2.0-modern
 PROCESSO_ADMIN_RE = re.compile(
     r"PROCESSO\s+ADMINISTRATIVO\s+(?:N[ºo°]\s*)?(?P<processo>[\d./-]+)",
     re.IGNORECASE,
 )
 DATE_RE = re.compile(r"\b(?P<data>\d{2}/\d{2}/\d{4})\b")
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
 CENTRO_CUSTO_RE = re.compile(
     r"Centro\s+de\s+Custo\s*:\s*(?P<codigo>\d{1,7})\s*-\s*\d+\s*(?P<nome>[A-ZÀ-ÚÇÃÕ\s]+)",
     re.IGNORECASE,
 )
+=======
+CENTRO_CUSTO_RE = re.compile(r"\b(?P<codigo>\d{6,8})\s*-\s*(?P<nome>[A-ZÀ-Ú\s]+)", re.IGNORECASE)
+>>>>>>> beta-2.0-modern
 UNIDADE_ORCAMENTARIA_RE = re.compile(
     r"Unidade\s+Or[cç]ament[áa]ria\s*:?\s*(?P<unidade>[^\n]+)",
     re.IGNORECASE,
 )
 ELEMENTO_DESPESA_RE = re.compile(r"Elemento\s+da\s+Despesa\s*:?\s*(?P<elemento>[^\n]+)", re.IGNORECASE)
 FONTE_RECURSO_RE = re.compile(r"Fonte\s+de\s+Recurso\s*:?\s*(?P<fonte>[^\n]+)", re.IGNORECASE)
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
 ASSUNTO_RE = re.compile(r"ASSUNTO\s*/\s*OBJETO\s+SOLICITADO\s*:\s*(?P<linha>[^\n]*)", re.IGNORECASE)
 TOTAL_VALUE_RE = re.compile(r"Valor\s+Total\s*:?\s*(?:R\$\s*)?(?P<valor>[\d\.,]+)", re.IGNORECASE)
+=======
+ASSUNTO_RE = re.compile(r"Assunto\s*:?\s*(?P<assunto>[^\n]+)", re.IGNORECASE)
+TOTAL_VALUE_RE = re.compile(r"Valor\s+Total\s*:?\s*R\$\s*(?P<valor>[\d.,]+)", re.IGNORECASE)
+>>>>>>> beta-2.0-modern
 
 ITEM_START_RE = re.compile(r"^(?P<item>\d{1,3})\b")
 ITEM_TAIL_RE = re.compile(
@@ -178,6 +191,7 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
     items: list[SDItem] = []
     warnings: list[str] = []
     pending: list[str] = []
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
     current: dict[str, str | None] | None = None
 
     def finalize_current() -> None:
@@ -204,6 +218,15 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
         else:
             items.append(parsed)
         current = None
+=======
+    current_item: SDItem | None = None
+
+    def flush_pending() -> None:
+        nonlocal pending, current_item
+        if current_item and pending:
+            current_item.descricao = _normalize_whitespace(f"{current_item.descricao} {' '.join(pending)}")
+            pending = []
+>>>>>>> beta-2.0-modern
 
     for row in raw_rows:
         col0_raw = str(row[0] or "") if row else ""
@@ -215,11 +238,18 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
             continue
 
         if re.fullmatch(r"\d{3}", col0):
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
             finalize_current()
+=======
+            flush_pending()
+            if current_item:
+                items.append(current_item)
+>>>>>>> beta-2.0-modern
             catmat = col1 if re.fullmatch(r"\d{5,12}", col1) else None
             descricao = re.sub(r"^\d{5,12}\s+", "", col2).strip() if catmat else col2
             if not catmat:
                 catmat, descricao = _extract_catmat_descricao(col2)
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
             current = {
                 "item": col0,
                 "catmat": catmat,
@@ -231,17 +261,42 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
                 "total": str(row[7] or "") if len(row) > 7 else "",
                 "raw_line": " | ".join(_normalize_whitespace(str(col or "")) for col in row),
             }
+=======
+            current_item = _build_sd_item(
+                item_raw=col0,
+                catmat_raw=catmat,
+                descricao_raw=descricao,
+                qtd_raw=str(row[3] or "") if len(row) > 3 else "",
+                per_raw=str(row[4] or "") if len(row) > 4 else "",
+                unid_raw=str(row[5] or "") if len(row) > 5 else "",
+                preco_raw=str(row[6] or "") if len(row) > 6 else "",
+                total_raw=str(row[7] or "") if len(row) > 7 else "",
+                raw_line=" | ".join(_normalize_whitespace(str(col or "")) for col in row),
+            )
+            if current_item is None:
+                warnings.append(f"Item {col0} ignorado por números inválidos na linha da tabela.")
+>>>>>>> beta-2.0-modern
             pending = []
             continue
 
         split_lines = [line.strip() for line in col0_raw.splitlines() if line.strip()]
         compact_match = TABLE_ROW_COMPACT_RE.match(split_lines[0]) if split_lines else None
         if compact_match:
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
             finalize_current()
             descricao = _normalize_whitespace(compact_match.group("descricao"))
             if len(split_lines) > 1:
                 descricao = _normalize_whitespace(f"{descricao} {' '.join(split_lines[1:])}")
             parsed = _build_sd_item(
+=======
+            flush_pending()
+            if current_item:
+                items.append(current_item)
+            descricao = _normalize_whitespace(compact_match.group("descricao"))
+            if len(split_lines) > 1:
+                descricao = _normalize_whitespace(f"{descricao} {' '.join(split_lines[1:])}")
+            current_item = _build_sd_item(
+>>>>>>> beta-2.0-modern
                 item_raw=compact_match.group("item"),
                 catmat_raw=compact_match.group("catmat"),
                 descricao_raw=descricao,
@@ -252,6 +307,7 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
                 total_raw=compact_match.group("total"),
                 raw_line=_normalize_whitespace(col0_raw),
             )
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
             if parsed is None:
                 warnings.append(f"Item {compact_match.group('item')} ignorado por números inválidos no formato compacto.")
             else:
@@ -271,12 +327,26 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
                 current["preco"] = str(row[6] or "")
             if len(row) > 7 and not (current.get("total") or "").strip():
                 current["total"] = str(row[7] or "")
+=======
+            if current_item is None:
+                warnings.append(f"Item {compact_match.group('item')} ignorado por números inválidos no formato compacto.")
+            pending = []
+            continue
+
+        if current_item:
+>>>>>>> beta-2.0-modern
             if col2:
                 pending.append(col2.replace("\n", " "))
             elif col0 and not TABLE_SKIP_RE.match(col0):
                 pending.append(" ".join(split_lines))
 
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
     finalize_current()
+=======
+    flush_pending()
+    if current_item:
+        items.append(current_item)
+>>>>>>> beta-2.0-modern
 
     return items, warnings
 
@@ -412,6 +482,7 @@ def _extract_metadata(text: str) -> SDMetadata:
     processo_match = PROCESSO_ADMIN_RE.search(text)
     total_match = TOTAL_VALUE_RE.search(text)
 
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
     assunto_objeto: str | None = None
     if assunto_match:
         tail = text[assunto_match.end() :].splitlines()
@@ -428,6 +499,8 @@ def _extract_metadata(text: str) -> SDMetadata:
 
     processo_administrativo = _normalize_whitespace(processo_match.group("processo")) if processo_match else numero_sd
 
+=======
+>>>>>>> beta-2.0-modern
     return SDMetadata(
         numero_sd=numero_sd,
         data_emissao=date_match.group("data") if date_match else None,
@@ -440,8 +513,13 @@ def _extract_metadata(text: str) -> SDMetadata:
         elemento_despesa=_normalize_whitespace(elemento_match.group("elemento")) if elemento_match else None,
         fonte_recurso=_normalize_whitespace(fonte_match.group("fonte")) if fonte_match else None,
         valor_total=_parse_decimal_ptbr(total_match.group("valor")) if total_match else None,
+<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-drikl3
         assunto_objeto=assunto_objeto,
         processo_administrativo=processo_administrativo,
+=======
+        assunto_objeto=_normalize_whitespace(assunto_match.group("assunto")) if assunto_match else None,
+        processo_administrativo=_normalize_whitespace(processo_match.group("processo")) if processo_match else None,
+>>>>>>> beta-2.0-modern
     )
 
 
