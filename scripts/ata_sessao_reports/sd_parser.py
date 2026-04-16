@@ -12,6 +12,7 @@ SD_NUMBER_RE = re.compile(
     r"(?:\bSD\b|N[º°o])\s*[:\-]?\s*(?P<numero>\d{1,4})\s*/\s*(?P<ano>20\d{2})",
     re.IGNORECASE,
 )
+
 PROCESSO_ADMIN_RE = re.compile(
     r"PROCESSO\s+ADMINISTRATIVO\s+(?:N[ºo°]\s*)?(?P<processo>[\d./-]+)",
     re.IGNORECASE,
@@ -21,6 +22,11 @@ CENTRO_CUSTO_RE = re.compile(
     r"Centro\s+de\s+Custo\s*:\s*(?P<codigo>\d{1,7})\s*-\s*\d+\s*(?P<nome>[A-ZÀ-ÚÇÃÕ\s]+?)(?=\s+ASSUNTO|$)",
     re.IGNORECASE,
 )
+CENTRO_CUSTO_RE = re.compile(
+    r"Centro\s+de\s+Custo\s*:\s*(?P<codigo>\d{1,7})\s*-\s*\d+\s*(?P<nome>[A-ZÀ-ÚÇÃÕ\s]+)",
+    re.IGNORECASE,
+)
+
 UNIDADE_ORCAMENTARIA_RE = re.compile(
     r"Unidade\s+Or[cç]ament[áa]ria\s*:?\s*(?P<unidade>[^\n]+)",
     re.IGNORECASE,
@@ -29,6 +35,9 @@ ELEMENTO_DESPESA_RE = re.compile(r"Elemento\s+da\s+Despesa\s*:?\s*(?P<elemento>[
 FONTE_RECURSO_RE = re.compile(r"Fonte\s+de\s+Recurso\s*:?\s*(?P<fonte>[^\n]+)", re.IGNORECASE)
 ASSUNTO_RE = re.compile(r"ASSUNTO\s*/\s*OBJETO\s+SOLICITADO\s*:\s*(?P<linha>[^\n]*)", re.IGNORECASE)
 TOTAL_VALUE_RE = re.compile(r"Valor\s+Total\s*:?\s*(?:R\$\s*)?(?P<valor>[\d\.,]+)", re.IGNORECASE)
+ASSUNTO_RE = re.compile(r"ASSUNTO\s*/\s*OBJETO\s+SOLICITADO\s*:\s*(?P<linha>[^\n]*)", re.IGNORECASE)
+TOTAL_VALUE_RE = re.compile(r"Valor\s+Total\s*:?\s*(?:R\$\s*)?(?P<valor>[\d\.,]+)", re.IGNORECASE)
+
 
 ITEM_START_RE = re.compile(r"^(?P<item>\d{1,3})\b")
 ITEM_TAIL_RE = re.compile(
@@ -340,6 +349,7 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
 
         if re.fullmatch(r"\d{3}", col0):
             finalize_current()
+            finalize_current()
             catmat = col1 if re.fullmatch(r"\d{5,12}", col1) else None
             descricao = re.sub(r"^\d{5,12}\s+", "", col2).strip() if catmat else col2
             if not catmat:
@@ -388,6 +398,12 @@ def _extract_items_from_table_rows(raw_rows: list[list[object]]) -> tuple[list[S
             continue
         if current:
             _merge_continuation_data(current, list(row), pending)
+
+    finalize_current()
+            if col2:
+                pending.append(col2.replace("\n", " "))
+            elif col0 and not TABLE_SKIP_RE.match(col0):
+                pending.append(" ".join(split_lines))
 
     finalize_current()
 
@@ -541,6 +557,22 @@ def _extract_metadata(text: str) -> SDMetadata:
     processo_administrativo = _normalize_whitespace(processo_match.group("processo")) if processo_match else numero_sd
     classificacoes = _extract_classificacoes(text)
 
+    assunto_objeto: str | None = None
+    if assunto_match:
+        tail = text[assunto_match.end() :].splitlines()
+        for candidate in tail:
+            line = _normalize_whitespace(candidate)
+            if not line:
+                continue
+            if re.search(r"Teixeira\s+de\s+Freitas.*\d{2}/\d{2}/\d{4}", line, re.IGNORECASE):
+                continue
+            if TABLE_SKIP_RE.match(line):
+                continue
+            assunto_objeto = line
+            break
+
+    processo_administrativo = _normalize_whitespace(processo_match.group("processo")) if processo_match else numero_sd
+
     return SDMetadata(
         numero_sd=numero_sd,
         data_emissao=date_match.group("data") if date_match else None,
@@ -556,6 +588,8 @@ def _extract_metadata(text: str) -> SDMetadata:
         assunto_objeto=assunto_objeto,
         processo_administrativo=processo_administrativo,
         classificacoes_orcamentarias=classificacoes,
+        assunto_objeto=assunto_objeto,
+        processo_administrativo=processo_administrativo,
     )
 
 
