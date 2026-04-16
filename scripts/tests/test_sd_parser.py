@@ -103,6 +103,47 @@ Valor Total: 496.110,54
         self.assertEqual(metadata.processo_administrativo, "190/2026")
         self.assertEqual(metadata.assunto_objeto, "Contratação de empresa especializada em fornecimento de materiais.")
         self.assertEqual(metadata.valor_total, Decimal("496110.54"))
+        self.assertEqual(len(metadata.classificacoes_orcamentarias), 0)
+
+    def test_extract_items_from_table_rows_handles_page_break_columns(self) -> None:
+        rows = [
+            ["021", "", "9900515408 LIXA GRAO 150:Folha tipo grao 150", "360,00", "1,00", "UND", "1,51", "543,60"],
+            ["022", "", "", "310,00", "1,00", "", "", ""],
+            ["", "9900515409", "LIXA GRAO 50:Folha tipo grao 50, fabricada com costado", "", "", "UND", "1,55", "480,50"],
+            ["023", "", "PALITO DE PICOLÉ", "120,00", "1,00", "PC", "3,17", "380,40"],
+        ]
+        items, warnings = _extract_items_from_table_rows(rows)
+        self.assertEqual(len(items), 3)
+        item_22 = items[1]
+        self.assertEqual(item_22.numero, 22)
+        self.assertEqual(item_22.catmat_catser, "9900515409")
+        self.assertEqual(item_22.unidade, "UND")
+        self.assertEqual(item_22.preco_total, Decimal("480.50"))
+        self.assertFalse(warnings)
+
+    def test_extract_metadata_collects_multiple_classificacoes(self) -> None:
+        text = """
+N° 190/2026
+ASSUNTO / OBJETO SOLICITADO:
+Objeto de teste
+JUSTIFICATIVA:
+CLASSIFICAÇÃO ORÇAMENTÁRIA
+Cód. Reduzido: 2038301500000
+Unidade Orçamentária: 0501 - SECRETARIA MUNICIPAL DE ADMINISTRAÇÃO
+Projeto / Atividade: 2038 - MANUTENÇÃO
+Elemento da Despesa: 3390300000 - Material de Consumo
+Fonte de Recurso: 15000000 - Recursos não Vinculados de Impostos PM
+CLASSIFICAÇÃO ORÇAMENTÁRIA
+Cód. Reduzido: 22073015001002
+Unidade Orçamentária: 0802 - FUNDO MUNICIPAL DE SAÚDE
+Projeto / Atividade: 2207 - MANUTENÇÃO
+Elemento da Despesa: 3390300000 - Material de Consumo
+Fonte de Recurso: 15001002 - Recursos não Vinculados de Impostos
+"""
+        metadata = _extract_metadata(text)
+        self.assertEqual(len(metadata.classificacoes_orcamentarias), 2)
+        self.assertIn("0501 - SECRETARIA", metadata.classificacoes_orcamentarias[0].unidade_orcamentaria or "")
+        self.assertIn("0802 - FUNDO", metadata.classificacoes_orcamentarias[1].unidade_orcamentaria or "")
 
 
 if __name__ == "__main__":

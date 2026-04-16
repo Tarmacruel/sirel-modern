@@ -65,6 +65,16 @@ def main() -> int:
             "valor_total": _decimal_to_number(parsed.metadata.valor_total),
             "assunto_objeto": parsed.metadata.assunto_objeto,
             "processo_administrativo": parsed.metadata.processo_administrativo,
+            "classificacoes_orcamentarias": [
+                {
+                    "codigo_reduzido": item.codigo_reduzido,
+                    "unidade_orcamentaria": item.unidade_orcamentaria,
+                    "projeto_atividade": item.projeto_atividade,
+                    "elemento_despesa": item.elemento_despesa,
+                    "fonte_recurso": item.fonte_recurso,
+                }
+                for item in parsed.metadata.classificacoes_orcamentarias
+            ],
         },
         "warnings": parsed.warnings,
         "parsing_errors": parsed.parsing_errors,
