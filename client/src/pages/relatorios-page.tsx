@@ -45,6 +45,41 @@ type SdParseResult = {
   };
 };
 
+type SdItemDraft = {
+  numero: string;
+  descricao: string;
+  unidade: string;
+  quantidade: string;
+  preco_unitario: string;
+  preco_total: string;
+};
+
+type SdItemView = {
+  numero?: number;
+  descricao?: string;
+  unidade?: string;
+  quantidade?: number;
+  preco_unitario?: number;
+  preco_total?: number;
+  fonte?: "parser" | "manual";
+};
+
+const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
+  numero: "",
+  descricao: "",
+  unidade: "",
+  quantidade: "",
+  preco_unitario: "",
+  preco_total: "",
+};
+
+function parsePtBrNumber(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number(normalized.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function formatReportValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
   if (value instanceof Date) return formatShortDateTimeBR(value);
@@ -94,12 +129,24 @@ export function RelatoriosPage() {
   const [sdParsing, setSdParsing] = useState(false);
   const [sdError, setSdError] = useState<string | null>(null);
   const [sdResult, setSdResult] = useState<SdParseResult | null>(null);
+  const [manualSdItems, setManualSdItems] = useState<SdItemView[]>([]);
+  const [sdItemDraft, setSdItemDraft] = useState<SdItemDraft>(DEFAULT_SD_ITEM_DRAFT);
+  const [manualSdItemError, setManualSdItemError] = useState<string | null>(null);
+
+  const mergedSdItems = useMemo<SdItemView[]>(() => {
+    if (!sdResult) return [];
+    const parsedItems = sdResult.itens.map((item) => ({ ...item, fonte: "parser" as const }));
+    return [...parsedItems, ...manualSdItems];
+  }, [manualSdItems, sdResult]);
 
   async function handleParseSd() {
     if (!sdFile || sdParsing) return;
     setSdParsing(true);
     setSdError(null);
     setSdResult(null);
+    setManualSdItems([]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+    setManualSdItemError(null);
     try {
       const session = loadStoredSession();
       const token = getStoredAuthToken();
@@ -123,6 +170,28 @@ export function RelatoriosPage() {
     } finally {
       setSdParsing(false);
     }
+  }
+
+  function handleAddManualSdItem() {
+    if (!sdResult) return;
+    setManualSdItemError(null);
+    const descricao = sdItemDraft.descricao.trim();
+    if (!descricao) {
+      setManualSdItemError("Informe ao menos a descrição do item manual.");
+      return;
+    }
+    const numero = Number(sdItemDraft.numero);
+    const item: SdItemView = {
+      numero: Number.isFinite(numero) && numero > 0 ? numero : undefined,
+      descricao,
+      unidade: sdItemDraft.unidade.trim() || undefined,
+      quantidade: parsePtBrNumber(sdItemDraft.quantidade),
+      preco_unitario: parsePtBrNumber(sdItemDraft.preco_unitario),
+      preco_total: parsePtBrNumber(sdItemDraft.preco_total),
+      fonte: "manual",
+    };
+    setManualSdItems((current) => [...current, item]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
   }
 
   function handleExportCsv() {
@@ -219,7 +288,7 @@ export function RelatoriosPage() {
               </article>
               <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Itens</p>
-                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.summary.totalItens}</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{mergedSdItems.length}</p>
               </article>
               <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Valor total</p>
@@ -233,6 +302,66 @@ export function RelatoriosPage() {
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Warnings</p>
                 <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.summary.warnings}</p>
               </article>
+            </div>
+
+            <div className="rounded-[20px] border border-dashed border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] px-4 py-4">
+              <p className="text-sm font-bold text-[var(--color-primary-900)]">Cadastrar item manual (quando não importado)</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <FormField label="Item">
+                  <Input
+                    value={sdItemDraft.numero}
+                    inputMode="numeric"
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, numero: event.target.value }))}
+                    placeholder="Ex.: 22"
+                  />
+                </FormField>
+                <FormField label="Descrição *">
+                  <Input
+                    value={sdItemDraft.descricao}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, descricao: event.target.value }))}
+                    placeholder="Descrição do item"
+                  />
+                </FormField>
+                <FormField label="Unid">
+                  <Input
+                    value={sdItemDraft.unidade}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, unidade: event.target.value }))}
+                    placeholder="UND"
+                  />
+                </FormField>
+                <FormField label="Qtd">
+                  <Input
+                    value={sdItemDraft.quantidade}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, quantidade: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Vlr. unit.">
+                  <Input
+                    value={sdItemDraft.preco_unitario}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, preco_unitario: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Total">
+                  <Input
+                    value={sdItemDraft.preco_total}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, preco_total: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" onClick={handleAddManualSdItem}>
+                  Adicionar item manual
+                </Button>
+                {manualSdItems.length ? (
+                  <p className="text-xs text-[var(--color-neutral-600)]">
+                    {manualSdItems.length} item(ns) manual(is) adicionados nesta pré-visualização.
+                  </p>
+                ) : null}
+              </div>
+              {manualSdItemError ? <Alert variant="error" className="mt-3">{manualSdItemError}</Alert> : null}
             </div>
 
             {sdResult.artifact?.downloadUrl ? (
@@ -260,21 +389,30 @@ export function RelatoriosPage() {
                   </tr>
                 </TableHead>
                 <TableBody>
-                  {sdResult.itens.slice(0, 30).map((item, index) => (
+                  {mergedSdItems.slice(0, 30).map((item, index) => (
                     <TableRow key={`${item.numero ?? index}-${index}`}>
                       <TableCell>{item.numero ?? "-"}</TableCell>
                       <TableCell className="max-w-[560px] whitespace-normal">{item.descricao ?? "-"}</TableCell>
                       <TableCell>{item.unidade ?? "-"}</TableCell>
                       <TableCell>{typeof item.quantidade === "number" ? item.quantidade.toLocaleString("pt-BR") : "-"}</TableCell>
                       <TableCell>{typeof item.preco_unitario === "number" ? formatCurrencyBRL(item.preco_unitario) : "-"}</TableCell>
-                      <TableCell>{typeof item.preco_total === "number" ? formatCurrencyBRL(item.preco_total) : "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span>{typeof item.preco_total === "number" ? formatCurrencyBRL(item.preco_total) : "-"}</span>
+                          {item.fonte === "manual" ? (
+                            <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
+                              Manual
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-            {sdResult.itens.length > 30 ? (
-              <p className="text-xs text-[var(--color-neutral-600)]">Exibindo 30 de {sdResult.itens.length} itens.</p>
+            {mergedSdItems.length > 30 ? (
+              <p className="text-xs text-[var(--color-neutral-600)]">Exibindo 30 de {mergedSdItems.length} itens.</p>
             ) : null}
           </div>
         ) : null}
