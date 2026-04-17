@@ -8,12 +8,20 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 
 import { createContext } from "./_core/context.js";
 import { logAuditoria } from "./db/auditoria.js";
 import { requireDb } from "./db/client.js";
-import { catalogoItens, documentos, fornecedores } from "./db/schema.js";
+import {
+  catalogoItens,
+  documentos,
+  fornecedores,
+  itensProcesso,
+  movimentacoesWorkflow,
+  processos,
+  propostasLicitacao,
+} from "./db/schema.js";
 import { verifySessionToken } from "./lib/auth-session.js";
 import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
 import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
@@ -237,6 +245,342 @@ function normalizeSdManualItem(payload: unknown): SdManualItem | null {
     preco_unitario: Number.isFinite(precoUnitario) ? precoUnitario : undefined,
     preco_total: Number.isFinite(precoTotal) ? precoTotal : undefined,
   };
+}
+
+function parseSdNumberish(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const normalized =
+    raw.includes(",") && (!raw.includes(".") || raw.lastIndexOf(",") > raw.lastIndexOf("."))
+      ? raw.replace(/\./g, "").replace(",", ".")
+      : raw.replace(/,/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatSdDecimal(value: number, scale: number) {
+  return value.toFixed(scale);
+}
+
+function buildSdArtifact(relativePath: string, downloadBasePath: string, label: string) {
+  return {
+    label,
+    relativePath,
+    downloadUrl: `${downloadBasePath}?file=${encodeURIComponent(relativePath)}`,
+  };
+}
+
+function resolveSdArtifactPath(relativePath: string) {
+  const normalizedRelativePath = String(relativePath ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalizedRelativePath) {
+    throw new Error("Arquivo base do parse não informado.");
+  }
+
+  const absolutePath = resolve(sdReportsRoot, normalizedRelativePath);
+  const normalizedRoot = resolve(sdReportsRoot).replace(/\\/g, "/");
+  const normalizedTarget = absolutePath.replace(/\\/g, "/");
+  if (!normalizedTarget.startsWith(normalizedRoot)) {
+    throw new Error("Arquivo base inválido.");
+  }
+  if (!existsSync(absolutePath)) {
+    throw new Error("Arquivo base do parse não encontrado.");
+  }
+
+  return {
+    absolutePath,
+    relativePath: normalizedRelativePath,
+  };
+}
+
+function finalizeSdPayload(params: {
+  relativePath: string;
+  manualItemsRaw: unknown[];
+  downloadBasePath: string;
+}) {
+  const { absolutePath, relativePath } = resolveSdArtifactPath(params.relativePath);
+  const manualItems = params.manualItemsRaw
+    .map((item: unknown) => normalizeSdManualItem(item))
+    .filter((item: SdManualItem | null): item is SdManualItem => Boolean(item));
+
+  const basePayload = JSON.parse(readFileSync(absolutePath, "utf-8")) as Record<string, unknown>;
+  const baseItems = Array.isArray(basePayload.itens) ? basePayload.itens : [];
+  const mergedItems = [
+    ...baseItems,
+    ...manualItems.map((item: SdManualItem) => ({ ...item, fonte: "manual" })),
+  ];
+  const baseSummary = (basePayload.summary as Record<string, unknown>) ?? {};
+  const mergedPayload = {
+    ...basePayload,
+    summary: {
+      ...baseSummary,
+      total_itens: mergedItems.length,
+    },
+    itens: mergedItems,
+    manual_items: manualItems,
+    finalized_at: new Date().toISOString(),
+  };
+
+  const finalRelativePath = relativePath.replace(/\.json$/i, "-final.json");
+  const finalAbsolutePath = resolve(sdReportsRoot, finalRelativePath);
+  writeFileSync(finalAbsolutePath, JSON.stringify(mergedPayload, null, 2), "utf-8");
+
+  return {
+    manualItems,
+    mergedPayload,
+    finalRelativePath,
+    artifact: buildSdArtifact(finalRelativePath, params.downloadBasePath, "JSON SD finalizado"),
+  };
+}
+
+type SdProcessImportItem = {
+  numeroItem?: number;
+  descricao: string;
+  unidade: string;
+  quantidade: string;
+  valorUnitarioEstimado: string | null;
+  valorTotalEstimado: string | null;
+};
+
+function normalizeSdImportItem(payload: unknown): SdProcessImportItem | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const source = payload as Record<string, unknown>;
+  const descricao = String(source.descricao ?? "").trim();
+  if (!descricao) return null;
+
+  const numeroItem = Number(source.numero ?? 0);
+  let quantidade = parseSdNumberish(source.quantidade);
+  const valorUnitario = parseSdNumberish(source.preco_unitario);
+  let valorTotal = parseSdNumberish(source.preco_total);
+
+  if ((quantidade === null || quantidade <= 0) && valorUnitario && valorTotal) {
+    quantidade = valorTotal / valorUnitario;
+  }
+
+  if ((valorTotal === null || valorTotal <= 0) && valorUnitario && quantidade) {
+    valorTotal = valorUnitario * quantidade;
+  }
+
+  return {
+    numeroItem: Number.isFinite(numeroItem) && numeroItem > 0 ? numeroItem : undefined,
+    descricao,
+    unidade: String(source.unidade ?? "").trim() || "UND",
+    quantidade: formatSdDecimal(quantidade && quantidade > 0 ? quantidade : 1, 3),
+    valorUnitarioEstimado: valorUnitario && valorUnitario > 0 ? formatSdDecimal(valorUnitario, 2) : null,
+    valorTotalEstimado: valorTotal && valorTotal > 0 ? formatSdDecimal(valorTotal, 2) : null,
+  };
+}
+
+async function vincularSdAoProcesso(params: {
+  processoId: number;
+  itens: unknown[];
+  userId: number;
+}) {
+  const db = requireDb();
+  const [processo] = await db
+    .select({ id: processos.id, numeroSirel: processos.numeroSirel })
+    .from(processos)
+    .where(eq(processos.id, params.processoId))
+    .limit(1);
+
+  if (!processo) {
+    throw new Error("Processo não encontrado.");
+  }
+
+  const itensValidos = params.itens
+    .map((item) => normalizeSdImportItem(item))
+    .filter((item): item is SdProcessImportItem => Boolean(item));
+
+  if (!itensValidos.length) {
+    throw new Error("Nenhum item válido foi encontrado para vincular ao processo.");
+  }
+
+  const itensAtuais = await db
+    .select({
+      id: itensProcesso.id,
+      numeroItem: itensProcesso.numeroItem,
+      descricao: itensProcesso.descricao,
+      quantidade: itensProcesso.quantidade,
+      unidade: itensProcesso.unidade,
+      valorUnitarioEstimado: itensProcesso.valorUnitarioEstimado,
+      valorTotalEstimado: itensProcesso.valorTotalEstimado,
+    })
+    .from(itensProcesso)
+    .where(eq(itensProcesso.processoId, params.processoId))
+    .orderBy(asc(itensProcesso.numeroItem));
+
+  const existingIds = itensAtuais.map((item) => item.id);
+  if (existingIds.length) {
+    const [propostaExistente] = await db
+      .select({ id: propostasLicitacao.id })
+      .from(propostasLicitacao)
+      .where(inArray(propostasLicitacao.itemId, existingIds))
+      .limit(1);
+    if (propostaExistente) {
+      throw new Error("Não é possível importar a SD porque o processo já possui propostas vinculadas aos itens.");
+    }
+  }
+
+  const numeroToItem = new Map(itensAtuais.map((item) => [item.numeroItem, item]));
+  const usedNumbers = new Set(itensAtuais.map((item) => item.numeroItem));
+  let nextNumero = (itensAtuais[itensAtuais.length - 1]?.numeroItem ?? 0) + 1;
+  let created = 0;
+  let updated = 0;
+
+  for (const item of itensValidos) {
+    const existing = item.numeroItem ? (numeroToItem.get(item.numeroItem) ?? null) : null;
+    const payload = {
+      descricao: item.descricao,
+      quantidade: item.quantidade,
+      unidade: item.unidade,
+      valorUnitarioEstimado: item.valorUnitarioEstimado,
+      valorTotalEstimado: item.valorTotalEstimado,
+      atualizadoEm: new Date(),
+    };
+
+    if (existing) {
+      await db.update(itensProcesso).set(payload).where(eq(itensProcesso.id, existing.id));
+      updated += 1;
+      continue;
+    }
+
+    let numeroItem = item.numeroItem ?? nextNumero;
+    while (usedNumbers.has(numeroItem)) {
+      numeroItem += 1;
+    }
+    usedNumbers.add(numeroItem);
+    nextNumero = numeroItem + 1;
+
+    await db.insert(itensProcesso).values({
+      processoId: params.processoId,
+      numeroItem,
+      descricao: item.descricao,
+      quantidade: item.quantidade,
+      unidade: item.unidade,
+      valorUnitarioEstimado: item.valorUnitarioEstimado,
+      valorTotalEstimado: item.valorTotalEstimado,
+      criadoEm: new Date(),
+      atualizadoEm: new Date(),
+    });
+    created += 1;
+  }
+
+  const itensAtualizados = await db
+    .select({ valorTotalEstimado: itensProcesso.valorTotalEstimado })
+    .from(itensProcesso)
+    .where(eq(itensProcesso.processoId, params.processoId));
+  const totalEstimado = itensAtualizados
+    .map((item) => parseSdNumberish(item.valorTotalEstimado))
+    .filter((item): item is number => item !== null)
+    .reduce((acc, current) => acc + current, 0);
+
+  await db
+    .update(processos)
+    .set({
+      valorEstimado: totalEstimado > 0 ? formatSdDecimal(totalEstimado, 2) : null,
+      atualizadoEm: new Date(),
+    })
+    .where(eq(processos.id, params.processoId));
+
+  await db.insert(movimentacoesWorkflow).values({
+    processoId: params.processoId,
+    moduloOrigem: "LICITACAO",
+    moduloDestino: "LICITACAO",
+    descricao: "Itens da SD vinculados ao processo",
+    observacao: `${itensValidos.length} item(ns) processado(s) via parser da SD (${created} novo(s), ${updated} atualizado(s)).`,
+    usuarioId: params.userId,
+    criadoEm: new Date(),
+  });
+
+  return {
+    processo,
+    created,
+    updated,
+    total: itensValidos.length,
+    valorEstimado: totalEstimado > 0 ? totalEstimado : null,
+  };
+}
+
+async function handleSdProcessarRequest(
+  req: express.Request,
+  res: express.Response,
+  params: {
+    auditTable: string;
+    auditDescription: string;
+    downloadBasePath: string;
+  },
+) {
+  const user = requireUploadUser(req, res);
+  if (!user) return;
+  if (!req.file) {
+    res.status(400).json({ message: "Selecione um arquivo PDF da SD para processar." });
+    return;
+  }
+
+  const extension = extname(req.file.originalname).toLowerCase();
+  if (extension !== ".pdf") {
+    res.status(400).json({ message: "Somente arquivos PDF de Solicitação de Despesa são aceitos." });
+    return;
+  }
+
+  const result = await parseSdReport(req.file.path);
+  const relativeJsonPath = relative(sdReportsRoot, resolve(result.outputDir, "sd-parsed.json"))
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+
+  await logAuditoria({ user } as any, {
+    tabela: params.auditTable,
+    registroId: Number(req.body.processoId ?? 0) || 0,
+    acao: "CREATE",
+    dadosNovos: {
+      arquivoOriginal: req.file.originalname,
+      outputDir: result.outputDir,
+      summary: result.summary,
+      metadata: result.metadata,
+      processoId: Number(req.body.processoId ?? 0) || null,
+    },
+    descricao: params.auditDescription,
+  });
+
+  res.status(201).json({
+    ...result,
+    originalFileName: req.file.originalname,
+    artifact: buildSdArtifact(relativeJsonPath, params.downloadBasePath, "JSON SD parseado"),
+  });
+}
+
+function handleSdDownloadRequest(
+  req: express.Request,
+  res: express.Response,
+) {
+  const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!relativeFile) {
+    res.status(400).json({ message: "Arquivo do parse de SD não informado." });
+    return;
+  }
+
+  const absolutePath = resolve(sdReportsRoot, relativeFile);
+  const normalizedRoot = resolve(sdReportsRoot).replace(/\\/g, "/");
+  const normalizedTarget = absolutePath.replace(/\\/g, "/");
+  if (!normalizedTarget.startsWith(normalizedRoot)) {
+    res.status(400).json({ message: "Arquivo de parse inválido." });
+    return;
+  }
+  if (!existsSync(absolutePath)) {
+    res.status(404).json({ message: "Arquivo de parse não encontrado." });
+    return;
+  }
+
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
+  res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
+  res.sendFile(absolutePath);
 }
 
 app.use(cors({
@@ -610,6 +954,79 @@ app.post("/api/relatorios/sd/finalizar", async (req, res) => {
   }
 });
 
+app.post("/api/licitacao/sd/processar", sdUpload.single("arquivo"), async (req, res) => {
+  try {
+    await handleSdProcessarRequest(req, res, {
+      auditTable: "licitacao_sd",
+      auditDescription: `Processamento de SD na Licitação para o processo ${String(req.body.processoId ?? "0")}`,
+      downloadBasePath: "/api/licitacao/sd/download",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Falha ao processar a SD do processo.",
+    });
+  }
+});
+
+app.post("/api/licitacao/sd/vincular", async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+
+    const processoId = Number(req.body.processoId ?? 0);
+    if (!processoId) {
+      res.status(400).json({ message: "Processo não informado para vinculação da SD." });
+      return;
+    }
+
+    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems) ? req.body.manualItems : [];
+    const { manualItems, mergedPayload, finalRelativePath, artifact } = finalizeSdPayload({
+      relativePath: String(req.body.relativePath ?? ""),
+      manualItemsRaw,
+      downloadBasePath: "/api/licitacao/sd/download",
+    });
+    const vinculacao = await vincularSdAoProcesso({
+      processoId,
+      itens: Array.isArray(mergedPayload.itens) ? mergedPayload.itens : [],
+      userId: user.id,
+    });
+
+    await logAuditoria({ user } as any, {
+      tabela: "itens_processo",
+      registroId: processoId,
+      acao: "UPDATE",
+      dadosNovos: {
+        processoId,
+        finalRelativePath,
+        manualItems: manualItems.length,
+        created: vinculacao.created,
+        updated: vinculacao.updated,
+        total: vinculacao.total,
+        valorEstimado: vinculacao.valorEstimado,
+      },
+      descricao: `SD vinculada ao processo ${vinculacao.processo.numeroSirel} na Licitação`,
+    });
+
+    res.status(201).json({
+      ...mergedPayload,
+      artifact,
+      vinculacao: {
+        processoId,
+        created: vinculacao.created,
+        updated: vinculacao.updated,
+        total: vinculacao.total,
+        valorEstimado: vinculacao.valorEstimado,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Falha ao vincular a SD ao processo.",
+    });
+  }
+});
+
 app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   try {
     const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
@@ -677,6 +1094,15 @@ app.get("/api/relatorios/sd/download", async (req, res) => {
     const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
     res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
     res.sendFile(absolutePath);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao baixar o parse de SD." });
+  }
+});
+
+app.get("/api/licitacao/sd/download", async (req, res) => {
+  try {
+    handleSdDownloadRequest(req, res);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Falha ao baixar o parse de SD." });

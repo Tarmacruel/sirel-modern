@@ -77,11 +77,17 @@ import {
 } from "@/lib/document-upload";
 import {
   formatCurrencyBRL,
+  formatNumberBR,
   formatShortDateBR,
   formatShortDateTimeBR,
   maskCurrencyInputBR,
   normalizeCurrencyInputBR,
 } from "@/lib/formatters";
+import {
+  processLicitacaoSd,
+  type SdParseResult,
+  vincularSdAoProcesso,
+} from "@/lib/sd-parser";
 import {
   getCriticalStatusKind,
   getCriticalStatusKindLabel,
@@ -184,6 +190,35 @@ const initialHomologacaoForm = {
   statusId: "",
   dataStatus: "",
   observacao: "",
+};
+
+type SdItemDraft = {
+  numero: string;
+  descricao: string;
+  unidade: string;
+  quantidade: string;
+  preco_unitario: string;
+  preco_total: string;
+};
+
+type SdItemView = {
+  numero?: number;
+  descricao?: string;
+  unidade?: string;
+  quantidade?: number;
+  preco_unitario?: number;
+  preco_total?: number;
+  fonte?: "parser" | "manual";
+  manualIndex?: number;
+};
+
+const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
+  numero: "",
+  descricao: "",
+  unidade: "",
+  quantidade: "",
+  preco_unitario: "",
+  preco_total: "",
 };
 
 function toDateInputValue(value: string | Date | null | undefined) {
@@ -497,6 +532,21 @@ export function LicitacaoProcessoPage({
   const [homologacaoForm, setHomologacaoForm] = useState(
     initialHomologacaoForm,
   );
+  const [sdFile, setSdFile] = useState<File | null>(null);
+  const [sdParsing, setSdParsing] = useState(false);
+  const [sdError, setSdError] = useState<string | null>(null);
+  const [sdResult, setSdResult] = useState<SdParseResult | null>(null);
+  const [manualSdItems, setManualSdItems] = useState<SdItemView[]>([]);
+  const [sdItemDraft, setSdItemDraft] = useState<SdItemDraft>(
+    DEFAULT_SD_ITEM_DRAFT,
+  );
+  const [manualSdItemError, setManualSdItemError] = useState<string | null>(
+    null,
+  );
+  const [sdVinculando, setSdVinculando] = useState(false);
+  const [sdVinculacaoError, setSdVinculacaoError] = useState<string | null>(
+    null,
+  );
 
   const overviewRef = useRef<HTMLElement | null>(null);
   const internalRef = useRef<HTMLElement | null>(null);
@@ -631,6 +681,18 @@ export function LicitacaoProcessoPage({
 
     setAuditJustification("");
   }, [catalogsQuery.data, detailQuery.data]);
+
+  useEffect(() => {
+    setSdFile(null);
+    setSdParsing(false);
+    setSdError(null);
+    setSdResult(null);
+    setManualSdItems([]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+    setManualSdItemError(null);
+    setSdVinculando(false);
+    setSdVinculacaoError(null);
+  }, [processoId]);
 
   const saveConfiguracaoMutation = trpc.licitacao.saveConfiguracao.useMutation({
     onSuccess: async () => {
@@ -814,6 +876,26 @@ export function LicitacaoProcessoPage({
     });
   const detalhe = detailQuery.data;
   const documentos = documentosQuery.data ?? [];
+  const mergedSdItems = useMemo<SdItemView[]>(() => {
+    if (!sdResult) return [];
+    const parsedItems = sdResult.itens.map((item) => ({
+      ...item,
+      fonte: "parser" as const,
+    }));
+    const localManualItems = manualSdItems.map((item, index) => ({
+      ...item,
+      manualIndex: index,
+    }));
+    return [...parsedItems, ...localManualItems];
+  }, [manualSdItems, sdResult]);
+  const itensVinculadosValorTotal = useMemo(
+    () =>
+      (detalhe?.itens ?? []).reduce(
+        (acc, item) => acc + Number(item.valorTotalEstimado ?? 0),
+        0,
+      ),
+    [detalhe?.itens],
+  );
   const isForaDoFluxo = detalhe?.processo.foraDoFluxo ?? false;
   const inversaoFasesAtiva = configForm.inversaoFasesHabilitada;
   const flowConfig = getLicitacaoFlowConfig({
@@ -1120,6 +1202,105 @@ export function LicitacaoProcessoPage({
       utils.processos.overview.invalidate({ processoId }),
       utils.auditoria.list.invalidate(),
     ]);
+  }
+
+  async function handleProcessarSd() {
+    if (!sdFile || sdParsing) return;
+
+    setSdParsing(true);
+    setSdError(null);
+    setSdVinculacaoError(null);
+    setSdResult(null);
+    setManualSdItems([]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+    setManualSdItemError(null);
+    setFeedback(null);
+    setErrorMessage(null);
+
+    try {
+      const result = await processLicitacaoSd({
+        processoId,
+        arquivo: sdFile,
+      });
+      setSdResult(result);
+    } catch (error) {
+      setSdError(
+        error instanceof Error ? error.message : "Falha ao processar a SD.",
+      );
+    } finally {
+      setSdParsing(false);
+    }
+  }
+
+  function handleAdicionarItemManualSd() {
+    setManualSdItemError(null);
+
+    const descricao = sdItemDraft.descricao.trim();
+    if (!descricao) {
+      setManualSdItemError("Informe ao menos a descrição do item manual.");
+      return;
+    }
+
+    const numero = Number(sdItemDraft.numero);
+    const item: SdItemView = {
+      numero: Number.isFinite(numero) && numero > 0 ? numero : undefined,
+      descricao,
+      unidade: sdItemDraft.unidade.trim() || undefined,
+      quantidade: normalizeCurrencyInputBR(sdItemDraft.quantidade),
+      preco_unitario: normalizeCurrencyInputBR(sdItemDraft.preco_unitario),
+      preco_total: normalizeCurrencyInputBR(sdItemDraft.preco_total),
+      fonte: "manual",
+    };
+
+    setManualSdItems((current) => [...current, item]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+  }
+
+  function handleRemoverItemManualSd(index: number) {
+    setManualSdItems((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  async function handleVincularSd() {
+    if (!sdResult?.artifact?.relativePath || sdVinculando) return;
+
+    setSdVinculando(true);
+    setSdVinculacaoError(null);
+    setFeedback(null);
+    setErrorMessage(null);
+
+    try {
+      const result = await vincularSdAoProcesso({
+        processoId,
+        relativePath: sdResult.artifact.relativePath,
+        manualItems: manualSdItems.map((item) => ({
+          numero: item.numero,
+          descricao: item.descricao,
+          unidade: item.unidade,
+          quantidade: item.quantidade,
+          preco_unitario: item.preco_unitario,
+          preco_total: item.preco_total,
+        })),
+      });
+
+      await refreshAll();
+      setSdFile(null);
+      setSdResult(result);
+      setManualSdItems([]);
+      setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+      setFeedback(
+        `SD vinculada ao processo com ${result.vinculacao?.total ?? mergedSdItems.length} item(ns), ${result.vinculacao?.created ?? 0} novo(s) e ${result.vinculacao?.updated ?? 0} atualizado(s).`,
+      );
+    } catch (error) {
+      setSdVinculacaoError(
+        error instanceof Error
+          ? error.message
+          : "Falha ao vincular a SD ao processo.",
+      );
+    } finally {
+      setSdVinculando(false);
+    }
   }
 
   function ensureAuditJustification(actionLabel: string) {
@@ -2566,6 +2747,9 @@ export function LicitacaoProcessoPage({
                       Checklist: {progressCount}/{checklistItems.length}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
+                      Itens: {detalhe?.itens.length ?? 0}
+                    </span>
+                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
                       Pendentes: {pendingRequired.length}
                     </span>
                     <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
@@ -2577,6 +2761,421 @@ export function LicitacaoProcessoPage({
                   </div>
                 }
               >
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                          Parser da SD
+                        </div>
+                        <h4 className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          Vincular itens da Solicitação de Despesa ao processo
+                        </h4>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
+                          Faça o upload do PDF da SD, revise os itens
+                          extraídos, complemente o que faltar e vincule o
+                          resultado aos itens do processo sem depender da tela
+                          de relatórios.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-[var(--color-primary-50)] px-4 py-3 text-right">
+                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Processo
+                        </div>
+                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          {detalhe?.itens.length ?? 0} item(ns)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Itens atuais
+                        </div>
+                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          {detalhe?.itens.length ?? 0}
+                        </div>
+                      </article>
+                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Valor estimado atual
+                        </div>
+                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          {formatCurrencyBRL(itensVinculadosValorTotal || detalhe?.processo.valorEstimado)}
+                        </div>
+                      </article>
+                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Prévia da SD
+                        </div>
+                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          {mergedSdItems.length}
+                        </div>
+                      </article>
+                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
+                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Warnings do parser
+                        </div>
+                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                          {sdResult?.summary.warnings ?? 0}
+                        </div>
+                      </article>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                      <FormField label="Arquivo PDF da SD">
+                        <Input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={(event) =>
+                            setSdFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                      </FormField>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          onClick={() => void handleProcessarSd()}
+                          disabled={!sdFile || sdParsing}
+                        >
+                          {sdParsing ? "Processando SD..." : "Processar SD"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
+                      Itens com o mesmo número atualizam o processo; itens sem
+                      correspondência são adicionados. A vinculação é bloqueada
+                      quando já existem propostas cadastradas para evitar
+                      inconsistências na fase externa.
+                    </p>
+
+                    {sdError ? (
+                      <Alert variant="error" className="mt-3">
+                        {sdError}
+                      </Alert>
+                    ) : null}
+
+                    {sdResult ? (
+                      <div className="mt-4 space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                              Número da SD
+                            </div>
+                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                              {sdResult.metadata.numero_sd ?? "-"}
+                            </div>
+                          </article>
+                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                              Itens na prévia
+                            </div>
+                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                              {mergedSdItems.length}
+                            </div>
+                          </article>
+                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                              Valor total da SD
+                            </div>
+                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                              {typeof sdResult.metadata.valor_total === "number"
+                                ? formatCurrencyBRL(
+                                    sdResult.metadata.valor_total,
+                                  )
+                                : "-"}
+                            </div>
+                          </article>
+                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                              Itens manuais
+                            </div>
+                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                              {manualSdItems.length}
+                            </div>
+                          </article>
+                        </div>
+
+                        <div className="rounded-2xl border border-dashed border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] px-4 py-4">
+                          <p className="text-sm font-bold text-[var(--color-primary-900)]">
+                            Complementar item manual
+                          </p>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                            <FormField label="Item">
+                              <Input
+                                value={sdItemDraft.numero}
+                                inputMode="numeric"
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    numero: event.target.value,
+                                  }))
+                                }
+                                placeholder="Ex.: 22"
+                              />
+                            </FormField>
+                            <FormField label="Descrição *">
+                              <Input
+                                value={sdItemDraft.descricao}
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    descricao: event.target.value,
+                                  }))
+                                }
+                                placeholder="Descrição do item"
+                              />
+                            </FormField>
+                            <FormField label="Unid">
+                              <Input
+                                value={sdItemDraft.unidade}
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    unidade: event.target.value,
+                                  }))
+                                }
+                                placeholder="UND"
+                              />
+                            </FormField>
+                            <FormField label="Qtd">
+                              <Input
+                                value={sdItemDraft.quantidade}
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    quantidade: event.target.value,
+                                  }))
+                                }
+                                placeholder="0,00"
+                              />
+                            </FormField>
+                            <FormField label="Vlr. unit.">
+                              <Input
+                                value={sdItemDraft.preco_unitario}
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    preco_unitario: event.target.value,
+                                  }))
+                                }
+                                placeholder="0,00"
+                              />
+                            </FormField>
+                            <FormField label="Total">
+                              <Input
+                                value={sdItemDraft.preco_total}
+                                onChange={(event) =>
+                                  setSdItemDraft((current) => ({
+                                    ...current,
+                                    preco_total: event.target.value,
+                                  }))
+                                }
+                                placeholder="0,00"
+                              />
+                            </FormField>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={handleAdicionarItemManualSd}
+                            >
+                              Adicionar item manual
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={() => void handleVincularSd()}
+                              disabled={
+                                !sdResult.artifact?.relativePath ||
+                                sdVinculando
+                              }
+                            >
+                              {sdVinculando
+                                ? "Vinculando..."
+                                : "Vincular itens ao processo"}
+                            </Button>
+                            {sdResult.artifact?.downloadUrl ? (
+                              <a
+                                href={sdResult.artifact.downloadUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center rounded-full border border-[var(--color-primary-300)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-700)] hover:bg-[var(--color-primary-50)]"
+                              >
+                                <FileStack className="mr-2 h-4 w-4" />
+                                Baixar JSON da SD
+                              </a>
+                            ) : null}
+                          </div>
+
+                          {manualSdItemError ? (
+                            <Alert variant="error" className="mt-3">
+                              {manualSdItemError}
+                            </Alert>
+                          ) : null}
+                          {sdVinculacaoError ? (
+                            <Alert variant="error" className="mt-3">
+                              {sdVinculacaoError}
+                            </Alert>
+                          ) : null}
+                        </div>
+
+                        <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white">
+                          <Table className="min-w-[920px]">
+                            <TableHead>
+                              <tr>
+                                <TableHeaderCell>Item</TableHeaderCell>
+                                <TableHeaderCell>Descrição</TableHeaderCell>
+                                <TableHeaderCell>Unid</TableHeaderCell>
+                                <TableHeaderCell>Qtd</TableHeaderCell>
+                                <TableHeaderCell>Vlr. unit.</TableHeaderCell>
+                                <TableHeaderCell>Total</TableHeaderCell>
+                                <TableHeaderCell>Ações</TableHeaderCell>
+                              </tr>
+                            </TableHead>
+                            <TableBody>
+                              {mergedSdItems.length ? (
+                                mergedSdItems.slice(0, 30).map((item, index) => (
+                                  <TableRow
+                                    key={`${item.numero ?? "sd"}-${index}`}
+                                  >
+                                    <TableCell>{item.numero ?? "-"}</TableCell>
+                                    <TableCell className="max-w-[520px] whitespace-normal">
+                                      {item.descricao ?? "-"}
+                                    </TableCell>
+                                    <TableCell>{item.unidade ?? "-"}</TableCell>
+                                    <TableCell>
+                                      {formatNumberBR(item.quantidade, 3)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {formatCurrencyBRL(item.preco_unitario)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <span>
+                                          {formatCurrencyBRL(item.preco_total)}
+                                        </span>
+                                        {item.fonte === "manual" ? (
+                                          <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
+                                            Manual
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      {item.fonte === "manual" ? (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          onClick={() =>
+                                            handleRemoverItemManualSd(
+                                              item.manualIndex ?? -1,
+                                            )
+                                          }
+                                          disabled={
+                                            (item.manualIndex ?? -1) < 0
+                                          }
+                                        >
+                                          Remover
+                                        </Button>
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                              ) : (
+                                <TableRow>
+                                  <TableCell
+                                    colSpan={7}
+                                    className="py-8 text-center text-[var(--color-neutral-500)]"
+                                  >
+                                    Faça o processamento da SD para visualizar
+                                    a prévia dos itens.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+
+                        {mergedSdItems.length > 30 ? (
+                          <p className="text-xs text-[var(--color-neutral-500)]">
+                            Exibindo 30 de {mergedSdItems.length} itens da SD.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                        Itens do processo
+                      </div>
+                      <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                        Conferência do que já está efetivamente vinculado após
+                        o import da SD.
+                      </div>
+                    </div>
+                    <div className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
+                      {detalhe?.itens.length ?? 0} item(ns)
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                    <Table className="min-w-[920px]">
+                      <TableHead>
+                        <tr>
+                          <TableHeaderCell>Item</TableHeaderCell>
+                          <TableHeaderCell>Descrição</TableHeaderCell>
+                          <TableHeaderCell>Quantidade</TableHeaderCell>
+                          <TableHeaderCell>Valor unitário</TableHeaderCell>
+                          <TableHeaderCell>Total</TableHeaderCell>
+                        </tr>
+                      </TableHead>
+                      <TableBody>
+                        {detalhe?.itens.length ? (
+                          detalhe.itens.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell className="align-top font-semibold text-[var(--color-primary-900)]">
+                                {item.numeroItem}
+                              </TableCell>
+                              <TableCell className="align-top">
+                                {item.descricao}
+                              </TableCell>
+                              <TableCell className="align-top">
+                                {formatNumberBR(item.quantidade, 3)}{" "}
+                                {item.unidade}
+                              </TableCell>
+                              <TableCell className="align-top">
+                                {formatCurrencyBRL(
+                                  item.valorUnitarioEstimado,
+                                )}
+                              </TableCell>
+                              <TableCell className="align-top">
+                                {formatCurrencyBRL(item.valorTotalEstimado)}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={5}
+                              className="py-8 text-center text-[var(--color-neutral-500)]"
+                            >
+                              Este processo ainda não possui itens vinculados.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
                 <form className="space-y-5" onSubmit={handleSalvarConfiguracao}>
                   <div className="grid gap-3 lg:grid-cols-2">
                     <FormField label="Criterio de julgamento">
