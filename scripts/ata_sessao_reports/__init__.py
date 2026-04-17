@@ -1,7 +1,6 @@
 ﻿"""Ferramentas para processar atas de sessão da BLL no SIREL."""
 
 from .data_normalizer import normalize_report_data
-from .excel import write_reports_workbooks
 from .models import (
     AtaSessaoParseResult,
     LotItemData,
