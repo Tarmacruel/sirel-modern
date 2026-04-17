@@ -1,6 +1,6 @@
 import "./bootstrap/load-env.js";
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,7 @@ import { verifySessionToken } from "./lib/auth-session.js";
 import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
 import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
+import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
 
 const app = express();
@@ -30,6 +31,8 @@ const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
 const ataSessaoReportsRoot = resolve(currentDir, "../../storage/reports/atas-sessao");
 const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
+const sdReportsRoot = resolve(currentDir, "../../storage/reports/sd");
+const sdUploadsRoot = join(sdReportsRoot, "uploads");
 
 if (!existsSync(uploadsRoot)) {
   mkdirSync(uploadsRoot, { recursive: true });
@@ -39,6 +42,9 @@ if (!existsSync(cadastroAssetsRoot)) {
 }
 if (!existsSync(ataSessaoUploadsRoot)) {
   mkdirSync(ataSessaoUploadsRoot, { recursive: true });
+}
+if (!existsSync(sdUploadsRoot)) {
+  mkdirSync(sdUploadsRoot, { recursive: true });
 }
 
 function resolveDocumentoPath(arquivoChave: string) {
@@ -186,6 +192,52 @@ const ataSessaoUpload = multer({
   storage: ataSessaoStorage,
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+const sdStorage = multer.diskStorage({
+  destination(_req, _file, callback) {
+    mkdirSync(sdUploadsRoot, { recursive: true });
+    callback(null, sdUploadsRoot);
+  },
+  filename(_req, file, callback) {
+    const extension = extname(file.originalname) || ".pdf";
+    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "sd";
+    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+  },
+});
+
+const sdUpload = multer({
+  storage: sdStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+type SdManualItem = {
+  numero?: number;
+  descricao: string;
+  unidade?: string;
+  quantidade?: number;
+  preco_unitario?: number;
+  preco_total?: number;
+};
+
+function normalizeSdManualItem(payload: unknown): SdManualItem | null {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as Record<string, unknown>;
+  const descricao = String(source.descricao ?? "").trim();
+  if (!descricao) return null;
+  const numero = Number(source.numero ?? 0);
+  const quantidade = Number(source.quantidade ?? NaN);
+  const precoUnitario = Number(source.preco_unitario ?? NaN);
+  const precoTotal = Number(source.preco_total ?? NaN);
+
+  return {
+    numero: Number.isFinite(numero) && numero > 0 ? numero : undefined,
+    descricao,
+    unidade: String(source.unidade ?? "").trim() || undefined,
+    quantidade: Number.isFinite(quantidade) ? quantidade : undefined,
+    preco_unitario: Number.isFinite(precoUnitario) ? precoUnitario : undefined,
+    preco_total: Number.isFinite(precoTotal) ? precoTotal : undefined,
+  };
+}
 
 app.use(cors({
   origin(origin, callback) {
@@ -430,6 +482,134 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
   }
 });
 
+app.post("/api/relatorios/sd/processar", sdUpload.single("arquivo"), async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    if (!req.file) {
+      res.status(400).json({ message: "Selecione um arquivo PDF da SD para processar." });
+      return;
+    }
+
+    const extension = extname(req.file.originalname).toLowerCase();
+    if (extension !== ".pdf") {
+      res.status(400).json({ message: "Somente arquivos PDF de Solicitação de Despesa são aceitos." });
+      return;
+    }
+
+    const result = await parseSdReport(req.file.path);
+    const relativeJsonPath = relative(sdReportsRoot, resolve(result.outputDir, "sd-parsed.json"))
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+
+    await logAuditoria({ user } as any, {
+      tabela: "relatorios_sd",
+      registroId: 0,
+      acao: "CREATE",
+      dadosNovos: {
+        arquivoOriginal: req.file.originalname,
+        outputDir: result.outputDir,
+        summary: result.summary,
+        metadata: result.metadata,
+      },
+      descricao: `Processamento avulso de SD em Documentos: ${req.file.originalname}`,
+    });
+
+    res.status(201).json({
+      ...result,
+      originalFileName: req.file.originalname,
+      artifact: {
+        label: "JSON SD parseado",
+        relativePath: relativeJsonPath,
+        downloadUrl: `/api/relatorios/sd/download?file=${encodeURIComponent(relativeJsonPath)}`,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Falha ao processar a SD enviada.",
+    });
+  }
+});
+
+app.post("/api/relatorios/sd/finalizar", async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+
+    const relativePath = String(req.body.relativePath ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!relativePath) {
+      res.status(400).json({ message: "Arquivo base do parse não informado." });
+      return;
+    }
+
+    const absolutePath = resolve(sdReportsRoot, relativePath);
+    const normalizedRoot = resolve(sdReportsRoot).replace(/\\/g, "/");
+    const normalizedTarget = absolutePath.replace(/\\/g, "/");
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      res.status(400).json({ message: "Arquivo base inválido." });
+      return;
+    }
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Arquivo base do parse não encontrado." });
+      return;
+    }
+
+    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems) ? req.body.manualItems : [];
+    const manualItems = manualItemsRaw
+      .map((item: unknown) => normalizeSdManualItem(item))
+      .filter((item: SdManualItem | null): item is SdManualItem => Boolean(item));
+
+    const basePayload = JSON.parse(readFileSync(absolutePath, "utf-8")) as Record<string, unknown>;
+    const baseItems = Array.isArray(basePayload.itens) ? basePayload.itens : [];
+    const mergedItems = [
+      ...baseItems,
+      ...manualItems.map((item: SdManualItem) => ({ ...item, fonte: "manual" })),
+    ];
+    const baseSummary = (basePayload.summary as Record<string, unknown>) ?? {};
+    const mergedPayload = {
+      ...basePayload,
+      summary: {
+        ...baseSummary,
+        total_itens: mergedItems.length,
+      },
+      itens: mergedItems,
+      manual_items: manualItems,
+      finalized_at: new Date().toISOString(),
+    };
+
+    const finalRelativePath = relativePath.replace(/\.json$/i, "-final.json");
+    const finalAbsolutePath = resolve(sdReportsRoot, finalRelativePath);
+    writeFileSync(finalAbsolutePath, JSON.stringify(mergedPayload, null, 2), "utf-8");
+
+    await logAuditoria({ user } as any, {
+      tabela: "relatorios_sd",
+      registroId: 0,
+      acao: "UPDATE",
+      dadosNovos: {
+        baseRelativePath: relativePath,
+        finalRelativePath,
+        manualItems: manualItems.length,
+      },
+      descricao: `Finalização de SD com ${manualItems.length} item(ns) manual(is)`,
+    });
+
+    res.status(201).json({
+      ...mergedPayload,
+      artifact: {
+        label: "JSON SD finalizado",
+        relativePath: finalRelativePath,
+        downloadUrl: `/api/relatorios/sd/download?file=${encodeURIComponent(finalRelativePath)}`,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Falha ao finalizar o parse da SD.",
+    });
+  }
+});
+
 app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   try {
     const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
@@ -469,6 +649,37 @@ app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Falha ao disponibilizar o relatório da ata." });
+  }
+});
+
+app.get("/api/relatorios/sd/download", async (req, res) => {
+  try {
+    const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!relativeFile) {
+      res.status(400).json({ message: "Arquivo do parse de SD não informado." });
+      return;
+    }
+
+    const absolutePath = resolve(sdReportsRoot, relativeFile);
+    const normalizedRoot = resolve(sdReportsRoot).replace(/\\/g, "/");
+    const normalizedTarget = absolutePath.replace(/\\/g, "/");
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      res.status(400).json({ message: "Arquivo de parse inválido." });
+      return;
+    }
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Arquivo de parse não encontrado." });
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
+    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
+    res.sendFile(absolutePath);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Falha ao baixar o parse de SD." });
   }
 });
 

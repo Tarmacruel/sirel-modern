@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
+import { getStoredAuthToken, loadStoredSession } from "@/lib/auth-session";
 import { formatCurrencyBRL, formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
 import {
   exportReportToCsv,
@@ -20,6 +21,67 @@ import {
   openPrintableReport,
 } from "@/lib/report-export";
 import { trpc } from "@/lib/trpc";
+
+type SdParseResult = {
+  summary: {
+    totalItens: number;
+    warnings: number;
+    parsingErrors: number;
+  };
+  metadata: {
+    numero_sd?: string | null;
+    valor_total?: number | null;
+  };
+  itens: Array<{
+    numero?: number;
+    descricao?: string;
+    unidade?: string;
+    quantidade?: number;
+    preco_unitario?: number;
+    preco_total?: number;
+  }>;
+  artifact?: {
+    label?: string;
+    relativePath?: string;
+    downloadUrl: string;
+  };
+};
+
+type SdItemDraft = {
+  numero: string;
+  descricao: string;
+  unidade: string;
+  quantidade: string;
+  preco_unitario: string;
+  preco_total: string;
+};
+
+type SdItemView = {
+  numero?: number;
+  descricao?: string;
+  unidade?: string;
+  quantidade?: number;
+  preco_unitario?: number;
+  preco_total?: number;
+  fonte?: "parser" | "manual";
+  manualIndex?: number;
+};
+
+const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
+  numero: "",
+  descricao: "",
+  unidade: "",
+  quantidade: "",
+  preco_unitario: "",
+  preco_total: "",
+};
+
+function parsePtBrNumber(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number(normalized.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 function formatReportValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
@@ -66,6 +128,121 @@ export function RelatoriosPage() {
   });
 
   const report = reportQuery.data;
+  const [sdFile, setSdFile] = useState<File | null>(null);
+  const [sdParsing, setSdParsing] = useState(false);
+  const [sdError, setSdError] = useState<string | null>(null);
+  const [sdResult, setSdResult] = useState<SdParseResult | null>(null);
+  const [manualSdItems, setManualSdItems] = useState<SdItemView[]>([]);
+  const [sdItemDraft, setSdItemDraft] = useState<SdItemDraft>(DEFAULT_SD_ITEM_DRAFT);
+  const [manualSdItemError, setManualSdItemError] = useState<string | null>(null);
+  const [sdFinalizing, setSdFinalizing] = useState(false);
+  const [sdFinalizeError, setSdFinalizeError] = useState<string | null>(null);
+
+  const mergedSdItems = useMemo<SdItemView[]>(() => {
+    if (!sdResult) return [];
+    const parsedItems = sdResult.itens.map((item) => ({ ...item, fonte: "parser" as const }));
+    const localManualItems = manualSdItems.map((item, index) => ({ ...item, manualIndex: index }));
+    return [...parsedItems, ...localManualItems];
+  }, [manualSdItems, sdResult]);
+
+  async function handleParseSd() {
+    if (!sdFile || sdParsing) return;
+    setSdParsing(true);
+    setSdError(null);
+    setSdFinalizeError(null);
+    setSdResult(null);
+    setManualSdItems([]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+    setManualSdItemError(null);
+    try {
+      const session = loadStoredSession();
+      const token = getStoredAuthToken();
+      const payload = new FormData();
+      payload.append("arquivo", sdFile);
+      const response = await fetch("/api/relatorios/sd/processar", {
+        method: "POST",
+        body: payload,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session?.user.role ? { "x-sirel-role": session.user.role } : {}),
+        },
+      });
+      const json = (await response.json()) as SdParseResult | { message?: string };
+      if (!response.ok) {
+        throw new Error((json as { message?: string }).message ?? "Falha ao processar SD.");
+      }
+      setSdResult(json as SdParseResult);
+    } catch (error) {
+      setSdError(error instanceof Error ? error.message : "Falha ao processar SD.");
+    } finally {
+      setSdParsing(false);
+    }
+  }
+
+  function handleAddManualSdItem() {
+    if (!sdResult) return;
+    setManualSdItemError(null);
+    const descricao = sdItemDraft.descricao.trim();
+    if (!descricao) {
+      setManualSdItemError("Informe ao menos a descrição do item manual.");
+      return;
+    }
+    const numero = Number(sdItemDraft.numero);
+    const item: SdItemView = {
+      numero: Number.isFinite(numero) && numero > 0 ? numero : undefined,
+      descricao,
+      unidade: sdItemDraft.unidade.trim() || undefined,
+      quantidade: parsePtBrNumber(sdItemDraft.quantidade),
+      preco_unitario: parsePtBrNumber(sdItemDraft.preco_unitario),
+      preco_total: parsePtBrNumber(sdItemDraft.preco_total),
+      fonte: "manual",
+    };
+    setManualSdItems((current) => [...current, item]);
+    setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+  }
+
+  function handleRemoveManualSdItem(index: number) {
+    setManualSdItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  async function handleFinalizeSdWithManualItems() {
+    if (!sdResult?.artifact?.relativePath || !manualSdItems.length || sdFinalizing) return;
+    setSdFinalizing(true);
+    setSdFinalizeError(null);
+    try {
+      const session = loadStoredSession();
+      const token = getStoredAuthToken();
+      const response = await fetch("/api/relatorios/sd/finalizar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session?.user.role ? { "x-sirel-role": session.user.role } : {}),
+        },
+        body: JSON.stringify({
+          relativePath: sdResult.artifact.relativePath,
+          manualItems: manualSdItems.map((item) => ({
+            numero: item.numero,
+            descricao: item.descricao,
+            unidade: item.unidade,
+            quantidade: item.quantidade,
+            preco_unitario: item.preco_unitario,
+            preco_total: item.preco_total,
+          })),
+        }),
+      });
+      const json = (await response.json()) as SdParseResult | { message?: string };
+      if (!response.ok) {
+        throw new Error((json as { message?: string }).message ?? "Falha ao finalizar SD.");
+      }
+      setSdResult(json as SdParseResult);
+      setManualSdItems([]);
+    } catch (error) {
+      setSdFinalizeError(error instanceof Error ? error.message : "Falha ao finalizar SD.");
+    } finally {
+      setSdFinalizing(false);
+    }
+  }
 
   function handleExportCsv() {
     if (!report) return;
@@ -127,6 +304,193 @@ export function RelatoriosPage() {
 
   return (
     <div className="space-y-6">
+      <SectionCard
+        title="Teste rápido: Parsing de SD"
+        description="Faça upload de um PDF de Solicitação de Despesa e valide os itens extraídos diretamente na interface."
+      >
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <FormField label="Arquivo PDF da SD">
+            <Input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(event) => setSdFile(event.target.files?.[0] ?? null)}
+            />
+          </FormField>
+          <div className="flex items-end">
+            <Button onClick={() => void handleParseSd()} disabled={!sdFile || sdParsing}>
+              <FileText className="h-4 w-4" />
+              {sdParsing ? "Processando SD..." : "Processar SD"}
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-[var(--color-neutral-600)]">
+          Dica: para SD digitalizada (imagem), gere antes um PDF pesquisável com OCR.
+        </p>
+
+        {sdError ? <Alert variant="error">{sdError}</Alert> : null}
+
+        {sdResult ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">SD</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.metadata.numero_sd ?? "-"}</p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Itens</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{mergedSdItems.length}</p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Valor total</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
+                  {typeof sdResult.metadata.valor_total === "number"
+                    ? formatCurrencyBRL(sdResult.metadata.valor_total)
+                    : "-"}
+                </p>
+              </article>
+              <article className="rounded-[20px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-700)]">Warnings</p>
+                <p className="mt-1 text-lg font-black text-[var(--color-primary-900)]">{sdResult.summary.warnings}</p>
+              </article>
+            </div>
+
+            <div className="rounded-[20px] border border-dashed border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] px-4 py-4">
+              <p className="text-sm font-bold text-[var(--color-primary-900)]">Cadastrar item manual (quando não importado)</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <FormField label="Item">
+                  <Input
+                    value={sdItemDraft.numero}
+                    inputMode="numeric"
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, numero: event.target.value }))}
+                    placeholder="Ex.: 22"
+                  />
+                </FormField>
+                <FormField label="Descrição *">
+                  <Input
+                    value={sdItemDraft.descricao}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, descricao: event.target.value }))}
+                    placeholder="Descrição do item"
+                  />
+                </FormField>
+                <FormField label="Unid">
+                  <Input
+                    value={sdItemDraft.unidade}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, unidade: event.target.value }))}
+                    placeholder="UND"
+                  />
+                </FormField>
+                <FormField label="Qtd">
+                  <Input
+                    value={sdItemDraft.quantidade}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, quantidade: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Vlr. unit.">
+                  <Input
+                    value={sdItemDraft.preco_unitario}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, preco_unitario: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Total">
+                  <Input
+                    value={sdItemDraft.preco_total}
+                    onChange={(event) => setSdItemDraft((current) => ({ ...current, preco_total: event.target.value }))}
+                    placeholder="0,00"
+                  />
+                </FormField>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" onClick={handleAddManualSdItem}>
+                  Adicionar item manual
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleFinalizeSdWithManualItems()}
+                  disabled={!sdResult.artifact?.relativePath || !manualSdItems.length || sdFinalizing}
+                >
+                  {sdFinalizing ? "Finalizando..." : "Salvar versão final da SD"}
+                </Button>
+                {manualSdItems.length ? (
+                  <p className="text-xs text-[var(--color-neutral-600)]">
+                    {manualSdItems.length} item(ns) manual(is) adicionados nesta pré-visualização.
+                  </p>
+                ) : null}
+              </div>
+              {manualSdItemError ? <Alert variant="error" className="mt-3">{manualSdItemError}</Alert> : null}
+              {sdFinalizeError ? <Alert variant="error" className="mt-3">{sdFinalizeError}</Alert> : null}
+            </div>
+
+            {sdResult.artifact?.downloadUrl ? (
+              <div>
+                <a
+                  href={sdResult.artifact.downloadUrl}
+                  className="inline-flex items-center rounded-full border border-[var(--color-primary-300)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-700)] hover:bg-[var(--color-primary-50)]"
+                >
+                  <FileJson className="mr-2 h-4 w-4" />
+                  Baixar JSON parseado
+                </a>
+              </div>
+            ) : null}
+
+            <div className="overflow-auto rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white">
+              <Table>
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>Item</TableHeaderCell>
+                    <TableHeaderCell>Descrição</TableHeaderCell>
+                    <TableHeaderCell>Unid</TableHeaderCell>
+                    <TableHeaderCell>Qtd</TableHeaderCell>
+                    <TableHeaderCell>Vlr. unit.</TableHeaderCell>
+                    <TableHeaderCell>Total</TableHeaderCell>
+                    <TableHeaderCell>Ações</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {mergedSdItems.slice(0, 30).map((item, index) => (
+                    <TableRow key={`${item.numero ?? index}-${index}`}>
+                      <TableCell>{item.numero ?? "-"}</TableCell>
+                      <TableCell className="max-w-[560px] whitespace-normal">{item.descricao ?? "-"}</TableCell>
+                      <TableCell>{item.unidade ?? "-"}</TableCell>
+                      <TableCell>{typeof item.quantidade === "number" ? item.quantidade.toLocaleString("pt-BR") : "-"}</TableCell>
+                      <TableCell>{typeof item.preco_unitario === "number" ? formatCurrencyBRL(item.preco_unitario) : "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span>{typeof item.preco_total === "number" ? formatCurrencyBRL(item.preco_total) : "-"}</span>
+                          {item.fonte === "manual" ? (
+                            <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
+                              Manual
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {item.fonte === "manual" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => handleRemoveManualSdItem(item.manualIndex ?? -1)}
+                            disabled={(item.manualIndex ?? -1) < 0}
+                          >
+                            Remover
+                          </Button>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {mergedSdItems.length > 30 ? (
+              <p className="text-xs text-[var(--color-neutral-600)]">Exibindo 30 de {mergedSdItems.length} itens.</p>
+            ) : null}
+          </div>
+        ) : null}
+      </SectionCard>
+
       <SectionCard
         title="Central de Relatórios e Exportação"
         description="Gere consolidações operacionais da SIREL com filtros de período, secretaria, modalidade e status."
@@ -301,4 +665,3 @@ export function RelatoriosPage() {
     </div>
   );
 }
-
