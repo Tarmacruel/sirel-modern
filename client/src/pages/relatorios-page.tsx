@@ -41,6 +41,8 @@ type SdParseResult = {
     preco_total?: number;
   }>;
   artifact?: {
+    label?: string;
+    relativePath?: string;
     downloadUrl: string;
   };
 };
@@ -62,6 +64,7 @@ type SdItemView = {
   preco_unitario?: number;
   preco_total?: number;
   fonte?: "parser" | "manual";
+  manualIndex?: number;
 };
 
 const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
@@ -132,17 +135,21 @@ export function RelatoriosPage() {
   const [manualSdItems, setManualSdItems] = useState<SdItemView[]>([]);
   const [sdItemDraft, setSdItemDraft] = useState<SdItemDraft>(DEFAULT_SD_ITEM_DRAFT);
   const [manualSdItemError, setManualSdItemError] = useState<string | null>(null);
+  const [sdFinalizing, setSdFinalizing] = useState(false);
+  const [sdFinalizeError, setSdFinalizeError] = useState<string | null>(null);
 
   const mergedSdItems = useMemo<SdItemView[]>(() => {
     if (!sdResult) return [];
     const parsedItems = sdResult.itens.map((item) => ({ ...item, fonte: "parser" as const }));
-    return [...parsedItems, ...manualSdItems];
+    const localManualItems = manualSdItems.map((item, index) => ({ ...item, manualIndex: index }));
+    return [...parsedItems, ...localManualItems];
   }, [manualSdItems, sdResult]);
 
   async function handleParseSd() {
     if (!sdFile || sdParsing) return;
     setSdParsing(true);
     setSdError(null);
+    setSdFinalizeError(null);
     setSdResult(null);
     setManualSdItems([]);
     setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
@@ -192,6 +199,49 @@ export function RelatoriosPage() {
     };
     setManualSdItems((current) => [...current, item]);
     setSdItemDraft(DEFAULT_SD_ITEM_DRAFT);
+  }
+
+  function handleRemoveManualSdItem(index: number) {
+    setManualSdItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  async function handleFinalizeSdWithManualItems() {
+    if (!sdResult?.artifact?.relativePath || !manualSdItems.length || sdFinalizing) return;
+    setSdFinalizing(true);
+    setSdFinalizeError(null);
+    try {
+      const session = loadStoredSession();
+      const token = getStoredAuthToken();
+      const response = await fetch("/api/relatorios/sd/finalizar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(session?.user.role ? { "x-sirel-role": session.user.role } : {}),
+        },
+        body: JSON.stringify({
+          relativePath: sdResult.artifact.relativePath,
+          manualItems: manualSdItems.map((item) => ({
+            numero: item.numero,
+            descricao: item.descricao,
+            unidade: item.unidade,
+            quantidade: item.quantidade,
+            preco_unitario: item.preco_unitario,
+            preco_total: item.preco_total,
+          })),
+        }),
+      });
+      const json = (await response.json()) as SdParseResult | { message?: string };
+      if (!response.ok) {
+        throw new Error((json as { message?: string }).message ?? "Falha ao finalizar SD.");
+      }
+      setSdResult(json as SdParseResult);
+      setManualSdItems([]);
+    } catch (error) {
+      setSdFinalizeError(error instanceof Error ? error.message : "Falha ao finalizar SD.");
+    } finally {
+      setSdFinalizing(false);
+    }
   }
 
   function handleExportCsv() {
@@ -355,6 +405,13 @@ export function RelatoriosPage() {
                 <Button type="button" variant="outline" onClick={handleAddManualSdItem}>
                   Adicionar item manual
                 </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleFinalizeSdWithManualItems()}
+                  disabled={!sdResult.artifact?.relativePath || !manualSdItems.length || sdFinalizing}
+                >
+                  {sdFinalizing ? "Finalizando..." : "Salvar versão final da SD"}
+                </Button>
                 {manualSdItems.length ? (
                   <p className="text-xs text-[var(--color-neutral-600)]">
                     {manualSdItems.length} item(ns) manual(is) adicionados nesta pré-visualização.
@@ -362,6 +419,7 @@ export function RelatoriosPage() {
                 ) : null}
               </div>
               {manualSdItemError ? <Alert variant="error" className="mt-3">{manualSdItemError}</Alert> : null}
+              {sdFinalizeError ? <Alert variant="error" className="mt-3">{sdFinalizeError}</Alert> : null}
             </div>
 
             {sdResult.artifact?.downloadUrl ? (
@@ -386,6 +444,7 @@ export function RelatoriosPage() {
                     <TableHeaderCell>Qtd</TableHeaderCell>
                     <TableHeaderCell>Vlr. unit.</TableHeaderCell>
                     <TableHeaderCell>Total</TableHeaderCell>
+                    <TableHeaderCell>Ações</TableHeaderCell>
                   </tr>
                 </TableHead>
                 <TableBody>
@@ -405,6 +464,20 @@ export function RelatoriosPage() {
                             </span>
                           ) : null}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {item.fonte === "manual" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => handleRemoveManualSdItem(item.manualIndex ?? -1)}
+                            disabled={(item.manualIndex ?? -1) < 0}
+                          >
+                            Remover
+                          </Button>
+                        ) : (
+                          "-"
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
