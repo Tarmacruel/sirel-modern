@@ -251,7 +251,6 @@ def _merge_continuation_data(current: dict[str, str | None], row: list[object], 
             if desc:
                 pending.append(desc)
 
-<<<<<<< codex/implement-parsing-for-solicitacao-de-despesa-9f3o1p
     # Fallback extra para linhas desalinhadas na quebra de página
     money_cells = [cell for cell in cells if re.fullmatch(r"\d{1,3}(?:\.\d{3})*,\d{2}", cell)]
     if len(money_cells) >= 2:
@@ -266,8 +265,6 @@ def _merge_continuation_data(current: dict[str, str | None], row: list[object], 
                 current["unid"] = cell
                 break
 
-=======
->>>>>>> beta-2.0-modern
     # Captura descrição em colunas 1/2/0
     for idx in (2, 1, 0):
         if idx < len(cells):
