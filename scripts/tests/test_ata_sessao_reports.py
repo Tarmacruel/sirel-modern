@@ -2,7 +2,7 @@
 
 import unittest
 
-from scripts.ata_sessao_reports.data_normalizer import normalize_lot, prepare_lote_data
+from scripts.ata_sessao_reports.data_normalizer import prepare_lote_data
 from scripts.ata_sessao_reports.models import LotItemData, LotParticipant, LotRecord
 from scripts.ata_sessao_reports.parser import (
     extract_header_metadata,
@@ -10,6 +10,7 @@ from scripts.ata_sessao_reports.parser import (
     parse_participant_row,
     parse_section_participants,
     parse_status,
+    split_lot_blocks,
 )
 
 
@@ -29,6 +30,33 @@ class AtaSessaoParserTests(unittest.TestCase):
         self.assertEqual(numero, 2)
         self.assertEqual(status, 'HABILITAÇÃO')
         self.assertEqual(titulo, 'Item em análise')
+
+    def test_parse_status_uses_secondary_lot_line_as_title(self) -> None:
+        numero, status, titulo = parse_status(
+            'LOTE 1 - ADJUDICADO\nLOTE 01 - PAPELARIA\nVALORES UNITÁRIOS FINAIS\n'
+        )
+        self.assertEqual(numero, 1)
+        self.assertEqual(status, 'ADJUDICADO')
+        self.assertEqual(titulo, 'PAPELARIA')
+
+    def test_split_lot_blocks_ignores_secondary_lot_title_lines(self) -> None:
+        blocks = split_lot_blocks(
+            '\n'.join([
+                'LOTE 1 - ADJUDICADO',
+                'LOTE 01 - PAPELARIA',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+                'LOTE 2 - FRACASSADO',
+                'LOTE 02 - ARMARINHO',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+            ])
+        )
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].startswith('LOTE 1 - ADJUDICADO'))
+        self.assertIn('LOTE 01 - PAPELARIA', blocks[0])
+        self.assertTrue(blocks[1].startswith('LOTE 2 - FRACASSADO'))
+        self.assertIn('LOTE 02 - ARMARINHO', blocks[1])
 
     def test_parse_brazilian_number(self) -> None:
         self.assertEqual(parse_brazilian_number('2.091,72'), 2091.72)
@@ -75,13 +103,13 @@ class AtaSessaoParserTests(unittest.TestCase):
             numero_lote=32,
             status='FRACASSADO',
             titulo='Item teste',
-            item=LotItemData(descricao='Descrição teste', quantidade=3, valor_unitario_estimado=9000.0),
+            itens=[LotItemData(descricao='Descrição teste', quantidade=3, valor_unitario_estimado=9000.0)],
             participantes=[
                 LotParticipant(section='DESCLASSIFICADOS', ranking=None, participante_numero='111', razao_social='Fornecedor A', documento='11.111.111/0001-11', oferta_inicial=12000.0, oferta_final=7798.99, diferenca_percentual=None, me_epp=True),
                 LotParticipant(section='MOVIMENTOS', ranking=None, participante_numero='111', razao_social='Fornecedor A', documento=None, oferta_inicial=7798.99, oferta_final=None, diferenca_percentual=None, me_epp=None),
             ],
         )
-        normalized = normalize_lot(lot)
+        normalized = prepare_lote_data(lot)
         self.assertEqual(len(normalized.participantes_exibidos), 1)
         self.assertEqual(normalized.participantes_exibidos[0].section, 'DESCLASSIFICADOS')
         self.assertEqual(normalized.melhor_oferta, 7798.99)
@@ -91,12 +119,12 @@ class AtaSessaoParserTests(unittest.TestCase):
             numero_lote=99,
             status='FRACASSADO',
             titulo='Item sem tabela',
-            item=LotItemData(descricao='Item sem tabela', quantidade=1),
+            itens=[LotItemData(descricao='Item sem tabela', quantidade=1)],
             participantes=[
                 LotParticipant(section='MOVIMENTOS', ranking=None, participante_numero='222', razao_social='Fornecedor Movimento', documento=None, oferta_inicial=1550.0, oferta_final=None, diferenca_percentual=None, me_epp=None),
             ],
         )
-        normalized = normalize_lot(lot)
+        normalized = prepare_lote_data(lot)
         self.assertEqual(len(normalized.participantes_exibidos), 1)
         self.assertEqual(normalized.participantes_exibidos[0].oferta_registrada, 1550.0)
         self.assertIsNone(normalized.participantes_exibidos[0].oferta_final)
@@ -107,7 +135,7 @@ class AtaSessaoParserTests(unittest.TestCase):
             numero_lote=27,
             status='CANCELADO',
             titulo='Drone',
-            item=LotItemData(descricao='Drone profissional', quantidade=1),
+            itens=[LotItemData(descricao='Drone profissional', quantidade=1)],
             participantes=[
                 LotParticipant(section='CLASSIFICACAO', ranking=1, participante_numero='321', razao_social='Fornecedor A', documento='11.111.111/0001-11', oferta_inicial=25000.0, oferta_final=23733.0, diferenca_percentual=3.0, me_epp=False),
             ],

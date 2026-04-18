@@ -13,7 +13,25 @@ import pdfplumber
 from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord, MovimentoLote, is_malsucedido_status
 
 # Regex corrigidas (removidos espaços antes das aspas)
-LOT_HEADER_RE = re.compile(r"LOTE\s+(?P<numero>\d+)\s*-\s*(?P<status>[A-ZÇÃÉÊÍÓÔÕÚ]+)", re.IGNORECASE)
+KNOWN_LOT_STATUSES = (
+    "ADJUDICADO",
+    "FRACASSADO",
+    "DESERTO",
+    "CANCELADO",
+    "HABILITAÇÃO",
+    "HABILITACAO",
+    "HABILITA",
+)
+LOT_HEADER_RE = re.compile(
+    r"^LOTE\s+0*(?P<numero>\d+)\s*-\s*(?P<status>"
+    + "|".join(KNOWN_LOT_STATUSES)
+    + r")\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+LOT_TITLE_RE = re.compile(
+    r"^LOTE\s+0*(?P<numero>\d+)\s*-\s*(?P<titulo>.+?)\s*$",
+    re.IGNORECASE,
+)
 SECTION_HEADER_RE = re.compile(r"^Razão Social\s+Num\s+Documento\s+Oferta Inicial\s+Oferta Final\s+Dif.(%)?\s*ME$", re.IGNORECASE)
 EDITAL_RE = re.compile(r"(?P<label>PREG[ÃA]O\s+ELETR[ÔO]NICO|DISPENSA(?:\s+ELETR[ÔO]NICA)?)\s+N[ºo°]\s*(?P<edital>[A-Z0-9./-]+)", re.IGNORECASE)
 PROCESSO_ADMIN_RE = re.compile(r"PROCESSO\s+ADMINISTRATIVO\s+N[ºo°]\s*(?P<processo>[A-Z0-9./-]+)", re.IGNORECASE)
@@ -89,7 +107,17 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 
 
 def split_lot_blocks(text: str) -> list[str]:
-    return [block.strip() for block in re.split(r"(?=LOTE\s+\d+\s*-)", text) if block.strip().startswith("LOTE ")]
+    matches = list(LOT_HEADER_RE.finditer(text))
+    blocks: list[str] = []
+
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        block = text[start:end].strip()
+        if block:
+            blocks.append(block)
+
+    return blocks
 
 
 def extract_header_metadata(text: str) -> tuple[str | None, str | None]:
@@ -125,7 +153,22 @@ def parse_status(block: str) -> tuple[int, str, str]:
         raise ValueError("Cabeçalho do lote não encontrado.")
     numero = int(match.group("numero"))
     status = normalize_status(match.group("status"))
-    titulo = normalize_whitespace(block[match.end():].split("VALORES UNITÁRIOS FINAIS", 1)[0])
+    titulo_bruto = block[match.end():].split("VALORES UNITÁRIOS FINAIS", 1)[0]
+    titulo_linhas = [
+        normalize_whitespace(line)
+        for line in titulo_bruto.splitlines()
+        if normalize_whitespace(line)
+    ]
+    titulo_normalizado: list[str] = []
+
+    for line in titulo_linhas:
+        title_match = LOT_TITLE_RE.match(line)
+        if title_match and int(title_match.group("numero")) == numero:
+            titulo_normalizado.append(normalize_whitespace(title_match.group("titulo")))
+        else:
+            titulo_normalizado.append(line)
+
+    titulo = normalize_whitespace(" ".join(titulo_normalizado))
     return numero, status, titulo
 
 

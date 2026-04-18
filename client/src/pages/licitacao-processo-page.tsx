@@ -1,4 +1,4 @@
-import {
+﻿import {
   useEffect,
   useMemo,
   useRef,
@@ -12,7 +12,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
-  ChevronLeft,
   ChevronRight,
   ExternalLink,
   FileCheck2,
@@ -47,11 +46,7 @@ import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import {
   getLicitacaoDocumentBlueprint,
-  licitacaoMacroPhases,
-  licitacaoSubphases,
   type LicitacaoDocumentRequirement,
-  type LicitacaoMacroPhaseKey,
-  type LicitacaoSubphaseKey,
 } from "@/lib/licitacao-phase-config";
 import { Alert } from "@/components/ui/alert";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -59,6 +54,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -211,6 +207,32 @@ type SdItemView = {
   fonte?: "parser" | "manual";
   manualIndex?: number;
 };
+
+type LicitacaoLinearPhaseKey =
+  | "PREPARACAO"
+  | "PUBLICACAO"
+  | "DISPUTA"
+  | "JULGAMENTO_HABILITACAO"
+  | "RECURSOS_HOMOLOGACAO"
+  | "FECHAMENTO";
+
+type LicitacaoOperationModalKey =
+  | "proposta"
+  | "lance"
+  | "habilitacao"
+  | "recurso"
+  | "homologacao";
+
+const licitacaoLinearPhaseOrder: LicitacaoLinearPhaseKey[] = [
+  "PREPARACAO",
+  "PUBLICACAO",
+  "DISPUTA",
+  "JULGAMENTO_HABILITACAO",
+  "RECURSOS_HOMOLOGACAO",
+  "FECHAMENTO",
+];
+
+const LICITACAO_TABLE_PAGE_SIZE = 8;
 
 const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
   numero: "",
@@ -433,6 +455,99 @@ function mapStatusToVisualStep(status: string) {
   }
 }
 
+function isLicitacaoLinearPhaseKey(
+  value: string | null | undefined,
+): value is LicitacaoLinearPhaseKey {
+  return (
+    value === "PREPARACAO" ||
+    value === "PUBLICACAO" ||
+    value === "DISPUTA" ||
+    value === "JULGAMENTO_HABILITACAO" ||
+    value === "RECURSOS_HOMOLOGACAO" ||
+    value === "FECHAMENTO"
+  );
+}
+
+function resolveLinearPhaseFromVisualStep(
+  step: string,
+  homologado: boolean,
+): LicitacaoLinearPhaseKey {
+  if (homologado) {
+    return "FECHAMENTO";
+  }
+
+  switch (step) {
+    case "PREPARACAO_INTERNA":
+      return "PREPARACAO";
+    case "PUBLICACAO":
+      return "PUBLICACAO";
+    case "RECEBIMENTO_PROPOSTAS":
+    case "LANCES":
+      return "DISPUTA";
+    case "JULGAMENTO":
+    case "HABILITACAO":
+      return "JULGAMENTO_HABILITACAO";
+    case "RECURSOS":
+    case "HOMOLOGACAO":
+      return "RECURSOS_HOMOLOGACAO";
+    default:
+      return "PREPARACAO";
+  }
+}
+
+function paginateItems<T>(
+  items: T[],
+  page: number,
+  pageSize = LICITACAO_TABLE_PAGE_SIZE,
+) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+
+  return {
+    items: items.slice(startIndex, startIndex + pageSize),
+    page: safePage,
+    totalPages,
+    totalItems: items.length,
+  };
+}
+
+function isChecklistItemAddressed(item: ChecklistCardItem) {
+  return (
+    item.concluido ||
+    item.naoAplicavel ||
+    (item.statusFlexivel != null && item.statusFlexivel !== "PADRAO")
+  );
+}
+
+function getChecklistItemStatusLabel(item: ChecklistCardItem) {
+  if (item.statusFlexivel && item.statusFlexivel !== "PADRAO") {
+    return licitacaoChecklistFlexStatusLabels[item.statusFlexivel];
+  }
+
+  return item.concluido ? "Anexado" : "Pendente";
+}
+
+function getChecklistItemStatusClassName(item: ChecklistCardItem) {
+  if (item.statusFlexivel === "OUTRO_SETOR") {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+
+  if (item.statusFlexivel === "CONCLUIDO_FISICO") {
+    return "border-violet-200 bg-violet-50 text-violet-700";
+  }
+
+  if (item.naoAplicavel) {
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+
+  if (item.concluido) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 export function LicitacaoProcessoPage({
   processoId,
 }: LicitacaoProcessoPageProps) {
@@ -458,7 +573,8 @@ export function LicitacaoProcessoPage({
     { retry: false },
   );
 
-  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [currentPhase, setCurrentPhase] =
+    useState<LicitacaoLinearPhaseKey>("PREPARACAO");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
@@ -466,6 +582,8 @@ export function LicitacaoProcessoPage({
   );
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
   const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
+  const [operationModal, setOperationModal] =
+    useState<LicitacaoOperationModalKey | null>(null);
   const [uploadForms, setUploadForms] = useState<
     Record<string, UploadFormState>
   >({});
@@ -485,6 +603,7 @@ export function LicitacaoProcessoPage({
     auditoria: false,
     history: false,
   });
+  type SectionKey = keyof typeof sectionOpen;
   const [configForm, setConfigForm] = useState({
     criterioJulgamento: "",
     modoDisputa: "NAO_SE_APLICA",
@@ -511,6 +630,14 @@ export function LicitacaoProcessoPage({
   const [auditJustification, setAuditJustification] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditUserFilter, setAuditUserFilter] = useState("");
+  const [
+    selectedInternalChecklistCategory,
+    setSelectedInternalChecklistCategory,
+  ] = useState<string | null>(null);
+  const [internalChecklistRevealCount, setInternalChecklistRevealCount] =
+    useState(3);
+  const [showResolvedInternalChecklist, setShowResolvedInternalChecklist] =
+    useState(false);
   const [publishForm, setPublishForm] = useState({
     condutorProcessoId: "",
     statusId: "",
@@ -532,6 +659,11 @@ export function LicitacaoProcessoPage({
   const [homologacaoForm, setHomologacaoForm] = useState(
     initialHomologacaoForm,
   );
+  const [propostasPage, setPropostasPage] = useState(1);
+  const [lancesPage, setLancesPage] = useState(1);
+  const [habilitacaoPage, setHabilitacaoPage] = useState(1);
+  const [recursosPage, setRecursosPage] = useState(1);
+  const [auditoriaPage, setAuditoriaPage] = useState(1);
   const [sdFile, setSdFile] = useState<File | null>(null);
   const [sdParsing, setSdParsing] = useState(false);
   const [sdError, setSdError] = useState<string | null>(null);
@@ -779,6 +911,7 @@ export function LicitacaoProcessoPage({
         licitanteId: current.licitanteId,
         itemId: current.itemId,
       }));
+      setOperationModal(null);
       setFeedback("Proposta registrada com sucesso.");
       setErrorMessage(null);
     },
@@ -794,6 +927,7 @@ export function LicitacaoProcessoPage({
         ...initialLanceForm,
         propostaId: current.propostaId,
       }));
+      setOperationModal(null);
       setFeedback("Lance registrado com sucesso.");
       setErrorMessage(null);
     },
@@ -805,6 +939,7 @@ export function LicitacaoProcessoPage({
   const saveHabilitacaoMutation = trpc.licitacao.saveHabilitacao.useMutation({
     onSuccess: async () => {
       await refreshAll();
+      setOperationModal(null);
       setFeedback("Situacao de habilitacao atualizada.");
       setErrorMessage(null);
     },
@@ -820,6 +955,7 @@ export function LicitacaoProcessoPage({
         ...initialRecursoForm,
         licitanteId: current.licitanteId,
       }));
+      setOperationModal(null);
       setFeedback("Recurso administrativo registrado.");
       setErrorMessage(null);
     },
@@ -842,6 +978,7 @@ export function LicitacaoProcessoPage({
   const homologarMutation = trpc.licitacao.homologar.useMutation({
     onSuccess: async () => {
       await refreshAll();
+      setOperationModal(null);
       setFeedback("Licitacao homologada com sucesso.");
       setErrorMessage(null);
     },
@@ -1018,6 +1155,78 @@ export function LicitacaoProcessoPage({
     (item) => item.obrigatorio && !item.concluido,
   );
   const progressCount = checklistItems.filter((item) => item.concluido).length;
+  const addressedChecklistItems = checklistItems.filter(
+    isChecklistItemAddressed,
+  );
+  const unresolvedChecklistItems = checklistItems.filter(
+    (item) => !isChecklistItemAddressed(item),
+  );
+  const internalChecklistLeadIndex = unresolvedChecklistItems.length
+    ? checklistItems.findIndex(
+        (item) => item.category === unresolvedChecklistItems[0]?.category,
+      )
+    : Math.max(0, checklistItems.length - internalChecklistRevealCount);
+  const visibleInternalChecklistItems = checklistItems.slice(
+    Math.max(0, internalChecklistLeadIndex),
+    Math.max(0, internalChecklistLeadIndex) + internalChecklistRevealCount,
+  );
+  const hiddenInternalChecklistCount = Math.max(
+    0,
+    checklistItems.length -
+      (Math.max(0, internalChecklistLeadIndex) + internalChecklistRevealCount),
+  );
+  const resolvedInternalChecklistPreview = showResolvedInternalChecklist
+    ? addressedChecklistItems
+    : addressedChecklistItems.slice(
+        Math.max(0, addressedChecklistItems.length - 3),
+      );
+  const selectedInternalChecklistItem =
+    checklistItems.find(
+      (item) => item.category === selectedInternalChecklistCategory,
+    ) ??
+    unresolvedChecklistItems[0] ??
+    visibleInternalChecklistItems[0] ??
+    checklistItems[0] ??
+    null;
+  const selectedInternalChecklistIndex = selectedInternalChecklistItem
+    ? checklistItems.findIndex(
+        (item) => item.category === selectedInternalChecklistItem.category,
+      ) + 1
+    : 0;
+  const selectedInternalLatestDocumento = selectedInternalChecklistItem
+    ? (selectedInternalChecklistItem.documentos
+        .slice()
+        .sort(
+          (left, right) =>
+            new Date(right.criadoEm).getTime() -
+            new Date(left.criadoEm).getTime(),
+        )[0] ?? null)
+    : null;
+  const selectedInternalUploadState = selectedInternalChecklistItem
+    ? getUploadState(uploadForms, selectedInternalChecklistItem.category)
+    : null;
+  const selectedInternalChecklistFlexState = selectedInternalChecklistItem
+    ? (checklistNaoAplicavelForm[selectedInternalChecklistItem.category] ?? {
+        statusFlexivel:
+          selectedInternalChecklistItem.statusFlexivel ??
+          (selectedInternalChecklistItem.naoAplicavel
+            ? "NAO_APLICAVEL"
+            : "PADRAO"),
+        justificativa:
+          selectedInternalChecklistItem.justificativaNaoAplicavel ?? "",
+        departamentoResponsavel:
+          selectedInternalChecklistItem.departamentoResponsavel ?? "",
+        previsaoRecebimento: toDateInputValue(
+          selectedInternalChecklistItem.previsaoRecebimento,
+        ),
+        processoFisicoNumero:
+          selectedInternalChecklistItem.processoFisicoNumero ?? "",
+        localArquivamento:
+          selectedInternalChecklistItem.localArquivamento ?? "",
+        digitalizarDepois:
+          selectedInternalChecklistItem.digitalizarDepois ?? false,
+      })
+    : null;
 
   const externalChecklistItems = useMemo<ChecklistCardItem[]>(() => {
     const statusAtual = detalhe?.licitacao.statusLicitacao;
@@ -1158,8 +1367,8 @@ export function LicitacaoProcessoPage({
   );
   const publishCriticalStatusDateRequired = Boolean(
     selectedPublishStatus &&
-      selectedPublishCriticalStatusKind &&
-      selectedPublishStatus.id !== detalhe?.processo.statusId,
+    selectedPublishCriticalStatusKind &&
+    selectedPublishStatus.id !== detalhe?.processo.statusId,
   );
   const selectedHomologStatusId = homologacaoForm.statusId
     ? Number(homologacaoForm.statusId)
@@ -1179,10 +1388,43 @@ export function LicitacaoProcessoPage({
   );
   const homologCriticalStatusDateRequired = Boolean(
     selectedHomologStatus &&
-      selectedHomologCriticalStatusKind &&
-      selectedHomologCriticalStatusKind !== "HOMOLOGACAO" &&
-      selectedHomologStatus.id !== detalhe?.processo.statusId,
+    selectedHomologCriticalStatusKind &&
+    selectedHomologCriticalStatusKind !== "HOMOLOGACAO" &&
+    selectedHomologStatus.id !== detalhe?.processo.statusId,
   );
+
+  useEffect(() => {
+    setInternalChecklistRevealCount(3);
+    setShowResolvedInternalChecklist(false);
+    setSelectedInternalChecklistCategory(null);
+  }, [processoId]);
+
+  useEffect(() => {
+    if (!selectedInternalChecklistItem && checklistItems[0]) {
+      setSelectedInternalChecklistCategory(
+        unresolvedChecklistItems[0]?.category ?? checklistItems[0].category,
+      );
+      return;
+    }
+
+    if (
+      selectedInternalChecklistCategory &&
+      !checklistItems.some(
+        (item) => item.category === selectedInternalChecklistCategory,
+      )
+    ) {
+      setSelectedInternalChecklistCategory(
+        unresolvedChecklistItems[0]?.category ??
+          checklistItems[0]?.category ??
+          null,
+      );
+    }
+  }, [
+    checklistItems,
+    selectedInternalChecklistCategory,
+    selectedInternalChecklistItem,
+    unresolvedChecklistItems,
+  ]);
 
   useEffect(() => {
     if (!manualScheduleViolatesLegalMinimum && legalDateOverrideJustification) {
@@ -1237,7 +1479,7 @@ export function LicitacaoProcessoPage({
 
     const descricao = sdItemDraft.descricao.trim();
     if (!descricao) {
-      setManualSdItemError("Informe ao menos a descrição do item manual.");
+      setManualSdItemError("Informe ao menos a descriÃ§Ã£o do item manual.");
       return;
     }
 
@@ -1795,34 +2037,45 @@ export function LicitacaoProcessoPage({
     });
   }
 
-  const navItems = (() => {
-    const items = [
-      { key: "overview", label: "Visao geral", ref: overviewRef },
-      { key: "internal", label: "Fase interna", ref: internalRef },
-      { key: "external", label: "Fase externa", ref: externalRef },
-      { key: "docs", label: "Documentos do processo", ref: docsRef },
-      { key: "publication", label: "Publicacao", ref: publicationRef },
+  const navItems: Array<{
+    key: SectionKey;
+    label: string;
+    ref: RefObject<HTMLElement | null>;
+  }> = (() => {
+    const makeNavItem = (
+      key: SectionKey,
+      label: string,
+      ref: RefObject<HTMLElement | null>,
+    ) => ({ key, label, ref });
+    const items: Array<{
+      key: SectionKey;
+      label: string;
+      ref: RefObject<HTMLElement | null>;
+    }> = [
+      makeNavItem("overview", "Visao geral", overviewRef),
+      makeNavItem("internal", "Fase interna", internalRef),
+      makeNavItem("external", "Fase externa", externalRef),
+      makeNavItem("docs", "Documentos do processo", docsRef),
+      makeNavItem("publication", "Publicacao", publicationRef),
       ...(showCompetitivoSteps
-        ? [{ key: "licitantes", label: "Licitantes", ref: licitantesRef }]
+        ? [makeNavItem("licitantes", "Licitantes", licitantesRef)]
         : []),
       ...(showCompetitivoSteps
-        ? [{ key: "propostas", label: "Propostas", ref: propostasRef }]
+        ? [makeNavItem("propostas", "Propostas", propostasRef)]
         : []),
-      ...(showLances
-        ? [{ key: "lances", label: "Lances", ref: lancesRef }]
-        : []),
+      ...(showLances ? [makeNavItem("lances", "Lances", lancesRef)] : []),
       ...(showCompetitivoSteps
-        ? [{ key: "julgamento", label: "Julgamento", ref: julgamentoRef }]
+        ? [makeNavItem("julgamento", "Julgamento", julgamentoRef)]
         : []),
-      { key: "habilitacao", label: "Habilitacao", ref: habilitacaoRef },
+      makeNavItem("habilitacao", "Habilitacao", habilitacaoRef),
       ...(showRecursos
-        ? [{ key: "recursos", label: "Recursos", ref: recursosRef }]
+        ? [makeNavItem("recursos", "Recursos", recursosRef)]
         : []),
-      { key: "homologacao", label: "Homologacao", ref: homologacaoRef },
+      makeNavItem("homologacao", "Homologacao", homologacaoRef),
       ...(isForaDoFluxo
-        ? [{ key: "auditoria", label: "Auditoria", ref: auditoriaRef }]
+        ? [makeNavItem("auditoria", "Auditoria", auditoriaRef)]
         : []),
-      { key: "history", label: "Movimentacoes", ref: historyRef },
+      makeNavItem("history", "Movimentacoes", historyRef),
     ];
 
     if (inversaoFasesAtiva) {
@@ -1851,88 +2104,515 @@ export function LicitacaoProcessoPage({
     0,
     flowSteps.findIndex((item) => item.key === currentVisualStep),
   );
-  const currentSubphase: LicitacaoSubphaseKey =
-    currentVisualStep === "PREPARACAO_INTERNA"
-      ? "FASE_INTERNA"
-      : currentVisualStep === "PUBLICACAO" && isForaDoFluxo
-        ? "CRONOGRAMA"
-        : currentVisualStep === "PUBLICACAO"
-          ? "FASE_EXTERNA"
-          : currentVisualStepIndex <= 0
-            ? "FASE_INTERNA"
-            : "FASE_EXTERNA";
+  const currentProcessPhase = resolveLinearPhaseFromVisualStep(
+    currentVisualStep,
+    detalhe?.processo.homologado ?? false,
+  );
   const contractGateQuery = trpc.processos.macroPhaseGate.useQuery(
     { processoId, moduloDestino: "CONTRATOS" },
     {
-      enabled: Boolean(detalhe) && currentSubphase !== "FASE_INTERNA",
+      enabled: Boolean(detalhe) && currentProcessPhase !== "PREPARACAO",
       retry: false,
     },
   );
-  const macroPhaseStatuses: Record<
-    LicitacaoMacroPhaseKey,
-    "done" | "current" | "upcoming"
-  > = {
-    PLANEJAMENTO: "done",
-    COMPRAS: "done",
-    LICITACAO: "current",
-    CONTRATO: detalhe?.processo.homologado ? "done" : "upcoming",
-  };
-  const currentSubphaseLabel =
-    currentSubphase === "FASE_INTERNA"
-      ? "Licitacao > Fase interna"
-      : currentSubphase === "FASE_EXTERNA"
-        ? "Licitacao > Fase externa"
-        : "Licitacao > Cronograma";
   const responsavelAtual =
     detalhe?.processo.condutorProcesso?.nome ?? "Responsavel em definicao";
-  const nextTransitionTitle =
-    currentSubphase === "FASE_INTERNA"
-      ? "Transicao: Fase interna -> Fase externa"
-      : "Transicao: Licitacao -> Contratos";
-  const nextTransitionPendings =
-    currentSubphase === "FASE_INTERNA"
-      ? pendingRequired.map((item) => ({
-          category: item.category,
-          label: item.label,
-          detalhe: item.completionHint ?? item.description ?? undefined,
-        }))
-      : [
-          ...externalPendingRequired.map((item) => ({
-            category: item.category,
-            label: item.label,
-            detalhe: item.completionHint ?? item.description ?? undefined,
-          })),
-          ...(contractGateQuery.data?.blockers ?? []).map((item, index) => ({
-            category: `macro-${index}`,
-            label: item.label,
-            detalhe: item.detalhe,
-          })),
-        ];
-  const currentNavKey = (() => {
-    switch (currentVisualStep) {
-      case "PREPARACAO_INTERNA":
+  const publicationPendingItems = [
+    !publishForm.dataPublicacaoEdital
+      ? {
+          category: "publication-date",
+          label: "Data de publicacao",
+          detalhe: "Defina a publicacao oficial do edital no PNCP.",
+        }
+      : null,
+    !publishForm.condutorProcessoId
+      ? {
+          category: "publication-conductor",
+          label: "Condutor do processo",
+          detalhe: "Associe o responsavel operacional da fase externa.",
+        }
+      : null,
+    !detalhe?.processo.publicado
+      ? {
+          category: "publication-submit",
+          label: "Publicacao pendente",
+          detalhe: "Conclua a publicacao para liberar a disputa.",
+        }
+      : null,
+  ].filter(
+    (
+      item,
+    ): item is {
+      category: string;
+      label: string;
+      detalhe: string;
+    } => Boolean(item),
+  );
+  const propostasSemClassificacao = detalhe?.propostas.filter(
+    (item) => item.classificacao == null,
+  ).length;
+  const habilitacoesPendentes = detalhe?.licitantes.filter(
+    (item) => item.statusHabilitacao === "PENDENTE",
+  ).length;
+  const julgamentoHabilitacaoPendings = [
+    showCompetitivoSteps && propostasSemClassificacao
+      ? {
+          category: "judgment-ranking",
+          label: `${propostasSemClassificacao} proposta(s) sem classificacao`,
+          detalhe: "Consolide a classificacao para fechar o julgamento.",
+        }
+      : null,
+    habilitacoesPendentes
+      ? {
+          category: "qualification-review",
+          label: `${habilitacoesPendentes} licitante(s) com habilitacao pendente`,
+          detalhe: "Finalize a conferencia documental do classificado.",
+        }
+      : null,
+  ].filter(
+    (
+      item,
+    ): item is {
+      category: string;
+      label: string;
+      detalhe: string;
+    } => Boolean(item),
+  );
+  const recursosPendentes = detalhe?.recursos.filter(
+    (item) => item.resultado === "PENDENTE",
+  ).length;
+  const recursoHomologacaoPendings = [
+    showRecursos && recursosPendentes
+      ? {
+          category: "appeals",
+          label: `${recursosPendentes} recurso(s) sem decisao final`,
+          detalhe: "Finalize o tratamento recursal antes da homologacao.",
+        }
+      : null,
+    !detalhe?.processo.homologado
+      ? {
+          category: "homologation",
+          label: "Homologacao pendente",
+          detalhe: "Formalize a conclusao da fase licitatoria.",
+        }
+      : null,
+  ].filter(
+    (
+      item,
+    ): item is {
+      category: string;
+      label: string;
+      detalhe: string;
+    } => Boolean(item),
+  );
+  const fechamentoPendings = (contractGateQuery.data?.blockers ?? []).map(
+    (item, index) => ({
+      category: `contract-${index}`,
+      label: item.label,
+      detalhe: item.detalhe ?? "Resolva este ponto antes de encaminhar.",
+    }),
+  );
+  const phaseCatalog = {
+    PREPARACAO: {
+      label: "Preparacao Interna",
+      shortLabel: "Preparacao",
+      eyebrow: "Fundacao do processo",
+      description:
+        "Checklist interno, configuracoes estaticas e acervo documental antes da abertura.",
+      icon: ShieldCheck,
+    },
+    PUBLICACAO: {
+      label: "Publicacao e Cronograma",
+      shortLabel: "Publicacao",
+      eyebrow: "Janelas legais",
+      description:
+        "Publicacao oficial, cronograma da sessao e regras de contagem de prazo.",
+      icon: CalendarClock,
+    },
+    DISPUTA: {
+      label: "Disputa",
+      shortLabel: "Disputa",
+      eyebrow: "Operacao externa",
+      description:
+        "Rito da sessao, participantes, propostas e lances com foco em operacao.",
+      icon: FolderKanban,
+    },
+    JULGAMENTO_HABILITACAO: {
+      label: "Julgamento e Habilitacao",
+      shortLabel: "Julgamento",
+      eyebrow: "Decisao tecnica",
+      description:
+        "Classificacao das propostas e verificacao documental do classificado.",
+      icon: FileCheck2,
+    },
+    RECURSOS_HOMOLOGACAO: {
+      label: "Recursos e Homologacao",
+      shortLabel: "Homologacao",
+      eyebrow: "Conclusao formal",
+      description:
+        "Tratamento recursal e encerramento formal da fase licitatoria.",
+      icon: CheckCircle2,
+    },
+    FECHAMENTO: {
+      label: "Fechamento",
+      shortLabel: "Fechamento",
+      eyebrow: "Rastreabilidade final",
+      description:
+        "Auditoria reforcada, historico recente e encaminhamento para Contratos.",
+      icon: Clock3,
+    },
+  } as const;
+  const phasePendingItems = {
+    PREPARACAO: pendingRequired.map((item) => ({
+      category: item.category,
+      label: item.label,
+      detalhe: item.completionHint ?? item.description ?? undefined,
+    })),
+    PUBLICACAO: publicationPendingItems,
+    DISPUTA: externalPendingRequired.map((item) => ({
+      category: item.category,
+      label: item.label,
+      detalhe: item.completionHint ?? item.description ?? undefined,
+    })),
+    JULGAMENTO_HABILITACAO: julgamentoHabilitacaoPendings,
+    RECURSOS_HOMOLOGACAO: recursoHomologacaoPendings,
+    FECHAMENTO: fechamentoPendings,
+  } as const satisfies Record<
+    LicitacaoLinearPhaseKey,
+    Array<{ category: string; label: string; detalhe?: string }>
+  >;
+  const phasePendingCounts = {
+    PREPARACAO: pendingRequired.length,
+    PUBLICACAO: publicationPendingItems.length,
+    DISPUTA: externalPendingRequired.length,
+    JULGAMENTO_HABILITACAO: julgamentoHabilitacaoPendings.length,
+    RECURSOS_HOMOLOGACAO: recursoHomologacaoPendings.length,
+    FECHAMENTO: fechamentoPendings.length,
+  } as const satisfies Record<LicitacaoLinearPhaseKey, number>;
+  const currentProcessPhaseIndex =
+    licitacaoLinearPhaseOrder.indexOf(currentProcessPhase);
+  const maxAccessiblePhaseIndex = Math.min(
+    licitacaoLinearPhaseOrder.length - 1,
+    currentProcessPhaseIndex +
+      (phasePendingCounts[currentProcessPhase] === 0 ? 1 : 0),
+  );
+  const phaseCompletedBySystem = {
+    PREPARACAO: currentVisualStep !== "PREPARACAO_INTERNA",
+    PUBLICACAO:
+      Boolean(detalhe?.processo.publicado) &&
+      currentVisualStep !== "PUBLICACAO",
+    DISPUTA:
+      Boolean(detalhe?.processo.homologado) ||
+      (inversaoFasesAtiva
+        ? ["JULGAMENTO", "RECURSOS", "HOMOLOGACAO"].includes(currentVisualStep)
+        : ["JULGAMENTO", "HABILITACAO", "RECURSOS", "HOMOLOGACAO"].includes(
+            currentVisualStep,
+          )),
+    JULGAMENTO_HABILITACAO:
+      Boolean(detalhe?.processo.homologado) ||
+      ["RECURSOS", "HOMOLOGACAO"].includes(currentVisualStep),
+    RECURSOS_HOMOLOGACAO: Boolean(detalhe?.processo.homologado),
+    FECHAMENTO: false,
+  } as const satisfies Record<LicitacaoLinearPhaseKey, boolean>;
+  const sectionRefs: Record<SectionKey, RefObject<HTMLElement | null>> = {
+    overview: overviewRef,
+    internal: internalRef,
+    external: externalRef,
+    docs: docsRef,
+    publication: publicationRef,
+    licitantes: licitantesRef,
+    propostas: propostasRef,
+    lances: lancesRef,
+    julgamento: julgamentoRef,
+    habilitacao: habilitacaoRef,
+    recursos: recursosRef,
+    homologacao: homologacaoRef,
+    auditoria: auditoriaRef,
+    history: historyRef,
+  };
+  const phaseBySection = {
+    overview: "PREPARACAO",
+    internal: "PREPARACAO",
+    external: "DISPUTA",
+    docs: "PREPARACAO",
+    publication: "PUBLICACAO",
+    licitantes: "DISPUTA",
+    propostas: "DISPUTA",
+    lances: "DISPUTA",
+    julgamento: "JULGAMENTO_HABILITACAO",
+    habilitacao: "JULGAMENTO_HABILITACAO",
+    recursos: "RECURSOS_HOMOLOGACAO",
+    homologacao: "RECURSOS_HOMOLOGACAO",
+    auditoria: "FECHAMENTO",
+    history: "FECHAMENTO",
+  } as const satisfies Record<SectionKey, LicitacaoLinearPhaseKey>;
+  const getDefaultSectionForPhase = (
+    phase: LicitacaoLinearPhaseKey,
+  ): SectionKey => {
+    switch (phase) {
+      case "PREPARACAO":
         return "internal";
       case "PUBLICACAO":
+        return "publication";
+      case "DISPUTA":
         return "external";
-      case "RECEBIMENTO_PROPOSTAS":
-        return "external";
-      case "LANCES":
-        return "external";
-      case "JULGAMENTO":
-        return "external";
-      case "HABILITACAO":
-        return "external";
-      case "RECURSOS":
-        return "external";
-      case "HOMOLOGACAO":
-        return "external";
+      case "JULGAMENTO_HABILITACAO":
+        return inversaoFasesAtiva || !showCompetitivoSteps
+          ? "habilitacao"
+          : "julgamento";
+      case "RECURSOS_HOMOLOGACAO":
+        return showRecursos ? "recursos" : "homologacao";
+      case "FECHAMENTO":
+        return isForaDoFluxo ? "auditoria" : "history";
       default:
-        return "overview";
+        return "internal";
     }
+  };
+  const jumpToSection = (item: {
+    key: SectionKey;
+    ref: RefObject<HTMLElement | null>;
+  }) => {
+    const phase = legalPhaseBySection[item.key];
+    if (!canAccessLegalPhase(phase)) return;
+    setCurrentPhase(phase);
+    setSectionOpen((current) => ({
+      ...current,
+      [item.key]: true,
+    }));
+    requestAnimationFrame(() =>
+      item.ref.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      }),
+    );
+  };
+  const legalPhaseBySection = {
+    overview: "PREPARACAO",
+    internal: "PREPARACAO",
+    external: "DISPUTA",
+    docs: "PREPARACAO",
+    publication: "PUBLICACAO",
+    licitantes: "DISPUTA",
+    propostas: "DISPUTA",
+    lances: "DISPUTA",
+    julgamento: "JULGAMENTO_HABILITACAO",
+    habilitacao: "JULGAMENTO_HABILITACAO",
+    recursos: "RECURSOS_HOMOLOGACAO",
+    homologacao: "RECURSOS_HOMOLOGACAO",
+    auditoria: "FECHAMENTO",
+    history: "FECHAMENTO",
+  } as const satisfies Record<SectionKey, LicitacaoLinearPhaseKey>;
+  const getSectionsForPhase = (
+    phase: LicitacaoLinearPhaseKey,
+  ): SectionKey[] => {
+    switch (phase) {
+      case "PREPARACAO":
+        return ["overview", "internal", "docs"];
+      case "PUBLICACAO":
+        return ["publication"];
+      case "DISPUTA":
+        return [
+          "external",
+          ...(showCompetitivoSteps
+            ? (["licitantes", "propostas"] as const)
+            : []),
+          ...(showLances ? (["lances"] as const) : []),
+        ];
+      case "JULGAMENTO_HABILITACAO":
+        return [
+          ...(showCompetitivoSteps ? (["julgamento"] as const) : []),
+          "habilitacao",
+        ];
+      case "RECURSOS_HOMOLOGACAO":
+        return [
+          ...(showRecursos ? (["recursos"] as const) : []),
+          "homologacao",
+        ];
+      case "FECHAMENTO":
+        return [...(isForaDoFluxo ? (["auditoria"] as const) : []), "history"];
+      default:
+        return ["internal"];
+    }
+  };
+  const canAccessLegalPhase = (phase: LicitacaoLinearPhaseKey) =>
+    licitacaoLinearPhaseOrder.indexOf(phase) <= maxAccessiblePhaseIndex;
+  const selectLegalPhase = (phase: LicitacaoLinearPhaseKey) => {
+    if (!canAccessLegalPhase(phase)) return;
+    const targetSection = getDefaultSectionForPhase(phase);
+    setCurrentPhase(phase);
+    setSectionOpen((current) => ({
+      ...current,
+      [targetSection]: true,
+    }));
+    requestAnimationFrame(() =>
+      sectionRefs[targetSection].current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      }),
+    );
+  };
+  const selectedPhaseNavItems = navItems.filter((item) =>
+    getSectionsForPhase(currentPhase).includes(item.key),
+  );
+  const selectedPhaseInfo = phaseCatalog[currentPhase];
+  const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
+  const SelectedPhaseIcon = selectedPhaseInfo.icon;
+  const selectedPhasePendingItems = phasePendingItems[currentPhase];
+  const selectedPhaseLeadSection = getDefaultSectionForPhase(currentPhase);
+  const statusBanner = errorMessage
+    ? {
+        tone: "error" as const,
+        title: "Operacao com atencao",
+        message: errorMessage,
+      }
+    : feedback
+      ? {
+          tone: "success" as const,
+          title: "Atualizacao registrada",
+          message: feedback,
+        }
+      : null;
+  const stickyColumnHeaderClass =
+    "sticky left-0 z-10 bg-[var(--surface-soft)] shadow-[inset_-1px_0_0_var(--border-subtle)]";
+  const stickyColumnCellClass =
+    "sticky left-0 z-[1] bg-[var(--surface-card)] shadow-[inset_-1px_0_0_var(--border-subtle)]";
+  const propostasPagination = paginateItems(
+    detalhe?.propostas ?? [],
+    propostasPage,
+  );
+  const lancesPagination = paginateItems(detalhe?.lances ?? [], lancesPage);
+  const habilitacaoPagination = paginateItems(
+    detalhe?.licitantes ?? [],
+    habilitacaoPage,
+  );
+  const recursosPagination = paginateItems(
+    detalhe?.recursos ?? [],
+    recursosPage,
+  );
+  const auditoriaPagination = paginateItems(auditoriaItems, auditoriaPage);
+  const primaryPhaseAction = (() => {
+    if (currentPhase === "PREPARACAO") {
+      return {
+        label: "Avancar para publicacao",
+        helper:
+          phasePendingCounts.PREPARACAO === 0
+            ? "Checklist pronto para abrir a etapa de publicacao."
+            : "Conclua o checklist interno antes de liberar a publicacao.",
+        disabled: phasePendingCounts.PREPARACAO > 0,
+        onClick: () => selectLegalPhase("PUBLICACAO"),
+      };
+    }
+
+    if (currentPhase === "PUBLICACAO") {
+      return detalhe?.processo.publicado
+        ? {
+            label: "Abrir disputa",
+            helper:
+              "A publicacao foi registrada. Siga para a operacao externa.",
+            disabled: !canAccessLegalPhase("DISPUTA"),
+            onClick: () => selectLegalPhase("DISPUTA"),
+          }
+        : {
+            label: publishMutation.isPending
+              ? "Publicando..."
+              : "Publicar e liberar disputa",
+            helper: "Submete o cronograma e libera a fase externa.",
+            disabled: publishMutation.isPending,
+            formId: "licitacao-publicacao-form",
+          };
+    }
+
+    if (currentPhase === "RECURSOS_HOMOLOGACAO") {
+      return {
+        label: detalhe?.processo.homologado
+          ? "Revisar homologacao"
+          : "Concluir homologacao",
+        helper: "Abre um painel focado para finalizar a etapa formal.",
+        disabled: homologarMutation.isPending,
+        onClick: () => setOperationModal("homologacao"),
+      };
+    }
+
+    if (currentPhase === "FECHAMENTO") {
+      return {
+        label: "Encaminhar para Contratos",
+        helper: "Valida bloqueios finais antes da transicao de modulo.",
+        disabled:
+          contractGateQuery.isLoading || advanceMacroPhaseMutation.isPending,
+        onClick: () => setContractTransitionOpen(true),
+      };
+    }
+
+    return {
+      label: "Abrir secao principal",
+      helper: "Foco rapido na area ativa desta etapa.",
+      disabled: false,
+      onClick: () =>
+        jumpToSection({
+          key: selectedPhaseLeadSection,
+          ref: sectionRefs[selectedPhaseLeadSection],
+        }),
+    };
   })();
+  const isLegalSectionVisible = (sectionKey: SectionKey) =>
+    getSectionsForPhase(currentPhase).includes(sectionKey);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setCurrentPhase(currentProcessPhase);
+      return;
+    }
+
+    const storageKey = `sirel:licitacao-phase:${processoId}`;
+    const queryPhase = new URLSearchParams(window.location.search).get("fase");
+    const storedPhase = window.sessionStorage.getItem(storageKey);
+    const preferredPhase = isLicitacaoLinearPhaseKey(queryPhase)
+      ? queryPhase
+      : isLicitacaoLinearPhaseKey(storedPhase)
+        ? storedPhase
+        : currentProcessPhase;
+    const nextPhase = canAccessLegalPhase(preferredPhase)
+      ? preferredPhase
+      : currentProcessPhase;
+
+    setCurrentPhase(nextPhase);
+    setSectionOpen((current) => ({
+      ...current,
+      [getDefaultSectionForPhase(nextPhase)]: true,
+    }));
+  }, [
+    currentProcessPhase,
+    inversaoFasesAtiva,
+    isForaDoFluxo,
+    processoId,
+    showCompetitivoSteps,
+    showLances,
+    showRecursos,
+    maxAccessiblePhaseIndex,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !canAccessLegalPhase(currentPhase)) {
+      return;
+    }
+
+    const storageKey = `sirel:licitacao-phase:${processoId}`;
+    window.sessionStorage.setItem(storageKey, currentPhase);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("fase", currentPhase);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [currentPhase, maxAccessiblePhaseIndex, processoId]);
 
   const habilitacaoSection = (
-    <section ref={habilitacaoRef}>
+    <section
+      ref={habilitacaoRef}
+      className={isLegalSectionVisible("habilitacao") ? "" : "hidden"}
+    >
       <CollapsibleSectionCard
         title="Habilitacao"
         description="Registro da situacao documental do licitante classificado e observacoes da comissao."
@@ -1941,21 +2621,30 @@ export function LicitacaoProcessoPage({
           setSectionOpen((current) => ({ ...current, habilitacao: nextOpen }))
         }
         action={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              void handleAdvanceStage(
-                "HABILITACAO",
-                "Licitacao / habilitacao",
-                "Verificacao documental do licitante classificado.",
-              )
-            }
-            disabled={advanceStageMutation.isPending}
-          >
-            Definir etapa atual
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setOperationModal("habilitacao")}
+            >
+              Atualizar habilitacao
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void handleAdvanceStage(
+                  "HABILITACAO",
+                  "Licitacao / habilitacao",
+                  "Verificacao documental do licitante classificado.",
+                )
+              }
+              disabled={advanceStageMutation.isPending}
+            >
+              Definir etapa atual
+            </Button>
+          </div>
         }
         collapsedSummary={
           <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -1965,80 +2654,61 @@ export function LicitacaoProcessoPage({
           </div>
         }
       >
-        <form
-          className="grid gap-4 2xl:grid-cols-2"
-          onSubmit={handleSaveHabilitacao}
-        >
-          <FormField label="Licitante">
-            <Select
-              value={habilitacaoForm.licitanteId}
-              onChange={(event) =>
-                setHabilitacaoForm((current) => ({
-                  ...current,
-                  licitanteId: event.target.value,
-                }))
-              }
+        <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                Operacao focada
+              </div>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                A decisao documental foi movida para um modal dedicado.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                A area principal fica reservada para conferencia da situacao dos
+                licitantes e leitura do historico de habilitacao.
+              </p>
+            </div>
+            <Button
+              type="button"
+              onClick={() => setOperationModal("habilitacao")}
             >
-              <option value="">Selecione</option>
-              {detalhe?.licitantes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.razaoSocial}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          <FormField label="Status da habilitacao">
-            <Select
-              value={habilitacaoForm.statusHabilitacao}
-              onChange={(event) =>
-                setHabilitacaoForm((current) => ({
-                  ...current,
-                  statusHabilitacao: event.target.value,
-                }))
-              }
-            >
-              {habilitacaoStatusOptions.map((item) => (
-                <option key={item} value={item}>
-                  {habilitacaoStatusLabels[item]}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          <FormField label="Observacao" className="2xl:col-span-2">
-            <Textarea
-              rows={3}
-              value={habilitacaoForm.observacaoHabilitacao}
-              onChange={(event) =>
-                setHabilitacaoForm((current) => ({
-                  ...current,
-                  observacaoHabilitacao: event.target.value,
-                }))
-              }
-            />
-          </FormField>
-          <div className="xl:col-span-2 flex justify-end">
-            <Button type="submit" disabled={saveHabilitacaoMutation.isPending}>
-              {saveHabilitacaoMutation.isPending
-                ? "Salvando..."
-                : "Salvar habilitacao"}
+              Atualizar habilitacao
             </Button>
           </div>
-        </form>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="text-sm text-[var(--text-secondary)]">
+            {habilitacaoPagination.totalItems} licitante(s) com status de
+            habilitacao.
+          </div>
+          {habilitacaoPagination.totalPages > 1 ? (
+            <Pagination
+              page={habilitacaoPagination.page}
+              totalPages={habilitacaoPagination.totalPages}
+              onPageChange={setHabilitacaoPage}
+            />
+          ) : null}
+        </div>
 
         <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
           <Table className="min-w-[920px]">
             <TableHead>
               <tr>
-                <TableHeaderCell>Licitante</TableHeaderCell>
+                <TableHeaderCell className={stickyColumnHeaderClass}>
+                  Licitante
+                </TableHeaderCell>
                 <TableHeaderCell>Status</TableHeaderCell>
                 <TableHeaderCell>Observacao</TableHeaderCell>
               </tr>
             </TableHead>
             <TableBody>
-              {detalhe?.licitantes.length ? (
-                detalhe.licitantes.map((item) => (
+              {habilitacaoPagination.totalItems ? (
+                habilitacaoPagination.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell>{item.razaoSocial}</TableCell>
+                    <TableCell className={stickyColumnCellClass}>
+                      {item.razaoSocial}
+                    </TableCell>
                     <TableCell>
                       {habilitacaoStatusLabels[
                         item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
@@ -2102,7 +2772,7 @@ export function LicitacaoProcessoPage({
               onClick={() => setLocation(`/dossie/${processoId}`)}
             >
               <FileCheck2 className="h-4 w-4" />
-              Dossiê do processo
+              DossiÃª do processo
             </Button>
             <Button
               type="button"
@@ -2123,404 +2793,385 @@ export function LicitacaoProcessoPage({
           </div>
         }
       >
-        {isForaDoFluxo ? (
-          <div className="mb-6 rounded-[28px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(120,53,15,0.25)]">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
-              Processo fora do fluxo
+        <div className="sticky top-4 z-30 mb-6 space-y-3">
+          {isForaDoFluxo ? (
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50/95 px-4 py-4 backdrop-blur">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div className="max-w-2xl">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">
+                    Barra de auditoria
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-amber-900">
+                    A justificativa desta barra acompanha as acoes sensiveis do
+                    processo fora do fluxo e evita repeticao em cada checklist.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-950">
+                  Reaproveitada nas proximas acoes criticas
+                </div>
+              </div>
+              <div className="mt-3">
+                <FormField label="Justificativa de auditoria (obrigatoria)">
+                  <Textarea
+                    rows={2}
+                    value={auditJustification}
+                    onChange={(event) =>
+                      setAuditJustification(event.target.value)
+                    }
+                    placeholder="Explique o motivo das alteracoes extemporaneas."
+                  />
+                </FormField>
+              </div>
             </div>
-            <div className="mt-2 text-sm text-amber-900">
-              Auditoria reforcada ativa. Alteracoes criticas exigem
-              justificativa e ficam registradas campo a campo.
+          ) : null}
+
+          <div className="overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)]">
+            <div className="border-b border-[var(--border-subtle)] px-5 py-5 xl:px-6">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="max-w-3xl">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-[var(--text-primary)]">
+                      Fluxo linear da Lei 14.133
+                    </span>
+                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1">
+                      {runtimePhaseInfo.label}
+                    </span>
+                    {inversaoFasesAtiva ? (
+                      <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+                        Inversao de fases ativa
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
+                    <h2 className="text-3xl font-black tracking-tight text-[var(--text-primary)]">
+                      {detalhe.processo.numeroSirel}
+                    </h2>
+                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-sm font-semibold text-[var(--text-secondary)]">
+                      {detalhe.processo.modalidade ?? "Modalidade em definicao"}
+                    </span>
+                  </div>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+                    {licitacaoStatusLabels[
+                      detalhe.licitacao
+                        .statusLicitacao as keyof typeof licitacaoStatusLabels
+                    ] ?? detalhe.licitacao.statusLicitacao}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Responsavel
+                    </div>
+                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
+                      {responsavelAtual}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Pendencias da etapa
+                    </div>
+                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
+                      {phasePendingCounts[currentProcessPhase]}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Checklist interno
+                    </div>
+                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
+                      {progressCount}/{checklistItems.length} concluidos
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Documentos vinculados
+                    </div>
+                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
+                      {documentos.length}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-              <FormField label="Justificativa de auditoria (obrigatoria)">
-                <Textarea
-                  rows={3}
-                  value={auditJustification}
-                  onChange={(event) =>
-                    setAuditJustification(event.target.value)
-                  }
-                  placeholder="Explique o motivo das alteracoes extemporaneas."
-                />
-              </FormField>
-              <div className="flex items-end text-xs text-amber-700">
-                Use esta justificativa para as proximas acoes criticas.
+
+            <div className="px-4 py-4 xl:px-6">
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {licitacaoLinearPhaseOrder.map((phaseKey) => {
+                  const phase = phaseCatalog[phaseKey];
+                  const isCurrent = phaseKey === currentProcessPhase;
+                  const isSelected = phaseKey === currentPhase;
+                  const isDone = phaseCompletedBySystem[phaseKey];
+                  const isLocked = !canAccessLegalPhase(phaseKey);
+                  const statusLabel = isCurrent
+                    ? "Em andamento"
+                    : isDone
+                      ? "Concluida"
+                      : isLocked
+                        ? "Bloqueada"
+                        : "Pendente";
+                  const Icon = phase.icon;
+
+                  return (
+                    <button
+                      key={phaseKey}
+                      type="button"
+                      onClick={() => selectLegalPhase(phaseKey)}
+                      disabled={isLocked}
+                      className={[
+                        "min-w-[210px] rounded-[24px] border px-4 py-4 text-left transition",
+                        isSelected
+                          ? "border-[var(--border-strong)] bg-[var(--surface-highlight)]"
+                          : isDone
+                            ? "border-emerald-200 bg-emerald-50/80"
+                            : isLocked
+                              ? "border-[var(--border-subtle)] bg-[var(--surface-soft)] opacity-70"
+                              : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)]",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--accent-color)]">
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div className="mt-4 text-sm font-black text-[var(--text-primary)]">
+                        {phase.label}
+                      </div>
+                      <div className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                        {phasePendingCounts[phaseKey] === 0
+                          ? "Sem pendencias abertas"
+                          : `${phasePendingCounts[phaseKey]} pendencia(s) ou validacao(oes) abertas`}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
-        ) : null}
+        </div>
 
-        <div className="mb-6 overflow-hidden rounded-[32px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(236,244,255,0.78))] shadow-[0_18px_40px_-30px_rgba(15,26,109,0.32)]">
-          <div className="border-b border-[rgba(204,225,255,0.92)] px-5 py-5">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-primary-600)]">
-                  <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1">
-                    Painel de contexto
-                  </span>
-                  {isForaDoFluxo ? (
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
-                      Modo extemporaneo
-                    </span>
-                  ) : null}
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Processo
-                    </div>
-                    <div className="mt-1 text-2xl font-black text-[var(--color-primary-900)]">
-                      {detalhe.processo.numeroSirel}
-                    </div>
-                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      {detalhe.processo.modalidade ?? "Modalidade em definicao"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Fase atual
-                    </div>
-                    <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                      {currentSubphaseLabel}
-                    </div>
-                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      {licitacaoStatusLabels[
-                        detalhe.licitacao
-                          .statusLicitacao as keyof typeof licitacaoStatusLabels
-                      ] ?? detalhe.licitacao.statusLicitacao}
-                    </div>
-                  </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <aside className="space-y-4 xl:sticky xl:top-[220px] xl:self-start xl:order-2">
+            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--accent-color)]">
+                  <SelectedPhaseIcon className="h-4 w-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                    Responsavel
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--color-primary-900)]">
-                    {responsavelAtual}
-                  </div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                    Etapa selecionada
+                  </p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">
+                    {selectedPhaseInfo.label}
+                  </p>
                 </div>
               </div>
-
-              <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white/80 px-4 py-4">
-                <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                  {nextTransitionTitle}
-                </div>
-                {nextTransitionPendings.length ? (
-                  <>
-                    <div className="mt-2 text-sm text-[var(--color-neutral-700)]">
-                      Ainda existem {nextTransitionPendings.length} pendencia(s)
-                      antes de liberar a proxima transicao.
-                    </div>
-                    <ul className="mt-3 space-y-2 text-sm text-[var(--color-neutral-600)]">
-                      {nextTransitionPendings.slice(0, 4).map((item) => (
-                        <li
-                          key={item.category}
-                          className="flex items-start gap-2"
-                        >
-                          <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                          <span>
-                            <span className="font-semibold text-[var(--color-primary-900)]">
-                              {item.label}
-                            </span>
-                            {item.detalhe ? (
-                              <span className="block text-xs text-[var(--color-neutral-500)]">
-                                {item.detalhe}
-                              </span>
-                            ) : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <div className="mt-2 text-sm font-semibold text-emerald-700">
-                    Pre-requisitos atendidos para seguir o fluxo desta fase.
-                  </div>
-                )}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {currentSubphase === "FASE_INTERNA" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setSectionOpen((current) => ({
-                          ...current,
-                          external: true,
-                          publication: true,
-                        }));
-                        requestAnimationFrame(() =>
-                          externalRef.current?.scrollIntoView({
-                            behavior: "smooth",
-                            block: "start",
-                          }),
-                        );
-                      }}
-                    >
-                      Abrir fase externa
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      onClick={() => setContractTransitionOpen(true)}
-                      disabled={
-                        contractGateQuery.isLoading ||
-                        advanceMacroPhaseMutation.isPending
-                      }
-                    >
-                      Encaminhar para Contratos
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-b border-[rgba(204,225,255,0.92)] px-5 py-4">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-              Fluxo macro
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
-              {licitacaoMacroPhases.map((phase) => {
-                const status = macroPhaseStatuses[phase.key];
-                const classes =
-                  status === "current"
-                    ? "border-[rgba(65,105,225,0.36)] bg-[var(--color-primary-50)] text-[var(--color-primary-900)]"
-                    : status === "done"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                      : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)]";
-
-                return (
-                  <button
-                    key={phase.key}
-                    type="button"
-                    onClick={() => {
-                      if (phase.key === "LICITACAO") {
-                        requestAnimationFrame(() =>
-                          overviewRef.current?.scrollIntoView({
-                            behavior: "smooth",
-                            block: "start",
-                          }),
-                        );
-                        return;
-                      }
-                      setLocation(phase.href);
-                    }}
-                    className={`rounded-[24px] border px-4 py-4 text-left transition hover:-translate-y-0.5 ${classes}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-black">{phase.label}</span>
-                      <span className="text-[11px] font-bold uppercase tracking-[0.16em]">
-                        {status === "current"
-                          ? "Atual"
-                          : status === "done"
-                            ? "Concluida"
-                            : "Proxima"}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm leading-6 opacity-80">
-                      {phase.hint}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="px-5 py-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {licitacaoSubphases.map((tab) => {
-                const isActive = currentSubphase === tab.key;
-                const targetRef =
-                  tab.key === "FASE_INTERNA"
-                    ? internalRef
-                    : tab.key === "FASE_EXTERNA"
-                      ? externalRef
-                      : publicationRef;
-                const targetSection =
-                  tab.key === "FASE_INTERNA"
-                    ? "internal"
-                    : tab.key === "FASE_EXTERNA"
-                      ? "external"
-                      : "publication";
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => {
-                      setSectionOpen((current) => ({
-                        ...current,
-                        [targetSection]: true,
-                      }));
-                      requestAnimationFrame(() =>
-                        targetRef.current?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start",
-                        }),
-                      );
-                    }}
-                    className={[
-                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                      isActive
-                        ? "border-[rgba(65,105,225,0.36)] bg-[var(--color-primary-900)] text-white"
-                        : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(65,105,225,0.36)] hover:text-[var(--color-primary-900)]",
-                    ].join(" ")}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6 rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(230,240,255,0.7))] px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(15,26,109,0.28)]">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Modalidade
-              </div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {detalhe.processo.modalidade ?? "Nao definida"}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Fluxo
-              </div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {licitacaoFluxoLabels[fluxoLicitacao]}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Disputa
-              </div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {showCompetitivoSteps
-                  ? showLances
-                    ? "Com disputa"
-                    : "Sem disputa"
-                  : "Nao se aplica"}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Inversao de fases
-              </div>
-              <div className="mt-1 font-semibold text-[var(--color-primary-900)]">
-                {inversaoFasesAtiva ? "Ativada" : "Nao"}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {modalidadeHelp ? (
-          <div className="mb-6 rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-5 py-4 text-sm shadow-[0_10px_24px_-24px_rgba(15,26,109,0.2)]">
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-              Ajuda contextual
-            </div>
-            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-              {modalidadeHelp}
-            </p>
-          </div>
-        ) : null}
-
-        <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-            <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.74))] p-4 shadow-[0_12px_24px_-22px_rgba(15,26,109,0.2)]">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                  Navegacao
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="hidden xl:inline-flex"
-                  onClick={() => setNavCollapsed((current) => !current)}
-                >
-                  {navCollapsed ? (
-                    <ChevronRight className="h-4 w-4" />
-                  ) : (
-                    <ChevronLeft className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1 xl:block xl:max-h-[72vh] xl:space-y-2 xl:overflow-y-auto xl:overflow-x-visible xl:pb-0">
-                {navItems.map((item) => (
+              <div className="mt-4 space-y-2">
+                {selectedPhaseNavItems.map((item) => (
                   <button
                     key={item.label}
                     type="button"
-                    onClick={() => {
-                      setSectionOpen((current) => ({
-                        ...current,
-                        [item.key]: true,
-                      }));
-                      requestAnimationFrame(() =>
-                        item.ref.current?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start",
-                        }),
-                      );
-                    }}
+                    onClick={() => jumpToSection(item)}
                     className={[
-                      "flex min-w-[180px] shrink-0 items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition xl:w-full xl:min-w-0",
-                      item.key === currentNavKey ||
-                      sectionOpen[item.key as keyof typeof sectionOpen]
-                        ? "border-[rgba(65,105,225,0.35)] bg-[var(--color-primary-50)] text-[var(--color-primary-800)]"
-                        : "border-[rgba(204,225,255,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(65,105,225,0.35)] hover:text-[var(--color-primary-800)]",
+                      "flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition",
+                      item.key === selectedPhaseLeadSection ||
+                      sectionOpen[item.key]
+                        ? "border-[var(--border-strong)] bg-[var(--surface-highlight)] text-[var(--text-primary)]"
+                        : "border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
                     ].join(" ")}
                   >
-                    <span
-                      className={navCollapsed ? "sr-only xl:not-sr-only" : ""}
-                    >
-                      {item.label}
-                    </span>
+                    <span>{item.label}</span>
                     <ChevronRight className="h-4 w-4 flex-none" />
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_12px_24px_-22px_rgba(15,26,109,0.18)]">
+            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Andamento da etapa
+                Bloqueios legais
               </p>
-              <div className="mt-3 grid gap-2 text-sm text-[var(--color-neutral-600)] sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                    Status da Licitacao
+              {selectedPhasePendingItems.length ? (
+                <ul className="mt-3 space-y-3 text-sm text-[var(--text-secondary)]">
+                  {selectedPhasePendingItems.slice(0, 5).map((item) => (
+                    <li
+                      key={item.category}
+                      className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3"
+                    >
+                      <div className="font-semibold text-[var(--text-primary)]">
+                        {item.label}
+                      </div>
+                      {item.detalhe ? (
+                        <div className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
+                          {item.detalhe}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-3 rounded-2xl bg-emerald-50 px-4 py-4 text-sm font-semibold text-emerald-700">
+                  Sem bloqueios abertos para a etapa selecionada.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                Contexto operacional
+              </p>
+              <div className="mt-3 grid gap-2 text-sm text-[var(--text-secondary)]">
+                <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3">
+                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                    Fluxo
                   </div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
-                    {detalhe.licitacao.statusLicitacao}
+                  <div className="mt-1 font-bold text-[var(--text-primary)]">
+                    {licitacaoFluxoLabels[fluxoLicitacao]}
                   </div>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                    Checklist interno
+                <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3">
+                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                    Disputa
                   </div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
-                    {progressCount}/{checklistItems.length} concluidos
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[var(--color-primary-50)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                    Documentos no processo
-                  </div>
-                  <div className="mt-1 font-bold text-[var(--color-primary-900)]">
-                    {documentos.length}
+                  <div className="mt-1 font-bold text-[var(--text-primary)]">
+                    {showCompetitivoSteps
+                      ? showLances
+                        ? "Com disputa"
+                        : "Sem disputa"
+                      : "Nao se aplica"}
                   </div>
                 </div>
+                {modalidadeHelp ? (
+                  <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3 text-sm leading-6 text-[var(--text-secondary)]">
+                    {modalidadeHelp}
+                  </div>
+                ) : null}
               </div>
             </div>
           </aside>
 
-          <div className="space-y-6">
-            {feedback ? <Alert variant="success">{feedback}</Alert> : null}
-            {errorMessage ? (
-              <Alert variant="error">{errorMessage}</Alert>
+          <div className="space-y-6 xl:order-1">
+            {statusBanner ? (
+              <div
+                aria-live={
+                  statusBanner.tone === "error" ? "assertive" : "polite"
+                }
+                className={[
+                  "sticky top-[148px] z-30 rounded-[24px] border px-4 py-4 shadow-[var(--shadow-card)]",
+                  statusBanner.tone === "error"
+                    ? "border-rose-200 bg-rose-50 text-rose-900"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-900",
+                ].join(" ")}
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em]">
+                      {statusBanner.title}
+                    </div>
+                    <div className="mt-1 text-sm leading-6">
+                      {statusBanner.message}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFeedback(null);
+                      setErrorMessage(null);
+                    }}
+                  >
+                    Dispensar
+                  </Button>
+                </div>
+              </div>
             ) : null}
-            <section ref={overviewRef}>
+            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-5 py-5 shadow-[var(--shadow-card)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="flex items-center gap-3">
+                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-[20px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--accent-color)]">
+                      <SelectedPhaseIcon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                        {selectedPhaseInfo.eyebrow}
+                      </div>
+                      <h3 className="text-2xl font-black text-[var(--text-primary)]">
+                        {selectedPhaseInfo.label}
+                      </h3>
+                    </div>
+                  </div>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+                    {selectedPhaseInfo.description}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3 text-sm">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Etapa em execucao
+                    </div>
+                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
+                      {runtimePhaseInfo.shortLabel}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3 text-sm">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Secao principal
+                    </div>
+                    <div className="mt-1 font-semibold capitalize text-[var(--text-primary)]">
+                      {selectedPhaseLeadSection.replaceAll("_", " ")}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="sticky bottom-4 z-20 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4 shadow-[var(--shadow-card)]">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                    Acao principal da etapa
+                  </div>
+                  <div className="mt-1 text-sm text-[var(--text-secondary)]">
+                    {primaryPhaseAction.helper}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      jumpToSection({
+                        key: selectedPhaseLeadSection,
+                        ref: sectionRefs[selectedPhaseLeadSection],
+                      })
+                    }
+                  >
+                    Ir para secao principal
+                  </Button>
+                  <Button
+                    type={primaryPhaseAction.formId ? "submit" : "button"}
+                    form={primaryPhaseAction.formId}
+                    onClick={
+                      primaryPhaseAction.formId
+                        ? undefined
+                        : primaryPhaseAction.onClick
+                    }
+                    disabled={primaryPhaseAction.disabled}
+                  >
+                    {primaryPhaseAction.label}
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <section
+              ref={overviewRef}
+              className={isLegalSectionVisible("overview") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Visao geral da Licitacao"
                 description="Resumo do processo, da fase atual e das proximas etapas da Lei no 14.133/2021."
@@ -2560,7 +3211,9 @@ export function LicitacaoProcessoPage({
                     </div>
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
                       <span className="font-semibold text-[var(--color-primary-900)]">
-                        {formatShortDateBR(detalhe.processo.dataEntradaLicitacao)}
+                        {formatShortDateBR(
+                          detalhe.processo.dataEntradaLicitacao,
+                        )}
                       </span>
                       <div className="text-[var(--color-neutral-500)]">
                         Entrada na licitacao
@@ -2676,6 +3329,10 @@ export function LicitacaoProcessoPage({
                           };
 
                           if (targetSection) {
+                            const phase = legalPhaseBySection[targetSection];
+                            if (canAccessLegalPhase(phase)) {
+                              setCurrentPhase(phase);
+                            }
                             setSectionOpen((current) => ({
                               ...current,
                               [targetSection]: true,
@@ -2720,7 +3377,10 @@ export function LicitacaoProcessoPage({
               </CollapsibleSectionCard>
             </section>
 
-            <section ref={internalRef}>
+            <section
+              ref={internalRef}
+              className={isLegalSectionVisible("internal") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Fase interna documental"
                 description={
@@ -2769,13 +3429,13 @@ export function LicitacaoProcessoPage({
                           Parser da SD
                         </div>
                         <h4 className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          Vincular itens da Solicitação de Despesa ao processo
+                          Vincular itens da SolicitaÃ§Ã£o de Despesa ao processo
                         </h4>
                         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
-                          Faça o upload do PDF da SD, revise os itens
-                          extraídos, complemente o que faltar e vincule o
+                          FaÃ§a o upload do PDF da SD, revise os itens
+                          extraÃ­dos, complemente o que faltar e vincule o
                           resultado aos itens do processo sem depender da tela
-                          de relatórios.
+                          de relatÃ³rios.
                         </p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-primary-50)] px-4 py-3 text-right">
@@ -2802,12 +3462,15 @@ export function LicitacaoProcessoPage({
                           Valor estimado atual
                         </div>
                         <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatCurrencyBRL(itensVinculadosValorTotal || detalhe?.processo.valorEstimado)}
+                          {formatCurrencyBRL(
+                            itensVinculadosValorTotal ||
+                              detalhe?.processo.valorEstimado,
+                          )}
                         </div>
                       </article>
                       <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
                         <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Prévia da SD
+                          PrÃ©via da SD
                         </div>
                         <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                           {mergedSdItems.length}
@@ -2845,10 +3508,10 @@ export function LicitacaoProcessoPage({
                     </div>
 
                     <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
-                      Itens com o mesmo número atualizam o processo; itens sem
-                      correspondência são adicionados. A vinculação é bloqueada
-                      quando já existem propostas cadastradas para evitar
-                      inconsistências na fase externa.
+                      Itens com o mesmo nÃºmero atualizam o processo; itens sem
+                      correspondÃªncia sÃ£o adicionados. A vinculaÃ§Ã£o Ã©
+                      bloqueada quando jÃ¡ existem propostas cadastradas para
+                      evitar inconsistÃªncias na fase externa.
                     </p>
 
                     {sdError ? (
@@ -2862,7 +3525,7 @@ export function LicitacaoProcessoPage({
                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                           <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                             <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Número da SD
+                              NÃºmero da SD
                             </div>
                             <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                               {sdResult.metadata.numero_sd ?? "-"}
@@ -2870,7 +3533,7 @@ export function LicitacaoProcessoPage({
                           </article>
                           <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                             <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Itens na prévia
+                              Itens na prÃ©via
                             </div>
                             <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                               {mergedSdItems.length}
@@ -2916,7 +3579,7 @@ export function LicitacaoProcessoPage({
                                 placeholder="Ex.: 22"
                               />
                             </FormField>
-                            <FormField label="Descrição *">
+                            <FormField label="DescriÃ§Ã£o *">
                               <Input
                                 value={sdItemDraft.descricao}
                                 onChange={(event) =>
@@ -2925,7 +3588,7 @@ export function LicitacaoProcessoPage({
                                     descricao: event.target.value,
                                   }))
                                 }
-                                placeholder="Descrição do item"
+                                placeholder="DescriÃ§Ã£o do item"
                               />
                             </FormField>
                             <FormField label="Unid">
@@ -2990,8 +3653,7 @@ export function LicitacaoProcessoPage({
                               type="button"
                               onClick={() => void handleVincularSd()}
                               disabled={
-                                !sdResult.artifact?.relativePath ||
-                                sdVinculando
+                                !sdResult.artifact?.relativePath || sdVinculando
                               }
                             >
                               {sdVinculando
@@ -3028,73 +3690,81 @@ export function LicitacaoProcessoPage({
                             <TableHead>
                               <tr>
                                 <TableHeaderCell>Item</TableHeaderCell>
-                                <TableHeaderCell>Descrição</TableHeaderCell>
+                                <TableHeaderCell>DescriÃ§Ã£o</TableHeaderCell>
                                 <TableHeaderCell>Unid</TableHeaderCell>
                                 <TableHeaderCell>Qtd</TableHeaderCell>
                                 <TableHeaderCell>Vlr. unit.</TableHeaderCell>
                                 <TableHeaderCell>Total</TableHeaderCell>
-                                <TableHeaderCell>Ações</TableHeaderCell>
+                                <TableHeaderCell>AÃ§Ãµes</TableHeaderCell>
                               </tr>
                             </TableHead>
                             <TableBody>
                               {mergedSdItems.length ? (
-                                mergedSdItems.slice(0, 30).map((item, index) => (
-                                  <TableRow
-                                    key={`${item.numero ?? "sd"}-${index}`}
-                                  >
-                                    <TableCell>{item.numero ?? "-"}</TableCell>
-                                    <TableCell className="max-w-[520px] whitespace-normal">
-                                      {item.descricao ?? "-"}
-                                    </TableCell>
-                                    <TableCell>{item.unidade ?? "-"}</TableCell>
-                                    <TableCell>
-                                      {formatNumberBR(item.quantidade, 3)}
-                                    </TableCell>
-                                    <TableCell>
-                                      {formatCurrencyBRL(item.preco_unitario)}
-                                    </TableCell>
-                                    <TableCell>
-                                      <div className="flex items-center gap-2">
-                                        <span>
-                                          {formatCurrencyBRL(item.preco_total)}
-                                        </span>
-                                        {item.fonte === "manual" ? (
-                                          <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
-                                            Manual
+                                mergedSdItems
+                                  .slice(0, 30)
+                                  .map((item, index) => (
+                                    <TableRow
+                                      key={`${item.numero ?? "sd"}-${index}`}
+                                    >
+                                      <TableCell>
+                                        {item.numero ?? "-"}
+                                      </TableCell>
+                                      <TableCell className="max-w-[520px] whitespace-normal">
+                                        {item.descricao ?? "-"}
+                                      </TableCell>
+                                      <TableCell>
+                                        {item.unidade ?? "-"}
+                                      </TableCell>
+                                      <TableCell>
+                                        {formatNumberBR(item.quantidade, 3)}
+                                      </TableCell>
+                                      <TableCell>
+                                        {formatCurrencyBRL(item.preco_unitario)}
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <span>
+                                            {formatCurrencyBRL(
+                                              item.preco_total,
+                                            )}
                                           </span>
-                                        ) : null}
-                                      </div>
-                                    </TableCell>
-                                    <TableCell>
-                                      {item.fonte === "manual" ? (
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          onClick={() =>
-                                            handleRemoverItemManualSd(
-                                              item.manualIndex ?? -1,
-                                            )
-                                          }
-                                          disabled={
-                                            (item.manualIndex ?? -1) < 0
-                                          }
-                                        >
-                                          Remover
-                                        </Button>
-                                      ) : (
-                                        "-"
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                ))
+                                          {item.fonte === "manual" ? (
+                                            <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
+                                              Manual
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        {item.fonte === "manual" ? (
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            onClick={() =>
+                                              handleRemoverItemManualSd(
+                                                item.manualIndex ?? -1,
+                                              )
+                                            }
+                                            disabled={
+                                              (item.manualIndex ?? -1) < 0
+                                            }
+                                          >
+                                            Remover
+                                          </Button>
+                                        ) : (
+                                          "-"
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
                               ) : (
                                 <TableRow>
                                   <TableCell
                                     colSpan={7}
                                     className="py-8 text-center text-[var(--color-neutral-500)]"
                                   >
-                                    Faça o processamento da SD para visualizar
-                                    a prévia dos itens.
+                                    FaÃ§a o processamento da SD para visualizar
+                                    a prÃ©via dos itens.
                                   </TableCell>
                                 </TableRow>
                               )}
@@ -3117,8 +3787,8 @@ export function LicitacaoProcessoPage({
                         Itens do processo
                       </div>
                       <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                        Conferência do que já está efetivamente vinculado após
-                        o import da SD.
+                        ConferÃªncia do que jÃ¡ estÃ¡ efetivamente vinculado
+                        apÃ³s o import da SD.
                       </div>
                     </div>
                     <div className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
@@ -3131,9 +3801,9 @@ export function LicitacaoProcessoPage({
                       <TableHead>
                         <tr>
                           <TableHeaderCell>Item</TableHeaderCell>
-                          <TableHeaderCell>Descrição</TableHeaderCell>
+                          <TableHeaderCell>DescriÃ§Ã£o</TableHeaderCell>
                           <TableHeaderCell>Quantidade</TableHeaderCell>
-                          <TableHeaderCell>Valor unitário</TableHeaderCell>
+                          <TableHeaderCell>Valor unitÃ¡rio</TableHeaderCell>
                           <TableHeaderCell>Total</TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -3152,9 +3822,7 @@ export function LicitacaoProcessoPage({
                                 {item.unidade}
                               </TableCell>
                               <TableCell className="align-top">
-                                {formatCurrencyBRL(
-                                  item.valorUnitarioEstimado,
-                                )}
+                                {formatCurrencyBRL(item.valorUnitarioEstimado)}
                               </TableCell>
                               <TableCell className="align-top">
                                 {formatCurrencyBRL(item.valorTotalEstimado)}
@@ -3167,7 +3835,7 @@ export function LicitacaoProcessoPage({
                               colSpan={5}
                               className="py-8 text-center text-[var(--color-neutral-500)]"
                             >
-                              Este processo ainda não possui itens vinculados.
+                              Este processo ainda nÃ£o possui itens vinculados.
                             </TableCell>
                           </TableRow>
                         )}
@@ -3324,27 +3992,585 @@ export function LicitacaoProcessoPage({
                   </div>
                 </form>
 
-                {pendingRequired.length ? (
-                  <Alert
-                    variant={isForaDoFluxo ? "info" : "warning"}
-                    title={
-                      isForaDoFluxo
-                        ? "Checklist orientativo"
-                        : "Checklist interno pendente"
-                    }
-                  >
-                    {isForaDoFluxo
-                      ? `Ha documentos pendentes nesta fase, mas o processo fora do fluxo pode seguir com justificativa registrada. Pendencias: ${pendingRequired.map((item) => item.label).join(", ")}.`
-                      : `Ainda faltam documentos obrigatorios antes da publicacao: ${pendingRequired.map((item) => item.label).join(", ")}.`}
-                  </Alert>
-                ) : (
-                  <Alert variant="success">
-                    Checklist interno concluido. O processo esta apto para
-                    seguir ao cronograma de publicacao.
-                  </Alert>
-                )}
+                <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)]">
+                  <div className="space-y-4">
+                    <article className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-5 py-5 shadow-[0_12px_28px_-28px_rgba(15,26,109,0.38)]">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                            Acervo da fase interna
+                          </div>
+                          <h4 className="mt-2 text-lg font-semibold text-[var(--color-primary-950)]">
+                            {pendingRequired.length
+                              ? isForaDoFluxo
+                                ? "Atos com evidencia pendente, mas liberados por auditoria."
+                                : "Ainda ha atos obrigatorios antes da publicacao."
+                              : "Checklist interno pronto para seguir ao cronograma."}
+                          </h4>
+                          <p className="mt-1 text-sm leading-6 text-[var(--color-neutral-600)]">
+                            A sequencia abaixo libera os atos de forma gradual e
+                            mantem aberto apenas o detalhe ativo.
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-right shadow-[0_10px_24px_-24px_rgba(15,26,109,0.28)]">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
+                            Progresso
+                          </div>
+                          <div className="mt-1 text-2xl font-semibold text-[var(--color-primary-950)]">
+                            {progressCount}/{checklistItems.length}
+                          </div>
+                        </div>
+                      </div>
 
-                <div className="mt-4 grid gap-4 2xl:grid-cols-2">
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
+                            Pendentes
+                          </div>
+                          <div className="mt-1 text-xl font-semibold text-[var(--color-primary-950)]">
+                            {pendingRequired.length}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
+                            Tratados
+                          </div>
+                          <div className="mt-1 text-xl font-semibold text-[var(--color-primary-950)]">
+                            {addressedChecklistItems.length}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
+                            Proximo ato
+                          </div>
+                          <div className="mt-1 text-sm font-semibold text-[var(--color-primary-950)]">
+                            {selectedInternalChecklistItem?.label ?? "Nenhum"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {pendingRequired.length ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {pendingRequired.slice(0, 4).map((item) => (
+                            <button
+                              key={item.category}
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:border-amber-300 hover:bg-amber-100"
+                              onClick={() =>
+                                setSelectedInternalChecklistCategory(
+                                  item.category,
+                                )
+                              }
+                            >
+                              <Clock3 className="h-3.5 w-3.5" />
+                              {item.label}
+                            </button>
+                          ))}
+                          {pendingRequired.length > 4 ? (
+                            <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-neutral-600)]">
+                              +{pendingRequired.length - 4} outros
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+
+                    <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_10px_24px_-28px_rgba(15,26,109,0.28)]">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                            Sequencia de atos
+                          </div>
+                          <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                            Fila enxuta com liberacao progressiva.
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
+                          {visibleInternalChecklistItems.length} de{" "}
+                          {checklistItems.length}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        {visibleInternalChecklistItems.map((item, index) => {
+                          const active =
+                            item.category ===
+                            selectedInternalChecklistItem?.category;
+
+                          return (
+                            <button
+                              key={item.category}
+                              type="button"
+                              className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                                active
+                                  ? "border-[var(--color-primary-500)] bg-[var(--color-primary-50)] shadow-[0_12px_24px_-28px_rgba(15,26,109,0.42)]"
+                                  : "border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-0)] hover:border-[var(--color-primary-300)] hover:bg-[var(--color-primary-50)]/60"
+                              }`}
+                              onClick={() =>
+                                setSelectedInternalChecklistCategory(
+                                  item.category,
+                                )
+                              }
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold ${
+                                    isChecklistItemAddressed(item)
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-amber-100 text-amber-800"
+                                  }`}
+                                >
+                                  {index + internalChecklistLeadIndex + 1}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-semibold text-[var(--color-primary-950)]">
+                                      {item.label}
+                                    </span>
+                                    <span
+                                      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(item)}`}
+                                    >
+                                      {getChecklistItemStatusLabel(item)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-sm leading-6 text-[var(--color-neutral-600)]">
+                                    {item.description}
+                                  </p>
+                                </div>
+                                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[var(--color-neutral-400)]" />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {hiddenInternalChecklistCount > 0 ? (
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-3">
+                          <div className="text-sm text-[var(--color-neutral-600)]">
+                            Ainda restam {hiddenInternalChecklistCount} ato(s)
+                            fora da visualizacao principal.
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              setInternalChecklistRevealCount(
+                                (current) => current + 2,
+                              )
+                            }
+                          >
+                            Mostrar proximos atos
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {addressedChecklistItems.length ? (
+                        <div className="mt-4 flex flex-wrap gap-2 border-t border-[rgba(204,225,255,0.92)] pt-4">
+                          {resolvedInternalChecklistPreview.map((item) => (
+                            <button
+                              key={item.category}
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-3 py-1.5 text-xs font-medium text-[var(--color-neutral-700)] transition hover:border-[var(--color-primary-300)] hover:bg-[var(--color-primary-50)] hover:text-[var(--color-primary-800)]"
+                              onClick={() =>
+                                setSelectedInternalChecklistCategory(
+                                  item.category,
+                                )
+                              }
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                              {item.label}
+                            </button>
+                          ))}
+                          {addressedChecklistItems.length > 3 ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setShowResolvedInternalChecklist(
+                                  (current) => !current,
+                                )
+                              }
+                            >
+                              {showResolvedInternalChecklist
+                                ? "Mostrar menos"
+                                : "Ver todos"}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  </div>
+
+                  <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-5 py-5 shadow-[0_16px_34px_-30px_rgba(15,26,109,0.34)]">
+                    {selectedInternalChecklistItem &&
+                    selectedInternalUploadState &&
+                    selectedInternalChecklistFlexState ? (
+                      <>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                              Ato {selectedInternalChecklistIndex} de{" "}
+                              {checklistItems.length}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <h4 className="text-lg font-semibold text-[var(--color-primary-950)]">
+                                {selectedInternalChecklistItem.label}
+                              </h4>
+                              <span
+                                className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(selectedInternalChecklistItem)}`}
+                              >
+                                {getChecklistItemStatusLabel(
+                                  selectedInternalChecklistItem,
+                                )}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                              {selectedInternalChecklistItem.description}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
+                            <FileCheck2 className="h-5 w-5" />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <span className="inline-flex rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
+                            {selectedInternalChecklistItem.obrigatorio
+                              ? "Obrigatorio"
+                              : "Condicional"}
+                          </span>
+                          {selectedInternalChecklistItem.completionHint ? (
+                            <span className="inline-flex rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-3 py-1 text-xs font-medium text-[var(--color-neutral-600)]">
+                              {selectedInternalChecklistItem.completionHint}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-5 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                            Ultima evidencia
+                          </div>
+                          {selectedInternalLatestDocumento ? (
+                            <>
+                              <div className="mt-2 text-sm font-semibold text-[var(--color-primary-950)]">
+                                {selectedInternalLatestDocumento.titulo}
+                              </div>
+                              <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                                Anexado em{" "}
+                                {formatShortDateTimeBR(
+                                  selectedInternalLatestDocumento.criadoEm,
+                                )}
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <a
+                                  href={
+                                    resolveServerAssetUrl(
+                                      selectedInternalLatestDocumento.arquivoUrl,
+                                    ) ?? "#"
+                                  }
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={
+                                      !selectedInternalLatestDocumento.arquivoUrl
+                                    }
+                                  >
+                                    Abrir documento
+                                  </Button>
+                                </a>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={
+                                    deletingDocumentoId ===
+                                    selectedInternalLatestDocumento.id
+                                  }
+                                  onClick={() =>
+                                    void handleDeleteDocumento(
+                                      selectedInternalLatestDocumento.id,
+                                    )
+                                  }
+                                >
+                                  {deletingDocumentoId ===
+                                  selectedInternalLatestDocumento.id
+                                    ? "Removendo..."
+                                    : "Remover"}
+                                </Button>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                              Nenhum documento vinculado a este ato ainda.
+                            </p>
+                          )}
+                        </div>
+
+                        {isForaDoFluxo ? (
+                          <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
+                            <FormField label="Tratamento fora do fluxo">
+                              <Select
+                                value={
+                                  selectedInternalChecklistFlexState.statusFlexivel
+                                }
+                                onChange={(event) =>
+                                  setChecklistNaoAplicavelState(
+                                    selectedInternalChecklistItem.category,
+                                    (current) => ({
+                                      ...current,
+                                      statusFlexivel: event.target
+                                        .value as ChecklistFlexStatus,
+                                    }),
+                                  )
+                                }
+                              >
+                                {licitacaoChecklistFlexStatusOptions.map(
+                                  (status) => (
+                                    <option key={status} value={status}>
+                                      {
+                                        licitacaoChecklistFlexStatusLabels[
+                                          status
+                                        ]
+                                      }
+                                    </option>
+                                  ),
+                                )}
+                              </Select>
+                            </FormField>
+
+                            {selectedInternalChecklistFlexState.statusFlexivel ===
+                            "OUTRO_SETOR" ? (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <FormField label="Departamento responsavel">
+                                  <Input
+                                    value={
+                                      selectedInternalChecklistFlexState.departamentoResponsavel
+                                    }
+                                    onChange={(event) =>
+                                      setChecklistNaoAplicavelState(
+                                        selectedInternalChecklistItem.category,
+                                        (current) => ({
+                                          ...current,
+                                          departamentoResponsavel:
+                                            event.target.value,
+                                        }),
+                                      )
+                                    }
+                                  />
+                                </FormField>
+                                <FormField label="Previsao de recebimento">
+                                  <Input
+                                    type="date"
+                                    value={
+                                      selectedInternalChecklistFlexState.previsaoRecebimento
+                                    }
+                                    onChange={(event) =>
+                                      setChecklistNaoAplicavelState(
+                                        selectedInternalChecklistItem.category,
+                                        (current) => ({
+                                          ...current,
+                                          previsaoRecebimento:
+                                            event.target.value,
+                                        }),
+                                      )
+                                    }
+                                  />
+                                </FormField>
+                              </div>
+                            ) : null}
+
+                            {selectedInternalChecklistFlexState.statusFlexivel ===
+                            "CONCLUIDO_FISICO" ? (
+                              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <FormField label="Numero do processo fisico">
+                                  <Input
+                                    value={
+                                      selectedInternalChecklistFlexState.processoFisicoNumero
+                                    }
+                                    onChange={(event) =>
+                                      setChecklistNaoAplicavelState(
+                                        selectedInternalChecklistItem.category,
+                                        (current) => ({
+                                          ...current,
+                                          processoFisicoNumero:
+                                            event.target.value,
+                                        }),
+                                      )
+                                    }
+                                  />
+                                </FormField>
+                                <FormField label="Local de arquivamento">
+                                  <Input
+                                    value={
+                                      selectedInternalChecklistFlexState.localArquivamento
+                                    }
+                                    onChange={(event) =>
+                                      setChecklistNaoAplicavelState(
+                                        selectedInternalChecklistItem.category,
+                                        (current) => ({
+                                          ...current,
+                                          localArquivamento: event.target.value,
+                                        }),
+                                      )
+                                    }
+                                  />
+                                </FormField>
+                                <div className="md:col-span-2">
+                                  <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-3">
+                                    <Checkbox
+                                      checked={
+                                        selectedInternalChecklistFlexState.digitalizarDepois
+                                      }
+                                      onCheckedChange={(checked) =>
+                                        setChecklistNaoAplicavelState(
+                                          selectedInternalChecklistItem.category,
+                                          (current) => ({
+                                            ...current,
+                                            digitalizarDepois: Boolean(checked),
+                                          }),
+                                        )
+                                      }
+                                    />
+                                    <span className="text-sm font-medium text-[var(--color-neutral-700)]">
+                                      Documento fisico ainda sera digitalizado
+                                      depois
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {selectedInternalChecklistFlexState.statusFlexivel !==
+                            "PADRAO" ? (
+                              <FormField label="Justificativa" className="mt-3">
+                                <Textarea
+                                  rows={3}
+                                  value={
+                                    selectedInternalChecklistFlexState.justificativa
+                                  }
+                                  onChange={(event) =>
+                                    setChecklistNaoAplicavelState(
+                                      selectedInternalChecklistItem.category,
+                                      (current) => ({
+                                        ...current,
+                                        justificativa: event.target.value,
+                                      }),
+                                    )
+                                  }
+                                />
+                              </FormField>
+                            ) : null}
+
+                            <div className="mt-4 flex justify-end">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  setChecklistNaoAplicavelMutation.isPending
+                                }
+                                onClick={() =>
+                                  void handleChecklistNaoAplicavel(
+                                    selectedInternalChecklistItem,
+                                  )
+                                }
+                              >
+                                {setChecklistNaoAplicavelMutation.isPending
+                                  ? "Salvando..."
+                                  : selectedInternalChecklistFlexState.statusFlexivel ===
+                                      "PADRAO"
+                                    ? "Reativar ato"
+                                    : "Salvar tratamento"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                            Nova evidencia
+                          </div>
+                          <div className="mt-3 grid gap-3 2xl:grid-cols-2">
+                            <FormField label="Titulo">
+                              <Input
+                                value={selectedInternalUploadState.titulo}
+                                onChange={(event) =>
+                                  setUploadState(
+                                    selectedInternalChecklistItem.category,
+                                    (current) => ({
+                                      ...current,
+                                      titulo: event.target.value,
+                                    }),
+                                  )
+                                }
+                                placeholder={
+                                  selectedInternalChecklistItem.label
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Descricao">
+                              <Input
+                                value={selectedInternalUploadState.descricao}
+                                onChange={(event) =>
+                                  setUploadState(
+                                    selectedInternalChecklistItem.category,
+                                    (current) => ({
+                                      ...current,
+                                      descricao: event.target.value,
+                                    }),
+                                  )
+                                }
+                                placeholder={
+                                  selectedInternalChecklistItem.description
+                                }
+                              />
+                            </FormField>
+                            <FormField
+                              label="Arquivo"
+                              className="2xl:col-span-2"
+                            >
+                              <Input
+                                type="file"
+                                onChange={(event) =>
+                                  handleFileChange(
+                                    selectedInternalChecklistItem.category,
+                                    event,
+                                    selectedInternalChecklistItem.label,
+                                  )
+                                }
+                              />
+                            </FormField>
+                          </div>
+                          <div className="mt-4 flex justify-end">
+                            <Button
+                              type="button"
+                              onClick={() =>
+                                void handleUploadChecklistDocumento(
+                                  selectedInternalChecklistItem,
+                                )
+                              }
+                            >
+                              <Upload className="h-4 w-4" />
+                              Anexar documento
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">
+                        Nenhum ato interno disponivel para detalhamento.
+                      </div>
+                    )}
+                  </article>
+                </div>
+
+                <div className="hidden">
                   {checklistItems.map((item) => {
                     const uploadState = getUploadState(
                       uploadForms,
@@ -3750,7 +4976,10 @@ export function LicitacaoProcessoPage({
               </CollapsibleSectionCard>
             </section>
 
-            <section ref={externalRef}>
+            <section
+              ref={externalRef}
+              className={isLegalSectionVisible("external") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Fase externa e rito operacional"
                 description="Checklist contextual da fase externa, com evidencias documentais e leitura do andamento da sessao."
@@ -4021,7 +5250,10 @@ export function LicitacaoProcessoPage({
               </CollapsibleSectionCard>
             </section>
 
-            <section ref={docsRef}>
+            <section
+              ref={docsRef}
+              className={isLegalSectionVisible("docs") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Documentos do processo"
                 description="Acervo completo recebido pelo setor, na ordem em que os documentos foram adicionados ao processo."
@@ -4115,7 +5347,10 @@ export function LicitacaoProcessoPage({
               </CollapsibleSectionCard>
             </section>
 
-            <section ref={publicationRef}>
+            <section
+              ref={publicationRef}
+              className={isLegalSectionVisible("publication") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title={
                   isForaDoFluxo
@@ -4247,7 +5482,11 @@ export function LicitacaoProcessoPage({
                   )
                 }
               >
-                <form className="space-y-5" onSubmit={handlePublish}>
+                <form
+                  id="licitacao-publicacao-form"
+                  className="space-y-5"
+                  onSubmit={handlePublish}
+                >
                   <DatePickerLegal
                     value={publishForm.dataPublicacaoEdital}
                     onChange={(nextValue) =>
@@ -4651,7 +5890,10 @@ export function LicitacaoProcessoPage({
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
             {showCompetitivoSteps ? (
-              <section ref={licitantesRef}>
+              <section
+                ref={licitantesRef}
+                className={isLegalSectionVisible("licitantes") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Licitantes"
                   description="Controle dos participantes habilitados a apresentar propostas nesta licitacao."
@@ -4791,7 +6033,10 @@ export function LicitacaoProcessoPage({
             ) : null}
 
             {showCompetitivoSteps ? (
-              <section ref={propostasRef}>
+              <section
+                ref={propostasRef}
+                className={isLegalSectionVisible("propostas") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Propostas"
                   description="Recebimento, classificacao inicial e situacao das propostas por item e por licitante."
@@ -4803,21 +6048,30 @@ export function LicitacaoProcessoPage({
                     }))
                   }
                   action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void handleAdvanceStage(
-                          "RECEBIMENTO_PROPOSTAS",
-                          "Licitacao / recebimento de propostas",
-                          "Recebimento de propostas em andamento.",
-                        )
-                      }
-                      disabled={advanceStageMutation.isPending}
-                    >
-                      Definir etapa atual
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setOperationModal("proposta")}
+                      >
+                        Nova proposta
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          void handleAdvanceStage(
+                            "RECEBIMENTO_PROPOSTAS",
+                            "Licitacao / recebimento de propostas",
+                            "Recebimento de propostas em andamento.",
+                          )
+                        }
+                        disabled={advanceStageMutation.isPending}
+                      >
+                        Definir etapa atual
+                      </Button>
+                    </div>
                   }
                   collapsedSummary={
                     <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -4832,134 +6086,49 @@ export function LicitacaoProcessoPage({
                     </div>
                   }
                 >
-                  <form
-                    className="grid gap-4 2xl:grid-cols-2"
-                    onSubmit={handleSaveProposta}
-                  >
-                    <FormField label="Licitante">
-                      <Select
-                        value={propostaForm.licitanteId}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            licitanteId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {detalhe.licitantes
-                          .filter((item) => item.ativo)
-                          .map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.razaoSocial}
-                            </option>
-                          ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Item do processo">
-                      <Select
-                        value={propostaForm.itemId}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            itemId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {detalhe.itens.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            Item {item.numeroItem} - {item.descricao}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Valor unitario proposto">
-                      <Input
-                        value={propostaForm.valorUnitarioProposto}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            valorUnitarioProposto: maskCurrencyInputBR(
-                              event.target.value,
-                            ),
-                          }))
-                        }
-                        placeholder="R$ 0,00"
-                      />
-                    </FormField>
-                    <FormField label="Data da proposta">
-                      <Input
-                        type="date"
-                        value={propostaForm.dataProposta}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            dataProposta: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Classificacao">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={propostaForm.classificacao}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            classificacao: event.target.value,
-                          }))
-                        }
-                        placeholder="1"
-                      />
-                    </FormField>
-                    <FormField label="Situacao">
-                      <Select
-                        value={propostaForm.situacao}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            situacao: event.target.value,
-                          }))
-                        }
-                      >
-                        {propostaSituacaoOptions.map((item) => (
-                          <option key={item} value={item}>
-                            {propostaSituacaoLabels[item]}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Justificativa" className="2xl:col-span-2">
-                      <Textarea
-                        rows={3}
-                        value={propostaForm.justificativa}
-                        onChange={(event) =>
-                          setPropostaForm((current) => ({
-                            ...current,
-                            justificativa: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <div className="xl:col-span-2 flex justify-end">
+                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Entrada sob demanda
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          O cadastro foi movido para um modal focado.
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                          A secao agora prioriza leitura, classificacao e
+                          comparacao das propostas sem empilhar campos na tela.
+                        </p>
+                      </div>
                       <Button
-                        type="submit"
-                        disabled={savePropostaMutation.isPending}
+                        type="button"
+                        onClick={() => setOperationModal("proposta")}
                       >
-                        {savePropostaMutation.isPending
-                          ? "Salvando..."
-                          : "Registrar proposta"}
+                        Nova proposta
                       </Button>
                     </div>
-                  </form>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      {propostasPagination.totalItems} proposta(s) registradas.
+                    </div>
+                    {propostasPagination.totalPages > 1 ? (
+                      <Pagination
+                        page={propostasPagination.page}
+                        totalPages={propostasPagination.totalPages}
+                        onPageChange={setPropostasPage}
+                      />
+                    ) : null}
+                  </div>
 
                   <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
                     <Table className="min-w-[1080px]">
                       <TableHead>
                         <tr>
-                          <TableHeaderCell>Item</TableHeaderCell>
+                          <TableHeaderCell className={stickyColumnHeaderClass}>
+                            Item
+                          </TableHeaderCell>
                           <TableHeaderCell>Licitante</TableHeaderCell>
                           <TableHeaderCell>Valor unitario</TableHeaderCell>
                           <TableHeaderCell>Valor atual</TableHeaderCell>
@@ -4969,10 +6138,10 @@ export function LicitacaoProcessoPage({
                         </tr>
                       </TableHead>
                       <TableBody>
-                        {detalhe.propostas.length ? (
-                          detalhe.propostas.map((item) => (
+                        {propostasPagination.totalItems ? (
+                          propostasPagination.items.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell>
+                              <TableCell className={stickyColumnCellClass}>
                                 {item.itemCatalogoId ? (
                                   <button
                                     type="button"
@@ -5050,7 +6219,10 @@ export function LicitacaoProcessoPage({
             ) : null}
 
             {showLances ? (
-              <section ref={lancesRef}>
+              <section
+                ref={lancesRef}
+                className={isLegalSectionVisible("lances") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Lances"
                   description="Registro operacional dos lances apresentados durante a sessao publica."
@@ -5062,21 +6234,30 @@ export function LicitacaoProcessoPage({
                     }))
                   }
                   action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void handleAdvanceStage(
-                          "LANCES",
-                          "Licitacao / fase de lances",
-                          "Sessao de lances em andamento.",
-                        )
-                      }
-                      disabled={advanceStageMutation.isPending}
-                    >
-                      Definir etapa atual
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setOperationModal("lance")}
+                      >
+                        Registrar lance
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          void handleAdvanceStage(
+                            "LANCES",
+                            "Licitacao / fase de lances",
+                            "Sessao de lances em andamento.",
+                          )
+                        }
+                        disabled={advanceStageMutation.isPending}
+                      >
+                        Definir etapa atual
+                      </Button>
+                    </div>
                   }
                   collapsedSummary={
                     <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -5092,81 +6273,49 @@ export function LicitacaoProcessoPage({
                     </div>
                   }
                 >
-                  <form
-                    className="grid gap-4 2xl:grid-cols-2"
-                    onSubmit={handleSaveLance}
-                  >
-                    <FormField label="Proposta vinculada">
-                      <Select
-                        value={lanceForm.propostaId}
-                        onChange={(event) =>
-                          setLanceForm((current) => ({
-                            ...current,
-                            propostaId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {detalhe.propostas.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            Item {item.itemNumero} - {item.licitanteNome}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Valor do lance">
-                      <Input
-                        value={lanceForm.valorLance}
-                        onChange={(event) =>
-                          setLanceForm((current) => ({
-                            ...current,
-                            valorLance: maskCurrencyInputBR(event.target.value),
-                          }))
-                        }
-                        placeholder="R$ 0,00"
-                      />
-                    </FormField>
-                    <FormField label="Data do lance">
-                      <Input
-                        type="date"
-                        value={lanceForm.dataLance}
-                        onChange={(event) =>
-                          setLanceForm((current) => ({
-                            ...current,
-                            dataLance: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Observacao">
-                      <Textarea
-                        rows={3}
-                        value={lanceForm.observacao}
-                        onChange={(event) =>
-                          setLanceForm((current) => ({
-                            ...current,
-                            observacao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <div className="xl:col-span-2 flex justify-end">
+                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Registro rapido
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          Os lances agora entram por modal para reduzir rolagem.
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                          A secao principal fica dedicada ao acompanhamento da
+                          sessao e a leitura da trilha de ofertas.
+                        </p>
+                      </div>
                       <Button
-                        type="submit"
-                        disabled={saveLanceMutation.isPending}
+                        type="button"
+                        onClick={() => setOperationModal("lance")}
                       >
-                        {saveLanceMutation.isPending
-                          ? "Registrando..."
-                          : "Registrar lance"}
+                        Registrar lance
                       </Button>
                     </div>
-                  </form>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      {lancesPagination.totalItems} lance(s) registrados.
+                    </div>
+                    {lancesPagination.totalPages > 1 ? (
+                      <Pagination
+                        page={lancesPagination.page}
+                        totalPages={lancesPagination.totalPages}
+                        onPageChange={setLancesPage}
+                      />
+                    ) : null}
+                  </div>
 
                   <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
                     <Table className="min-w-[920px]">
                       <TableHead>
                         <tr>
-                          <TableHeaderCell>Proposta</TableHeaderCell>
+                          <TableHeaderCell className={stickyColumnHeaderClass}>
+                            Proposta
+                          </TableHeaderCell>
                           <TableHeaderCell>Valor</TableHeaderCell>
                           <TableHeaderCell>Registrado em</TableHeaderCell>
                           <TableHeaderCell>Usuario</TableHeaderCell>
@@ -5174,10 +6323,12 @@ export function LicitacaoProcessoPage({
                         </tr>
                       </TableHead>
                       <TableBody>
-                        {detalhe.lances.length ? (
-                          detalhe.lances.map((item) => (
+                        {lancesPagination.totalItems ? (
+                          lancesPagination.items.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell>{item.propostaId}</TableCell>
+                              <TableCell className={stickyColumnCellClass}>
+                                {item.propostaId}
+                              </TableCell>
                               <TableCell>
                                 {formatCurrencyBRL(
                                   Number(item.valorLance ?? 0),
@@ -5210,7 +6361,10 @@ export function LicitacaoProcessoPage({
             ) : null}
 
             {showCompetitivoSteps ? (
-              <section ref={julgamentoRef}>
+              <section
+                ref={julgamentoRef}
+                className={isLegalSectionVisible("julgamento") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Julgamento"
                   description="Definicao visual da etapa de julgamento e conferencia da classificacao das propostas."
@@ -5339,7 +6493,10 @@ export function LicitacaoProcessoPage({
             {!inversaoFasesAtiva ? habilitacaoSection : null}
 
             {showRecursos ? (
-              <section ref={recursosRef}>
+              <section
+                ref={recursosRef}
+                className={isLegalSectionVisible("recursos") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Recursos"
                   description="Registro de interposicao, julgamento e resultado recursal dentro da fase licitatoria."
@@ -5351,21 +6508,30 @@ export function LicitacaoProcessoPage({
                     }))
                   }
                   action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void handleAdvanceStage(
-                          "RECURSOS",
-                          "Licitacao / recursos administrativos",
-                          "Abertura da fase recursal.",
-                        )
-                      }
-                      disabled={advanceStageMutation.isPending}
-                    >
-                      Definir etapa atual
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setOperationModal("recurso")}
+                      >
+                        Registrar recurso
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          void handleAdvanceStage(
+                            "RECURSOS",
+                            "Licitacao / recursos administrativos",
+                            "Abertura da fase recursal.",
+                          )
+                        }
+                        disabled={advanceStageMutation.isPending}
+                      >
+                        Definir etapa atual
+                      </Button>
+                    </div>
                   }
                   collapsedSummary={
                     <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -5375,110 +6541,49 @@ export function LicitacaoProcessoPage({
                     </div>
                   }
                 >
-                  <form
-                    className="grid gap-4 2xl:grid-cols-2"
-                    onSubmit={handleSaveRecurso}
-                  >
-                    <FormField label="Licitante">
-                      <Select
-                        value={recursoForm.licitanteId}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            licitanteId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {detalhe.licitantes.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.razaoSocial}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Resultado">
-                      <Select
-                        value={recursoForm.resultado}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            resultado: event.target.value,
-                          }))
-                        }
-                      >
-                        {recursoResultadoOptions.map((item) => (
-                          <option key={item} value={item}>
-                            {recursoResultadoLabels[item]}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Data de interposicao">
-                      <Input
-                        type="date"
-                        value={recursoForm.dataInterposicao}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            dataInterposicao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Data do julgamento">
-                      <Input
-                        type="date"
-                        value={recursoForm.dataJulgamento}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            dataJulgamento: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Descricao" className="2xl:col-span-2">
-                      <Textarea
-                        rows={4}
-                        value={recursoForm.descricao}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            descricao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Decisao" className="2xl:col-span-2">
-                      <Textarea
-                        rows={4}
-                        value={recursoForm.decisao}
-                        onChange={(event) =>
-                          setRecursoForm((current) => ({
-                            ...current,
-                            decisao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <div className="xl:col-span-2 flex justify-end">
+                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                          Tratamento recursal focado
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          Interposicao e decisao foram concentradas em modal.
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                          O painel principal passa a destacar os recursos
+                          existentes e o status de cada decisao.
+                        </p>
+                      </div>
                       <Button
-                        type="submit"
-                        disabled={saveRecursoMutation.isPending}
+                        type="button"
+                        onClick={() => setOperationModal("recurso")}
                       >
-                        {saveRecursoMutation.isPending
-                          ? "Salvando..."
-                          : "Registrar recurso"}
+                        Registrar recurso
                       </Button>
                     </div>
-                  </form>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      {recursosPagination.totalItems} recurso(s) cadastrados.
+                    </div>
+                    {recursosPagination.totalPages > 1 ? (
+                      <Pagination
+                        page={recursosPagination.page}
+                        totalPages={recursosPagination.totalPages}
+                        onPageChange={setRecursosPage}
+                      />
+                    ) : null}
+                  </div>
 
                   <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
                     <Table className="min-w-[1100px]">
                       <TableHead>
                         <tr>
-                          <TableHeaderCell>Licitante</TableHeaderCell>
+                          <TableHeaderCell className={stickyColumnHeaderClass}>
+                            Licitante
+                          </TableHeaderCell>
                           <TableHeaderCell>Interposicao</TableHeaderCell>
                           <TableHeaderCell>Julgamento</TableHeaderCell>
                           <TableHeaderCell>Resultado</TableHeaderCell>
@@ -5486,10 +6591,12 @@ export function LicitacaoProcessoPage({
                         </tr>
                       </TableHead>
                       <TableBody>
-                        {detalhe.recursos.length ? (
-                          detalhe.recursos.map((item) => (
+                        {recursosPagination.totalItems ? (
+                          recursosPagination.items.map((item) => (
                             <TableRow key={item.id}>
-                              <TableCell>{item.licitanteNome}</TableCell>
+                              <TableCell className={stickyColumnCellClass}>
+                                {item.licitanteNome}
+                              </TableCell>
                               <TableCell>
                                 {formatShortDateBR(item.dataInterposicao)}
                               </TableCell>
@@ -5521,7 +6628,10 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            <section ref={homologacaoRef}>
+            <section
+              ref={homologacaoRef}
+              className={isLegalSectionVisible("homologacao") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Homologacao"
                 description="Encerramento formal da fase licitatoria com atualizacao do status final do processo."
@@ -5531,6 +6641,17 @@ export function LicitacaoProcessoPage({
                     ...current,
                     homologacao: nextOpen,
                   }))
+                }
+                action={
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setOperationModal("homologacao")}
+                  >
+                    {detalhe.processo.homologado
+                      ? "Revisar homologacao"
+                      : "Concluir homologacao"}
+                  </Button>
                 }
                 collapsedSummary={
                   <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -5542,86 +6663,38 @@ export function LicitacaoProcessoPage({
                   </div>
                 }
               >
-                <form
-                  className="grid gap-4 2xl:grid-cols-2"
-                  onSubmit={handleHomologar}
-                >
-                  <FormField label="Data da homologacao">
-                    <Input
-                      type="date"
-                      value={homologacaoForm.dataHomologacao}
-                      onChange={(event) =>
-                        setHomologacaoForm((current) => ({
-                          ...current,
-                          dataHomologacao: event.target.value,
-                        }))
-                      }
-                    />
-                  </FormField>
-                  <FormField label="Status do processo apos homologacao">
-                    <Select
-                      value={homologacaoForm.statusId}
-                      onChange={(event) =>
-                        setHomologacaoForm((current) => ({
-                          ...current,
-                          statusId: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Manter atual</option>
-                      {catalogsQuery.data?.statusProcesso.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.nome}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormField>
-                  {homologCriticalStatusDateRequired ? (
-                    <FormField
-                      label={`Data do status critico (${selectedHomologStatus!.nome ?? selectedHomologStatus!.codigo})`}
-                      className="2xl:col-span-2"
-                    >
-                      <Input
-                        type="date"
-                        value={homologacaoForm.dataStatus}
-                        required={homologCriticalStatusDateRequired}
-                        onChange={(event) =>
-                          setHomologacaoForm((current) => ({
-                            ...current,
-                            dataStatus: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                  ) : null}
-                  <FormField label="Observacao" className="2xl:col-span-2">
-                    <Textarea
-                      rows={4}
-                      value={homologacaoForm.observacao}
-                      onChange={(event) =>
-                        setHomologacaoForm((current) => ({
-                          ...current,
-                          observacao: event.target.value,
-                        }))
-                      }
-                    />
-                  </FormField>
-                  <div className="xl:col-span-2 flex justify-end">
+                <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
+                        Encerramento formal
+                      </div>
+                      <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                        A homologacao agora acontece em um modal concentrado.
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                        Isso preserva a leitura do encerramento e deixa a acao
+                        principal da etapa sempre acessivel pelo rodape fixo.
+                      </p>
+                    </div>
                     <Button
-                      type="submit"
-                      disabled={homologarMutation.isPending}
+                      type="button"
+                      onClick={() => setOperationModal("homologacao")}
                     >
-                      {homologarMutation.isPending
-                        ? "Homologando..."
-                        : "Homologar licitacao"}
+                      {detalhe.processo.homologado
+                        ? "Revisar homologacao"
+                        : "Concluir homologacao"}
                     </Button>
                   </div>
-                </form>
+                </div>
               </CollapsibleSectionCard>
             </section>
 
             {isForaDoFluxo ? (
-              <section ref={auditoriaRef}>
+              <section
+                ref={auditoriaRef}
+                className={isLegalSectionVisible("auditoria") ? "" : "hidden"}
+              >
                 <CollapsibleSectionCard
                   title="Auditoria reforcada"
                   description="Log detalhado de alteracoes campo a campo para processos fora do fluxo."
@@ -5687,67 +6760,86 @@ export function LicitacaoProcessoPage({
                       ))}
                     </div>
                   ) : auditoriaItems.length ? (
-                    <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                      <Table className="min-w-[1080px]">
-                        <TableHead>
-                          <tr>
-                            <TableHeaderCell>Data</TableHeaderCell>
-                            <TableHeaderCell>Usuario</TableHeaderCell>
-                            <TableHeaderCell>Acao</TableHeaderCell>
-                            <TableHeaderCell>Tabela</TableHeaderCell>
-                            <TableHeaderCell>Campo</TableHeaderCell>
-                            <TableHeaderCell>Valor anterior</TableHeaderCell>
-                            <TableHeaderCell>Valor novo</TableHeaderCell>
-                            <TableHeaderCell>Descricao</TableHeaderCell>
-                          </tr>
-                        </TableHead>
-                        <TableBody>
-                          {auditoriaItems.map((item) => {
-                            const campo =
-                              (item.dadosNovos as { campo?: string } | null)
-                                ?.campo ??
-                              (
-                                item.dadosAnteriores as {
-                                  campo?: string;
-                                } | null
-                              )?.campo ??
-                              "-";
-                            const valorAnterior =
-                              (
-                                item.dadosAnteriores as {
-                                  valor?: unknown;
-                                } | null
-                              )?.valor ?? item.dadosAnteriores;
-                            const valorNovo =
-                              (item.dadosNovos as { valor?: unknown } | null)
-                                ?.valor ?? item.dadosNovos;
+                    <>
+                      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="text-sm text-[var(--text-secondary)]">
+                          {auditoriaPagination.totalItems} registro(s) de
+                          auditoria.
+                        </div>
+                        {auditoriaPagination.totalPages > 1 ? (
+                          <Pagination
+                            page={auditoriaPagination.page}
+                            totalPages={auditoriaPagination.totalPages}
+                            onPageChange={setAuditoriaPage}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+                        <Table className="min-w-[1080px]">
+                          <TableHead>
+                            <tr>
+                              <TableHeaderCell
+                                className={stickyColumnHeaderClass}
+                              >
+                                Data
+                              </TableHeaderCell>
+                              <TableHeaderCell>Usuario</TableHeaderCell>
+                              <TableHeaderCell>Acao</TableHeaderCell>
+                              <TableHeaderCell>Tabela</TableHeaderCell>
+                              <TableHeaderCell>Campo</TableHeaderCell>
+                              <TableHeaderCell>Valor anterior</TableHeaderCell>
+                              <TableHeaderCell>Valor novo</TableHeaderCell>
+                              <TableHeaderCell>Descricao</TableHeaderCell>
+                            </tr>
+                          </TableHead>
+                          <TableBody>
+                            {auditoriaPagination.items.map((item) => {
+                              const campo =
+                                (item.dadosNovos as { campo?: string } | null)
+                                  ?.campo ??
+                                (
+                                  item.dadosAnteriores as {
+                                    campo?: string;
+                                  } | null
+                                )?.campo ??
+                                "-";
+                              const valorAnterior =
+                                (
+                                  item.dadosAnteriores as {
+                                    valor?: unknown;
+                                  } | null
+                                )?.valor ?? item.dadosAnteriores;
+                              const valorNovo =
+                                (item.dadosNovos as { valor?: unknown } | null)
+                                  ?.valor ?? item.dadosNovos;
 
-                            return (
-                              <TableRow key={item.id}>
-                                <TableCell>
-                                  {formatShortDateTimeBR(item.criadoEm)}
-                                </TableCell>
-                                <TableCell>
-                                  {item.usuarioNome ?? "Sistema"}
-                                </TableCell>
-                                <TableCell>{item.acao}</TableCell>
-                                <TableCell>{item.tabela}</TableCell>
-                                <TableCell>{campo}</TableCell>
-                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                  {formatAuditValue(valorAnterior)}
-                                </TableCell>
-                                <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                  {formatAuditValue(valorNovo)}
-                                </TableCell>
-                                <TableCell className="max-w-[260px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                  {cleanDisplayText(item.descricao)}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell className={stickyColumnCellClass}>
+                                    {formatShortDateTimeBR(item.criadoEm)}
+                                  </TableCell>
+                                  <TableCell>
+                                    {item.usuarioNome ?? "Sistema"}
+                                  </TableCell>
+                                  <TableCell>{item.acao}</TableCell>
+                                  <TableCell>{item.tabela}</TableCell>
+                                  <TableCell>{campo}</TableCell>
+                                  <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                    {formatAuditValue(valorAnterior)}
+                                  </TableCell>
+                                  <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                    {formatAuditValue(valorNovo)}
+                                  </TableCell>
+                                  <TableCell className="max-w-[260px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
+                                    {cleanDisplayText(item.descricao)}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
                   ) : (
                     <Alert variant="info" className="mt-4">
                       Nenhuma auditoria registrada para este processo.
@@ -5757,7 +6849,10 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            <section ref={historyRef}>
+            <section
+              ref={historyRef}
+              className={isLegalSectionVisible("history") ? "" : "hidden"}
+            >
               <CollapsibleSectionCard
                 title="Movimentacoes recentes"
                 description="Rastro operacional da fase licitatoria para acompanhamento do setor e da gestao."
@@ -5844,6 +6939,532 @@ export function LicitacaoProcessoPage({
       />
 
       <Modal
+        open={operationModal === "proposta"}
+        onClose={() => setOperationModal(null)}
+        title="Registrar proposta"
+        description="Cadastro focado para manter a leitura da disputa limpa."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOperationModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="licitacao-proposta-form"
+              disabled={savePropostaMutation.isPending}
+            >
+              {savePropostaMutation.isPending
+                ? "Salvando..."
+                : "Registrar proposta"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="licitacao-proposta-form"
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleSaveProposta}
+        >
+          <FormField label="Licitante">
+            <Select
+              value={propostaForm.licitanteId}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  licitanteId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Selecione</option>
+              {detalhe.licitantes
+                .filter((item) => item.ativo)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.razaoSocial}
+                  </option>
+                ))}
+            </Select>
+          </FormField>
+          <FormField label="Item do processo">
+            <Select
+              value={propostaForm.itemId}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  itemId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Selecione</option>
+              {detalhe.itens.map((item) => (
+                <option key={item.id} value={item.id}>
+                  Item {item.numeroItem} - {item.descricao}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Valor unitario proposto">
+            <Input
+              value={propostaForm.valorUnitarioProposto}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  valorUnitarioProposto: maskCurrencyInputBR(
+                    event.target.value,
+                  ),
+                }))
+              }
+              placeholder="R$ 0,00"
+            />
+          </FormField>
+          <FormField label="Data da proposta">
+            <Input
+              type="date"
+              value={propostaForm.dataProposta}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  dataProposta: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Classificacao">
+            <Input
+              type="number"
+              min={1}
+              value={propostaForm.classificacao}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  classificacao: event.target.value,
+                }))
+              }
+              placeholder="1"
+            />
+          </FormField>
+          <FormField label="Situacao">
+            <Select
+              value={propostaForm.situacao}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  situacao: event.target.value,
+                }))
+              }
+            >
+              {propostaSituacaoOptions.map((item) => (
+                <option key={item} value={item}>
+                  {propostaSituacaoLabels[item]}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Justificativa" className="2xl:col-span-2">
+            <Textarea
+              rows={3}
+              value={propostaForm.justificativa}
+              onChange={(event) =>
+                setPropostaForm((current) => ({
+                  ...current,
+                  justificativa: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={operationModal === "lance"}
+        onClose={() => setOperationModal(null)}
+        title="Registrar lance"
+        description="Entrada rapida para manter a sessao principal enxuta."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOperationModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="licitacao-lance-form"
+              disabled={saveLanceMutation.isPending}
+            >
+              {saveLanceMutation.isPending
+                ? "Registrando..."
+                : "Registrar lance"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="licitacao-lance-form"
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleSaveLance}
+        >
+          <FormField label="Proposta vinculada">
+            <Select
+              value={lanceForm.propostaId}
+              onChange={(event) =>
+                setLanceForm((current) => ({
+                  ...current,
+                  propostaId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Selecione</option>
+              {detalhe.propostas.map((item) => (
+                <option key={item.id} value={item.id}>
+                  Item {item.itemNumero} - {item.licitanteNome}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Valor do lance">
+            <Input
+              value={lanceForm.valorLance}
+              onChange={(event) =>
+                setLanceForm((current) => ({
+                  ...current,
+                  valorLance: maskCurrencyInputBR(event.target.value),
+                }))
+              }
+              placeholder="R$ 0,00"
+            />
+          </FormField>
+          <FormField label="Data do lance">
+            <Input
+              type="date"
+              value={lanceForm.dataLance}
+              onChange={(event) =>
+                setLanceForm((current) => ({
+                  ...current,
+                  dataLance: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Observacao">
+            <Textarea
+              rows={3}
+              value={lanceForm.observacao}
+              onChange={(event) =>
+                setLanceForm((current) => ({
+                  ...current,
+                  observacao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={operationModal === "habilitacao"}
+        onClose={() => setOperationModal(null)}
+        title="Atualizar habilitacao"
+        description="Painel dedicado para analise documental do licitante."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOperationModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="licitacao-habilitacao-form"
+              disabled={saveHabilitacaoMutation.isPending}
+            >
+              {saveHabilitacaoMutation.isPending
+                ? "Salvando..."
+                : "Salvar habilitacao"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="licitacao-habilitacao-form"
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleSaveHabilitacao}
+        >
+          <FormField label="Licitante">
+            <Select
+              value={habilitacaoForm.licitanteId}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  licitanteId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Selecione</option>
+              {detalhe.licitantes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.razaoSocial}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Status da habilitacao">
+            <Select
+              value={habilitacaoForm.statusHabilitacao}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  statusHabilitacao: event.target.value,
+                }))
+              }
+            >
+              {habilitacaoStatusOptions.map((item) => (
+                <option key={item} value={item}>
+                  {habilitacaoStatusLabels[item]}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Observacao" className="2xl:col-span-2">
+            <Textarea
+              rows={4}
+              value={habilitacaoForm.observacaoHabilitacao}
+              onChange={(event) =>
+                setHabilitacaoForm((current) => ({
+                  ...current,
+                  observacaoHabilitacao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={operationModal === "recurso"}
+        onClose={() => setOperationModal(null)}
+        title="Registrar recurso"
+        description="Tratamento recursal em painel unico para reduzir ruido na tela."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOperationModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="licitacao-recurso-form"
+              disabled={saveRecursoMutation.isPending}
+            >
+              {saveRecursoMutation.isPending
+                ? "Salvando..."
+                : "Registrar recurso"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="licitacao-recurso-form"
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleSaveRecurso}
+        >
+          <FormField label="Licitante">
+            <Select
+              value={recursoForm.licitanteId}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  licitanteId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Selecione</option>
+              {detalhe.licitantes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.razaoSocial}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Resultado">
+            <Select
+              value={recursoForm.resultado}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  resultado: event.target.value,
+                }))
+              }
+            >
+              {recursoResultadoOptions.map((item) => (
+                <option key={item} value={item}>
+                  {recursoResultadoLabels[item]}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          <FormField label="Data de interposicao">
+            <Input
+              type="date"
+              value={recursoForm.dataInterposicao}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  dataInterposicao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Data do julgamento">
+            <Input
+              type="date"
+              value={recursoForm.dataJulgamento}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  dataJulgamento: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Descricao" className="2xl:col-span-2">
+            <Textarea
+              rows={4}
+              value={recursoForm.descricao}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  descricao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Decisao" className="2xl:col-span-2">
+            <Textarea
+              rows={4}
+              value={recursoForm.decisao}
+              onChange={(event) =>
+                setRecursoForm((current) => ({
+                  ...current,
+                  decisao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
+        open={operationModal === "homologacao"}
+        onClose={() => setOperationModal(null)}
+        title="Concluir homologacao"
+        description="Encerramento formal da fase licitatoria em painel focado."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOperationModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="licitacao-homologacao-form"
+              disabled={homologarMutation.isPending}
+            >
+              {homologarMutation.isPending
+                ? "Homologando..."
+                : "Homologar licitacao"}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="licitacao-homologacao-form"
+          className="grid gap-4 2xl:grid-cols-2"
+          onSubmit={handleHomologar}
+        >
+          <FormField label="Data da homologacao">
+            <Input
+              type="date"
+              value={homologacaoForm.dataHomologacao}
+              onChange={(event) =>
+                setHomologacaoForm((current) => ({
+                  ...current,
+                  dataHomologacao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Status do processo apos homologacao">
+            <Select
+              value={homologacaoForm.statusId}
+              onChange={(event) =>
+                setHomologacaoForm((current) => ({
+                  ...current,
+                  statusId: event.target.value,
+                }))
+              }
+            >
+              <option value="">Manter atual</option>
+              {catalogsQuery.data?.statusProcesso.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.nome}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+          {homologCriticalStatusDateRequired ? (
+            <FormField
+              label={`Data do status critico (${selectedHomologStatus!.nome ?? selectedHomologStatus!.codigo})`}
+              className="2xl:col-span-2"
+            >
+              <Input
+                type="date"
+                value={homologacaoForm.dataStatus}
+                required={homologCriticalStatusDateRequired}
+                onChange={(event) =>
+                  setHomologacaoForm((current) => ({
+                    ...current,
+                    dataStatus: event.target.value,
+                  }))
+                }
+              />
+            </FormField>
+          ) : null}
+          <FormField label="Observacao" className="2xl:col-span-2">
+            <Textarea
+              rows={4}
+              value={homologacaoForm.observacao}
+              onChange={(event) =>
+                setHomologacaoForm((current) => ({
+                  ...current,
+                  observacao: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+        </form>
+      </Modal>
+
+      <Modal
         open={showAllDocsModal}
         onClose={() => setShowAllDocsModal(false)}
         title={`Documentos do processo ${detalhe.processo.numeroSirel}`}
@@ -5909,4 +7530,3 @@ export function LicitacaoProcessoPage({
     </div>
   );
 }
-
