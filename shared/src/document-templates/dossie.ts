@@ -3,7 +3,8 @@ import type {
   DossieFornecedorDetail,
   DossieItemDetail,
 } from "../schemas/dossie.js";
-import { buildPrintableShell, escapeHtml } from "./planejamento.js";
+import { systemFooterText } from "../branding.js";
+import { escapeHtml } from "./planejamento.js";
 
 function formatCurrencyBRL(value: number | null | undefined) {
   const parsed = Number(value);
@@ -39,6 +40,12 @@ function formatDateBR(value: string | null | undefined, withTime = false) {
       ? { dateStyle: "short", timeStyle: "short" }
       : { dateStyle: "short" },
   ).format(date);
+}
+
+function formatGeneratedDateBR() {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(
+    new Date(),
+  );
 }
 
 function safeText(value: string | null | undefined) {
@@ -90,6 +97,10 @@ function renderSimpleTable(
   `;
 }
 
+function renderInstitutionalFooter() {
+  return `<div class="footer">${safeText(systemFooterText)} • Documento gerado em ${safeText(formatGeneratedDateBR())}.</div>`;
+}
+
 type CriticalStatusDateKey =
   | "HOMOLOGACAO"
   | "FRACASSADO"
@@ -102,11 +113,11 @@ const criticalStatusDateCatalog: Array<{
   key: CriticalStatusDateKey;
   label: string;
 }> = [
-  { key: "HOMOLOGACAO", label: "Homologacao" },
+  { key: "HOMOLOGACAO", label: "Homologação" },
   { key: "FRACASSADO", label: "Fracassado" },
-  { key: "SUSPENSAO", label: "Suspensao" },
-  { key: "REVOGACAO", label: "Revogacao" },
-  { key: "ANULACAO", label: "Anulacao" },
+  { key: "SUSPENSAO", label: "Suspensão" },
+  { key: "REVOGACAO", label: "Revogação" },
+  { key: "ANULACAO", label: "Anulação" },
   { key: "DESERTO", label: "Deserto" },
 ];
 
@@ -183,13 +194,13 @@ export function buildDossieHtml(detail: DossieDetail) {
 
   const identificacaoCards = [
     { label: "Processo SIREL", value: processo.numeroSirel },
-    { label: "Protocolo", value: processo.protocolo ?? "Nao informado" },
+    { label: "Protocolo", value: processo.protocolo ?? "Não informado" },
     {
       label: "Administrativo / Edital",
       value:
         [processo.numeroAdministrativo, processo.numeroEdital]
           .filter(Boolean)
-          .join(" / ") || "Nao informado",
+          .join(" / ") || "Não informado",
     },
     {
       label: "Secretaria",
@@ -197,15 +208,15 @@ export function buildDossieHtml(detail: DossieDetail) {
     },
     {
       label: "Modalidade",
-      value: processo.modalidade?.nome ?? "Nao informada",
+      value: processo.modalidade?.nome ?? "Não informada",
     },
     { label: "Status", value: processo.statusAtual?.nome ?? "Sem status" },
     {
-      label: "Entrada na licitacao",
+      label: "Entrada na licitação",
       value: formatDateBR(processo.dataEntradaLicitacao),
     },
     {
-      label: "Modulo atual",
+      label: "Módulo atual",
       value: detail.workflow.estado?.moduloAtual ?? "Sem workflow",
     },
   ];
@@ -247,31 +258,31 @@ export function buildDossieHtml(detail: DossieDetail) {
 
   return `
     <header class="header">
-      <div class="eyebrow">Dossie completo do processo</div>
+      <div class="eyebrow">Dossiê completo do processo</div>
       <h1>${safeText(processo.numeroSirel)}</h1>
       <p class="muted">${safeText(processo.objeto)}</p>
     </header>
 
-    <h2>Identificacao</h2>
+    <h2>Identificação</h2>
     <section class="grid">${renderCards(identificacaoCards)}</section>
 
     <h2>Resumo executivo</h2>
     <section class="grid">${renderCards(resumoCards)}</section>
 
-    <h2>Autoridades e conducao</h2>
+    <h2>Autoridades e condução</h2>
     <section class="grid">
       ${renderCards([
         {
           label: "Autoridade competente",
           value: processo.autoridadeCompetente
             ? `${processo.autoridadeCompetente.nome}${processo.autoridadeCompetente.cargo ? ` - ${processo.autoridadeCompetente.cargo}` : ""}`
-            : "Nao informada",
+            : "Não informada",
         },
         {
           label: "Condutor do processo",
           value: processo.condutorProcesso
             ? `${processo.condutorProcesso.nome}${processo.condutorProcesso.cargo ? ` - ${processo.condutorProcesso.cargo}` : ""}`
-            : "Nao informado",
+            : "Não informado",
         },
       ])}
     </section>
@@ -283,25 +294,25 @@ export function buildDossieHtml(detail: DossieDetail) {
           label: "DFD",
           value: detail.planejamento.dfd
             ? detail.planejamento.dfd.concluido
-              ? "Concluida"
+              ? "Concluída"
               : "Em aberto"
-            : "Nao cadastrada",
+            : "Não cadastrada",
         },
         {
           label: "ETP",
           value: detail.planejamento.etp
             ? detail.planejamento.etp.concluido
-              ? "Concluido"
+              ? "Concluído"
               : "Em aberto"
-            : "Nao cadastrado",
+            : "Não cadastrado",
         },
         {
           label: "TR",
           value: detail.planejamento.tr
             ? detail.planejamento.tr.concluido
-              ? "Concluido"
+              ? "Concluído"
               : "Em aberto"
-            : "Nao cadastrado",
+            : "Não cadastrado",
         },
       ])}
     </section>
@@ -311,7 +322,7 @@ export function buildDossieHtml(detail: DossieDetail) {
       [
         "Lote",
         "Item",
-        "Descricao",
+        "Descrição",
         "Qtd.",
         "Vl. estimado",
         "Vl. vencedor",
@@ -362,15 +373,15 @@ export function buildDossieHtml(detail: DossieDetail) {
       "Nenhum fornecedor vencedor consolidado no processo.",
     )}
 
-    <h2>Licitacao</h2>
+    <h2>Licitação</h2>
     <section class="grid">
       ${renderCards([
         {
-          label: "Status da licitacao",
-          value: detail.licitacao.cabecalho?.statusLicitacao ?? "Nao iniciada",
+          label: "Status da licitação",
+          value: detail.licitacao.cabecalho?.statusLicitacao ?? "Não iniciada",
         },
         {
-          label: "Publicacao do edital",
+          label: "Publicação do edital",
           value: formatDateBR(
             detail.licitacao.cabecalho?.dataPublicacaoEdital ?? null,
             true,
@@ -381,7 +392,7 @@ export function buildDossieHtml(detail: DossieDetail) {
           value: `${formatDateBR(detail.licitacao.cabecalho?.dataRecebimentoPropostasInicio ?? null, true)} ate ${formatDateBR(detail.licitacao.cabecalho?.dataRecebimentoPropostasFim ?? null, true)}`,
         },
         {
-          label: "Homologacao",
+          label: "Homologação",
           value: formatDateBR(
             detail.licitacao.cabecalho?.dataHomologacao ?? null,
             true,
@@ -390,7 +401,7 @@ export function buildDossieHtml(detail: DossieDetail) {
       ])}
     </section>
 
-    <h2>Datas criticas de status</h2>
+    <h2>Datas críticas de status</h2>
     <section class="grid">
       ${renderCards(
         criticalStatusDates.map((item) => ({
@@ -402,7 +413,7 @@ export function buildDossieHtml(detail: DossieDetail) {
 
     <h2>Contratos</h2>
     ${renderSimpleTable(
-      ["Contrato", "Origem", "Fornecedor", "Status", "Vigencia", "Valor", "Acesso"],
+      ["Contrato", "Origem", "Fornecedor", "Status", "Vigência", "Valor", "Acesso"],
       detail.contratos.map((contrato) => [
         safeText(contrato.numeroContrato),
         safeText(contrato.origem),
@@ -426,7 +437,7 @@ export function buildDossieHtml(detail: DossieDetail) {
 
     <h2>Documentos</h2>
     ${renderSimpleTable(
-      ["Titulo", "Tipo", "Categoria", "Data", "Versao"],
+      ["Título", "Tipo", "Categoria", "Data", "Versão"],
       detail.documentos.map((documento) => [
         safeText(documento.titulo),
         safeText(documento.tipo),
@@ -439,7 +450,7 @@ export function buildDossieHtml(detail: DossieDetail) {
 
     <h2>Prazos</h2>
     ${renderSimpleTable(
-      ["Titulo", "Tipo", "Status", "Previsto", "Responsavel"],
+      ["Título", "Tipo", "Status", "Previsto", "Responsável"],
       detail.prazos.map((prazo) => [
         safeText(prazo.titulo),
         safeText(prazo.tipo),
@@ -450,7 +461,7 @@ export function buildDossieHtml(detail: DossieDetail) {
       "Nenhum prazo processual registrado.",
     )}
 
-    <h2>Integracoes e base importada</h2>
+    <h2>Integrações e base importada</h2>
     <section class="grid">
       ${renderCards([
         {
@@ -459,10 +470,10 @@ export function buildDossieHtml(detail: DossieDetail) {
         },
         {
           label: "Processo BLL",
-          value: detail.importacoes.bll.processo?.modalidade ?? "Nao vinculado",
+          value: detail.importacoes.bll.processo?.modalidade ?? "Não vinculado",
         },
         {
-          label: "Contratacoes PNCP",
+          label: "Contratações PNCP",
           value: formatNumberBR(detail.importacoes.pncp.contratacoes.length, 0),
         },
         {
@@ -472,9 +483,9 @@ export function buildDossieHtml(detail: DossieDetail) {
       ])}
     </section>
 
-    <h2>Movimentacoes</h2>
+    <h2>Movimentações</h2>
     ${renderSimpleTable(
-      ["Data", "Destino", "Descricao", "Observacao", "Usuario"],
+      ["Data", "Destino", "Descrição", "Observação", "Usuário"],
       detail.workflow.movimentacoes
         .map((movimentacao) => [
           safeText(formatDateBR(movimentacao.criadoEm, true)),
@@ -483,8 +494,9 @@ export function buildDossieHtml(detail: DossieDetail) {
           safeText(movimentacao.observacao ?? "-"),
           safeText(movimentacao.usuario ?? "-"),
         ]),
-      "Ainda nao ha movimentacoes registradas.",
+      "Ainda não há movimentações registradas.",
     )}
+    ${renderInstitutionalFooter()}
   `;
 }
 
@@ -515,7 +527,7 @@ function renderInsights(
 export function buildDossieItemHtml(detail: DossieItemDetail) {
   const identificacaoCards = [
     { label: "ID interno", value: String(detail.identificacao.id) },
-    { label: "Codigo interno", value: detail.identificacao.codigoInterno },
+    { label: "Código interno", value: detail.identificacao.codigoInterno },
     { label: "Unidade", value: detail.identificacao.unidadeMedida },
     { label: "Status", value: detail.identificacao.status },
     {
@@ -541,14 +553,14 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
           detail.identificacao.familia,
         ]
           .filter(Boolean)
-          .join(" / ") || "Nao informado",
+          .join(" / ") || "Não informado",
     },
   ];
 
   const resumoCards = [
     { label: "Processos", value: formatNumberBR(detail.resumo.totalProcessos, 0) },
     {
-      label: "Licitacoes",
+      label: "Licitações",
       value: formatNumberBR(detail.resumo.totalLicitacoes, 0),
     },
     {
@@ -564,43 +576,43 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
       value: formatCurrencyBRL(detail.resumo.valorTotalContratado),
     },
     {
-      label: "Valor medio",
+      label: "Valor médio",
       value: formatCurrencyBRL(detail.resumo.valorMedioContratado),
     },
     {
-      label: "Menor unitario",
+      label: "Menor unitário",
       value: formatCurrencyBRL(detail.resumo.menorValorUnitarioHistorico),
     },
     {
-      label: "Maior unitario",
+      label: "Maior unitário",
       value: formatCurrencyBRL(detail.resumo.maiorValorUnitarioHistorico),
     },
   ];
 
   return `
     <header class="header">
-      <div class="eyebrow">Dossie do item</div>
+      <div class="eyebrow">Dossiê do item</div>
       <h1>${safeText(detail.identificacao.descricaoResumida)}</h1>
       <p class="muted">${safeText(detail.identificacao.descricaoCompleta ?? detail.identificacao.descricaoResumida)}</p>
     </header>
 
-    <h2>Identificacao</h2>
+    <h2>Identificação</h2>
     <section class="grid">${renderCards(identificacaoCards)}</section>
 
     <h2>Resumo executivo</h2>
     <section class="grid">${renderCards(resumoCards)}</section>
 
-    <h2>Observacoes gerenciais</h2>
+    <h2>Observações gerenciais</h2>
     ${renderInsights(
       detail.insights.map((item) => ({
         id: item.id,
         titulo: item.titulo,
         descricao: item.descricao,
       })),
-      "Nenhum alerta analitico relevante foi identificado.",
+      "Nenhum alerta analítico relevante foi identificado.",
     )}
 
-    <h2>Presenca em processos</h2>
+    <h2>Presença em processos</h2>
     ${renderSimpleTable(
       [
         "Processo",
@@ -614,16 +626,16 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
       detail.processos.map((row) => [
         safeText(row.numeroSirel),
         safeText(row.secretaria),
-        safeText(row.modalidade ?? "Nao informado"),
+        safeText(row.modalidade ?? "Não informado"),
         safeText(`${formatNumberBR(row.quantidadePrevista, 3)} ${row.unidade}`),
         safeText(formatCurrencyBRL(row.valorEstimado)),
         safeText(formatCurrencyBRL(row.valorHomologado)),
-        safeText(row.status ?? row.etapaAtual ?? "Em analise"),
+        safeText(row.status ?? row.etapaAtual ?? "Em análise"),
       ]),
       "Nenhum processo relacionado ao item.",
     )}
 
-    <h2>Licitacoes e disputas</h2>
+    <h2>Licitações e disputas</h2>
     ${renderSimpleTable(
       [
         "Processo",
@@ -643,7 +655,7 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
         safeText(formatCurrencyBRL(row.valorVencedor)),
         safeText(row.statusItem),
       ]),
-      "Nenhum historico licitatorio encontrado.",
+      "Nenhum histórico licitatório encontrado.",
     )}
 
     <h2>Contratos vinculados</h2>
@@ -673,11 +685,11 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
     ${renderSimpleTable(
       [
         "Fornecedor",
-        "Participacoes",
-        "Vitorias",
+        "Participações",
+        "Vitórias",
         "Faixa ofertada",
-        "Media",
-        "Ultimo vencedor",
+        "Média",
+        "Último vencedor",
         "Taxa",
       ],
       detail.fornecedores.map((row) => [
@@ -698,11 +710,11 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
       "Nenhum fornecedor consolidado para o item.",
     )}
 
-    <h2>Evolucao historica de precos</h2>
+    <h2>Evolução histórica de preços</h2>
     ${renderSimpleTable(
       [
         "Data",
-        "Referencia",
+        "Referência",
         "Fornecedor",
         "Modalidade",
         "Estimado",
@@ -718,24 +730,24 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
         safeText(formatCurrencyBRL(row.valorVencedor)),
         safeText(formatCurrencyBRL(row.valorContratado)),
       ]),
-      "Nenhum ponto de preco consolidado.",
+      "Nenhum ponto de preço consolidado.",
     )}
 
     <h2>Auditoria</h2>
     <section class="grid">
       ${renderCards([
         {
-          label: "Ultima atualizacao",
+          label: "Última atualização",
           value: formatDateBR(detail.auditoria.ultimaAtualizacaoCadastro, true),
         },
         {
-          label: "Usuarios sensiveis",
+          label: "Usuários sensíveis",
           value: detail.auditoria.usuariosSensiveis.length
             ? detail.auditoria.usuariosSensiveis.join(" | ")
             : "Sem registros",
         },
         {
-          label: "Vinculos criticos",
+          label: "Vínculos críticos",
           value: detail.auditoria.vinculosCriticos.length
             ? detail.auditoria.vinculosCriticos.join(" | ")
             : "Nenhum",
@@ -743,12 +755,12 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
       ])}
     </section>
     ${renderSimpleTable(
-      ["Data", "Acao", "Usuario", "Descricao", "Campos"],
+      ["Data", "Ação", "Usuário", "Descrição", "Campos"],
       detail.auditoria.mudancasRelevantes.map((row) => [
         safeText(formatDateBR(row.criadoEm, true)),
         safeText(row.acao),
         safeText(row.usuario ?? "Sistema"),
-        safeText(row.descricao ?? "Sem descricao"),
+        safeText(row.descricao ?? "Sem descrição"),
         safeText(
           row.camposAlterados.length
             ? row.camposAlterados.join(", ")
@@ -757,6 +769,7 @@ export function buildDossieItemHtml(detail: DossieItemDetail) {
       ]),
       "Nenhuma trilha de auditoria encontrada para o item.",
     )}
+    ${renderInstitutionalFooter()}
   `;
 }
 
@@ -766,36 +779,36 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
     { label: "Documento", value: detail.identificacao.documento },
     { label: "Status", value: detail.identificacao.status },
     {
-      label: "Situacao interna",
+      label: "Situação interna",
       value: detail.identificacao.situacaoCadastralInterna,
     },
-    { label: "E-mail", value: detail.identificacao.email ?? "Nao informado" },
+    { label: "E-mail", value: detail.identificacao.email ?? "Não informado" },
     {
       label: "Telefone",
-      value: detail.identificacao.telefone ?? "Nao informado",
+      value: detail.identificacao.telefone ?? "Não informado",
     },
     {
-      label: "Municipio / UF",
+      label: "Município / UF",
       value:
         [detail.identificacao.municipio, detail.identificacao.uf]
           .filter(Boolean)
-          .join("/") || "Nao informado",
+          .join("/") || "Não informado",
     },
     {
       label: "Registro unificado",
-      value: detail.identificacao.registroUnificado ? "Sim" : "Nao",
+      value: detail.identificacao.registroUnificado ? "Sim" : "Não",
     },
   ];
 
   const resumoCards = [
     { label: "Processos", value: formatNumberBR(detail.resumo.totalProcessos, 0) },
     {
-      label: "Licitacoes",
+      label: "Licitações",
       value: formatNumberBR(detail.resumo.totalLicitacoes, 0),
     },
-    { label: "Vitorias", value: formatNumberBR(detail.resumo.totalVitorias, 0) },
+    { label: "Vitórias", value: formatNumberBR(detail.resumo.totalVitorias, 0) },
     {
-      label: "Taxa de vitoria",
+      label: "Taxa de vitória",
       value:
         detail.resumo.taxaVitoria === null
           ? "-"
@@ -818,12 +831,12 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
 
   return `
     <header class="header">
-      <div class="eyebrow">Dossie do fornecedor</div>
+      <div class="eyebrow">Dossiê do fornecedor</div>
       <h1>${safeText(detail.identificacao.razaoSocial)}</h1>
       <p class="muted">${safeText(detail.identificacao.nomeFantasia ?? detail.identificacao.documento)}</p>
     </header>
 
-    <h2>Identificacao</h2>
+    <h2>Identificação</h2>
     <section class="grid">${renderCards(identificacaoCards)}</section>
 
     <h2>Resumo executivo</h2>
@@ -839,7 +852,7 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
       "Nenhum insight gerencial relevante foi identificado.",
     )}
 
-    <h2>Participacoes em processos</h2>
+    <h2>Participações em processos</h2>
     ${renderSimpleTable(
       [
         "Processo",
@@ -847,12 +860,12 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
         "Papel",
         "Tipo",
         "Valor ofertado",
-        "Classificacao",
+        "Classificação",
         "Status",
       ],
       detail.participacoes.map((row) => [
         safeText(row.numeroSirel),
-        safeText(row.modalidade ?? "Nao informado"),
+        safeText(row.modalidade ?? "Não informado"),
         safeText(row.papel),
         safeText(row.tipoParticipacao),
         safeText(formatCurrencyBRL(row.valorGlobalOfertado)),
@@ -863,7 +876,7 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
         ),
         safeText(row.statusFornecedor ?? "-"),
       ]),
-      "Nenhuma participacao consolidada.",
+      "Nenhuma participação consolidada.",
     )}
 
     <h2>Ofertas, propostas e lances</h2>
@@ -919,7 +932,7 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
         "Origem",
         "Processo",
         "Valor total",
-        "Valor atribuido",
+        "Valor atribuído",
         "Itens",
         "Status",
       ],
@@ -941,10 +954,10 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
         "Item",
         "Ofertado",
         "Vencido",
-        "Menor preco",
-        "Media",
-        "Ultimo ofertado",
-        "Participacao",
+        "Menor preço",
+        "Média",
+        "Último ofertado",
+        "Participação",
       ],
       detail.itens.map((row) => [
         safeText(row.itemLabel),
@@ -964,42 +977,42 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
 
     <h2>Linha do tempo</h2>
     ${renderSimpleTable(
-      ["Data", "Tipo", "Titulo", "Descricao"],
+      ["Data", "Tipo", "Título", "Descrição"],
       detail.timeline.map((row) => [
         safeText(formatDateBR(row.data, true)),
         safeText(row.tipo),
         safeText(row.titulo),
         safeText(row.descricao),
       ]),
-      "Nenhum evento cronologico consolidado.",
+      "Nenhum evento cronológico consolidado.",
     )}
 
     <h2>Auditoria</h2>
     <section class="grid">
       ${renderCards([
         {
-          label: "Ultima atualizacao",
+          label: "Última atualização",
           value: formatDateBR(detail.auditoria.ultimaAtualizacaoCadastro, true),
         },
         {
           label: "Registro unificado",
-          value: detail.identificacao.registroUnificado ? "Sim" : "Nao",
+          value: detail.identificacao.registroUnificado ? "Sim" : "Não",
         },
         {
-          label: "Observacoes criticas",
+          label: "Observações críticas",
           value: detail.auditoria.observacoesCriticas.length
             ? detail.auditoria.observacoesCriticas.join(" | ")
-            : "Sem observacoes",
+            : "Sem observações",
         },
       ])}
     </section>
     ${renderSimpleTable(
-      ["Data", "Acao", "Usuario", "Descricao", "Campos"],
+      ["Data", "Ação", "Usuário", "Descrição", "Campos"],
       detail.auditoria.trilha.map((row) => [
         safeText(formatDateBR(row.criadoEm, true)),
         safeText(row.acao),
         safeText(row.usuario ?? "Sistema"),
-        safeText(row.descricao ?? "Sem descricao"),
+        safeText(row.descricao ?? "Sem descrição"),
         safeText(
           row.camposAlterados.length
             ? row.camposAlterados.join(", ")
@@ -1008,7 +1021,6 @@ export function buildDossieFornecedorHtml(detail: DossieFornecedorDetail) {
       ]),
       "Nenhuma trilha de auditoria encontrada para o fornecedor.",
     )}
+    ${renderInstitutionalFooter()}
   `;
 }
-
-export { buildPrintableShell };

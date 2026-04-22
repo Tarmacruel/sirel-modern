@@ -21,7 +21,14 @@ import {
 import { logAuditoria } from "../db/auditoria.js";
 import { sanitizeLegacyText } from "../lib/legacy-text-normalizer.js";
 import { requireDb } from "../db/client.js";
-import { prazosAgendaCompartilhamentos, processos, prazosProcessuais, secretarias, tarefasEquipe, users } from "../db/schema.js";
+import {
+  prazosAgendaCompartilhamentos,
+  processos,
+  prazosProcessuais,
+  secretarias,
+  tarefasEquipe,
+  users,
+} from "../db/schema.js";
 import { dispatchNotifications } from "../lib/notificacoes-dispatch.js";
 import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 
@@ -51,18 +58,28 @@ function toDateOnly(value: string) {
 
 function diffInDays(target: Date) {
   const today = startOfDay();
-  return Math.round((startOfDay(target).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.round(
+    (startOfDay(target).getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
 }
 
-function resolvePrazoStatus(row: { status: string; dataPrevista: Date; dataRealizada: Date | null }) {
+function resolvePrazoStatus(row: {
+  status: string;
+  dataPrevista: Date;
+  dataRealizada: Date | null;
+}) {
   if (row.dataRealizada || row.status === "CONCLUIDO") return "CONCLUIDO";
   return row.dataPrevista < startOfDay() ? "EM_ATRASO" : "PENDENTE";
 }
 
 function buildPrazoView(row: any) {
   const status = resolvePrazoStatus(row);
-  const dataPrevista = row.dataPrevista instanceof Date ? row.dataPrevista : new Date(row.dataPrevista);
-  const daysRemaining = status === "CONCLUIDO" ? null : diffInDays(dataPrevista);
+  const dataPrevista =
+    row.dataPrevista instanceof Date
+      ? row.dataPrevista
+      : new Date(row.dataPrevista);
+  const daysRemaining =
+    status === "CONCLUIDO" ? null : diffInDays(dataPrevista);
   const alertLevel =
     status === "EM_ATRASO"
       ? "error"
@@ -100,7 +117,8 @@ function resolveTaskStatus(row: { status: string; concluidaEm: Date | null }) {
 function buildTaskView(row: any, userNames: Map<number, string>) {
   const status = resolveTaskStatus(row);
   const dataEntrega = parseDateValue(row.dataEntrega);
-  const daysRemaining = status === "CONCLUIDO" || !dataEntrega ? null : diffInDays(dataEntrega);
+  const daysRemaining =
+    status === "CONCLUIDO" || !dataEntrega ? null : diffInDays(dataEntrega);
   const alertLevel =
     status === "CONCLUIDO"
       ? "success"
@@ -128,8 +146,15 @@ function buildTaskView(row: any, userNames: Map<number, string>) {
     dataPrevista: row.dataEntrega,
     dataLimite: row.dataEntrega,
     dataRealizada: row.concluidaEm ?? null,
-    responsavelNome: row.responsavelId ? userNames.get(row.responsavelId) ?? null : null,
-    delegadoPorNome: row.delegadoPorId ? userNames.get(row.delegadoPorId) ?? null : null,
+    responsavelNome: row.responsavelId
+      ? (userNames.get(row.responsavelId) ?? null)
+      : null,
+    delegadoPorNome: row.delegadoPorId
+      ? (userNames.get(row.delegadoPorId) ?? null)
+      : null,
+    prazoTituloVinculado: row.prazoTitulo ?? null,
+    prazoTipoVinculado: row.prazoTipo ?? null,
+    prazoDataPrevista: row.prazoDataPrevista ?? null,
     observacao: row.descricao ?? null,
     notificarResponsavel: Boolean(row.notificarResponsavel),
   };
@@ -173,11 +198,19 @@ function matchesAgendaSearch(item: any, search: string) {
 }
 
 function isItemOverdue(item: any) {
-  return item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining < 0;
+  return (
+    item.status !== "CONCLUIDO" &&
+    item.daysRemaining !== null &&
+    item.daysRemaining < 0
+  );
 }
 
 function isItemCritical(item: any) {
-  return item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining <= 2;
+  return (
+    item.status !== "CONCLUIDO" &&
+    item.daysRemaining !== null &&
+    item.daysRemaining <= 2
+  );
 }
 
 function compareAgendaItems(left: any, right: any) {
@@ -189,14 +222,20 @@ function compareAgendaItems(left: any, right: any) {
   const rightDays = right.daysRemaining ?? 9999;
   if (leftDays !== rightDays) return leftDays - rightDays;
 
-  const leftDate = parseDateValue(left.dataLimite ?? left.dataPrevista)?.getTime() ?? 0;
-  const rightDate = parseDateValue(right.dataLimite ?? right.dataPrevista)?.getTime() ?? 0;
+  const leftDate =
+    parseDateValue(left.dataLimite ?? left.dataPrevista)?.getTime() ?? 0;
+  const rightDate =
+    parseDateValue(right.dataLimite ?? right.dataPrevista)?.getTime() ?? 0;
   if (leftDate !== rightDate) return leftDate - rightDate;
 
   return left.id - right.id;
 }
 
-function filterAgendaItems(items: any[], input: any, contextUserId: number | null) {
+function filterAgendaItems(
+  items: any[],
+  input: any,
+  contextUserId: number | null,
+) {
   let filtered = [...items];
 
   if (input.escopo === "MEUS_PRAZOS") {
@@ -207,31 +246,69 @@ function filterAgendaItems(items: any[], input: any, contextUserId: number | nul
         (item: any) =>
           item.responsavelId === contextUserId ||
           item.delegadoPorId === contextUserId ||
-          (item.itemTipo === "PRAZO_PROCESSUAL" && item.criadoPor === contextUserId),
+          (item.itemTipo === "PRAZO_PROCESSUAL" &&
+            item.criadoPor === contextUserId),
       );
     }
   }
   if (input.escopo === "TAREFAS_EQUIPE") {
-    filtered = filtered.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE");
+    filtered = filtered.filter(
+      (item: any) => item.itemTipo === "TAREFA_EQUIPE",
+    );
   }
   if (input.escopo === "ALERTAS") {
-    filtered = filtered.filter((item: any) => isItemCritical(item) || isItemOverdue(item));
+    filtered = filtered.filter(
+      (item: any) => isItemCritical(item) || isItemOverdue(item),
+    );
   }
 
-  if (input.itemTipo) filtered = filtered.filter((item: any) => item.itemTipo === input.itemTipo);
-  if (input.processoId) filtered = filtered.filter((item: any) => item.processoId === input.processoId);
-  if (input.prazoTipo) filtered = filtered.filter((item: any) => item.itemTipo === "PRAZO_PROCESSUAL" && item.tipo === input.prazoTipo);
-  if (input.statusPrazo) filtered = filtered.filter((item: any) => item.itemTipo === "PRAZO_PROCESSUAL" && item.status === input.statusPrazo);
-  if (input.statusTarefa) filtered = filtered.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE" && item.status === input.statusTarefa);
-  if (input.prioridadeTarefa) filtered = filtered.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE" && item.prioridade === input.prioridadeTarefa);
-  if (input.responsavelId) filtered = filtered.filter((item: any) => item.responsavelId === input.responsavelId);
-  if (input.somenteCriticos) filtered = filtered.filter((item: any) => isItemCritical(item) || isItemOverdue(item));
-  if (input.ocultarConcluidos) filtered = filtered.filter((item: any) => item.status !== "CONCLUIDO");
+  if (input.itemTipo)
+    filtered = filtered.filter((item: any) => item.itemTipo === input.itemTipo);
+  if (input.processoId)
+    filtered = filtered.filter(
+      (item: any) => item.processoId === input.processoId,
+    );
+  if (input.prazoTipo)
+    filtered = filtered.filter(
+      (item: any) =>
+        item.itemTipo === "PRAZO_PROCESSUAL" && item.tipo === input.prazoTipo,
+    );
+  if (input.statusPrazo)
+    filtered = filtered.filter(
+      (item: any) =>
+        item.itemTipo === "PRAZO_PROCESSUAL" &&
+        item.status === input.statusPrazo,
+    );
+  if (input.statusTarefa)
+    filtered = filtered.filter(
+      (item: any) =>
+        item.itemTipo === "TAREFA_EQUIPE" && item.status === input.statusTarefa,
+    );
+  if (input.prioridadeTarefa)
+    filtered = filtered.filter(
+      (item: any) =>
+        item.itemTipo === "TAREFA_EQUIPE" &&
+        item.prioridade === input.prioridadeTarefa,
+    );
+  if (input.responsavelId)
+    filtered = filtered.filter(
+      (item: any) => item.responsavelId === input.responsavelId,
+    );
+  if (input.somenteCriticos)
+    filtered = filtered.filter(
+      (item: any) => isItemCritical(item) || isItemOverdue(item),
+    );
+  if (input.ocultarConcluidos)
+    filtered = filtered.filter((item: any) => item.status !== "CONCLUIDO");
   if (input.somenteDelegadosPorMim) {
     if (!contextUserId) {
       filtered = [];
     } else {
-      filtered = filtered.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE" && item.delegadoPorId === contextUserId);
+      filtered = filtered.filter(
+        (item: any) =>
+          item.itemTipo === "TAREFA_EQUIPE" &&
+          item.delegadoPorId === contextUserId,
+      );
     }
   }
   if (input.somenteMeusItens) {
@@ -242,12 +319,15 @@ function filterAgendaItems(items: any[], input: any, contextUserId: number | nul
         (item: any) =>
           item.responsavelId === contextUserId ||
           item.delegadoPorId === contextUserId ||
-          (item.itemTipo === "PRAZO_PROCESSUAL" && item.criadoPor === contextUserId),
+          (item.itemTipo === "PRAZO_PROCESSUAL" &&
+            item.criadoPor === contextUserId),
       );
     }
   }
   if (input.busca) {
-    filtered = filtered.filter((item: any) => matchesAgendaSearch(item, input.busca ?? ""));
+    filtered = filtered.filter((item: any) =>
+      matchesAgendaSearch(item, input.busca ?? ""),
+    );
   }
 
   filtered.sort(compareAgendaItems);
@@ -269,7 +349,10 @@ function endOfWeek(value = new Date()) {
   return date;
 }
 
-async function upsertSystemNotifications(db: any, payloads: SystemNotificationPayload[]) {
+async function upsertSystemNotifications(
+  db: any,
+  payloads: SystemNotificationPayload[],
+) {
   const dedupe = new Set<string>();
   const validPayloads = payloads.filter((payload) => {
     if (!payload.userId || !payload.chave) return false;
@@ -294,17 +377,26 @@ async function upsertSystemNotifications(db: any, payloads: SystemNotificationPa
   );
 }
 
-function appendTextBlock(base: string | null | undefined, addition: string | null | undefined) {
+function appendTextBlock(
+  base: string | null | undefined,
+  addition: string | null | undefined,
+) {
   const trimmedAddition = addition?.trim();
   if (!trimmedAddition) return base ?? null;
   const trimmedBase = base?.trim();
   return trimmedBase ? `${trimmedBase}\n${trimmedAddition}` : trimmedAddition;
 }
 
-async function loadUserNames(db: any, rawIds: Array<number | null | undefined>): Promise<Map<number, string>> {
+async function loadUserNames(
+  db: any,
+  rawIds: Array<number | null | undefined>,
+): Promise<Map<number, string>> {
   const ids = Array.from(
     new Set(
-      rawIds.filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0),
+      rawIds.filter(
+        (value): value is number =>
+          typeof value === "number" && Number.isInteger(value) && value > 0,
+      ),
     ),
   );
   if (!ids.length) return new Map<number, string>();
@@ -359,8 +451,15 @@ async function loadAgendaItems(db: any) {
         numeroSirel: processos.numeroSirel,
         objeto: processos.objeto,
         secretariaNome: secretarias.nome,
+        prazoTitulo: prazosProcessuais.titulo,
+        prazoTipo: prazosProcessuais.tipo,
+        prazoDataPrevista: prazosProcessuais.dataPrevista,
       })
       .from(tarefasEquipe)
+      .leftJoin(
+        prazosProcessuais,
+        eq(prazosProcessuais.id, tarefasEquipe.prazoId),
+      )
       .leftJoin(processos, eq(processos.id, tarefasEquipe.processoId))
       .leftJoin(secretarias, eq(secretarias.id, processos.secretariaId)),
   ]);
@@ -382,7 +481,9 @@ async function loadAgendaItems(db: any) {
       prioridade: null,
       dataLimite: row.dataPrevista,
       responsavelId,
-      responsavelNome: responsavelId ? userNames.get(responsavelId) ?? null : null,
+      responsavelNome: responsavelId
+        ? (userNames.get(responsavelId) ?? null)
+        : null,
       delegadoPorId: null,
       delegadoPorNome: null,
     };
@@ -390,7 +491,9 @@ async function loadAgendaItems(db: any) {
 
   const sanitizedPrazos = mappedPrazos.map(sanitizeAgendaItem);
 
-  const mappedTarefas = tarefaRows.map((row: any) => buildTaskView(row, userNames));
+  const mappedTarefas = tarefaRows.map((row: any) =>
+    buildTaskView(row, userNames),
+  );
   const sanitizedTarefas = mappedTarefas.map(sanitizeAgendaItem);
 
   return {
@@ -446,17 +549,44 @@ export const prazosRouter = router({
       .orderBy(asc(prazosProcessuais.dataPrevista));
 
     const parsed = rows.map(buildPrazoView);
-    const today = parsed.filter((item) => item.status !== "CONCLUIDO" && item.daysRemaining === 0);
-    const next48h = parsed.filter((item) => item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining >= 0 && item.daysRemaining <= 2);
+    const today = parsed.filter(
+      (item) => item.status !== "CONCLUIDO" && item.daysRemaining === 0,
+    );
+    const next48h = parsed.filter(
+      (item) =>
+        item.status !== "CONCLUIDO" &&
+        item.daysRemaining !== null &&
+        item.daysRemaining >= 0 &&
+        item.daysRemaining <= 2,
+    );
     const overdue = parsed.filter((item) => item.status === "EM_ATRASO");
-    const thisWeek = parsed.filter((item) => item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining >= 0 && item.daysRemaining <= 7);
-    const completedWeek = parsed.filter((item) => item.status === "CONCLUIDO" && item.dataRealizada && new Date(item.dataRealizada) >= startOfDay(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
+    const thisWeek = parsed.filter(
+      (item) =>
+        item.status !== "CONCLUIDO" &&
+        item.daysRemaining !== null &&
+        item.daysRemaining >= 0 &&
+        item.daysRemaining <= 7,
+    );
+    const completedWeek = parsed.filter(
+      (item) =>
+        item.status === "CONCLUIDO" &&
+        item.dataRealizada &&
+        new Date(item.dataRealizada) >=
+          startOfDay(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+    );
 
     const alerts = parsed
-      .filter((item) => item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining <= 7)
+      .filter(
+        (item) =>
+          item.status !== "CONCLUIDO" &&
+          item.daysRemaining !== null &&
+          item.daysRemaining <= 7,
+      )
       .sort((left, right) => {
-        const leftWeight = left.status === "EM_ATRASO" ? -100 : left.daysRemaining ?? 999;
-        const rightWeight = right.status === "EM_ATRASO" ? -100 : right.daysRemaining ?? 999;
+        const leftWeight =
+          left.status === "EM_ATRASO" ? -100 : (left.daysRemaining ?? 999);
+        const rightWeight =
+          right.status === "EM_ATRASO" ? -100 : (right.daysRemaining ?? 999);
         return leftWeight - rightWeight;
       })
       .slice(0, 8);
@@ -479,31 +609,55 @@ export const prazosRouter = router({
 
     const openItems = all.filter((item: any) => item.status !== "CONCLUIDO");
     const atrasados = openItems.filter((item: any) => isItemOverdue(item));
-    const em48h = openItems.filter((item: any) => item.daysRemaining !== null && item.daysRemaining >= 0 && item.daysRemaining <= 2);
-    const semana = openItems.filter((item: any) => item.daysRemaining !== null && item.daysRemaining >= 0 && item.daysRemaining <= 7);
+    const em48h = openItems.filter(
+      (item: any) =>
+        item.daysRemaining !== null &&
+        item.daysRemaining >= 0 &&
+        item.daysRemaining <= 2,
+    );
+    const semana = openItems.filter(
+      (item: any) =>
+        item.daysRemaining !== null &&
+        item.daysRemaining >= 0 &&
+        item.daysRemaining <= 7,
+    );
     const concluidosSemana = all.filter((item: any) => {
       if (item.status !== "CONCLUIDO") return false;
       const baseDate = parseDateValue(item.dataRealizada ?? item.atualizadoEm);
       if (!baseDate) return false;
-      return baseDate >= startOfDay(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      return (
+        baseDate >= startOfDay(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+      );
     });
 
     const delegados = currentUserId
-      ? tarefas.filter((item: any) => item.delegadoPorId === currentUserId && item.status !== "CONCLUIDO")
+      ? tarefas.filter(
+          (item: any) =>
+            item.delegadoPorId === currentUserId && item.status !== "CONCLUIDO",
+        )
       : [];
     const meusItens = currentUserId
       ? all.filter(
           (item: any) =>
             item.responsavelId === currentUserId ||
             item.delegadoPorId === currentUserId ||
-            (item.itemTipo === "PRAZO_PROCESSUAL" && item.criadoPor === currentUserId),
+            (item.itemTipo === "PRAZO_PROCESSUAL" &&
+              item.criadoPor === currentUserId),
         )
       : [];
     const meusAtrasados = meusItens.filter((item: any) => isItemOverdue(item));
-    const meus48h = meusItens.filter((item: any) => item.status !== "CONCLUIDO" && item.daysRemaining !== null && item.daysRemaining >= 0 && item.daysRemaining <= 2);
+    const meus48h = meusItens.filter(
+      (item: any) =>
+        item.status !== "CONCLUIDO" &&
+        item.daysRemaining !== null &&
+        item.daysRemaining >= 0 &&
+        item.daysRemaining <= 2,
+    );
 
     const alerts = openItems
-      .filter((item: any) => item.daysRemaining !== null && item.daysRemaining <= 2)
+      .filter(
+        (item: any) => item.daysRemaining !== null && item.daysRemaining <= 2,
+      )
       .sort(compareAgendaItems)
       .slice(0, 10);
 
@@ -514,7 +668,9 @@ export const prazosRouter = router({
       estaSemana: semana.length,
       delegados: delegados.length,
       concluidosSemana: concluidosSemana.length,
-      tarefasPendentes: tarefas.filter((item: any) => item.status !== "CONCLUIDO").length,
+      tarefasPendentes: tarefas.filter(
+        (item: any) => item.status !== "CONCLUIDO",
+      ).length,
       meusAtrasados: meusAtrasados.length,
       meus48h: meus48h.length,
       alerts,
@@ -571,11 +727,18 @@ export const prazosRouter = router({
     const items = Array.from(byResponsible.values())
       .map((item) => ({
         ...item,
-        abertos: item.pendente + item.emAndamento + item.aguardando + item.bloqueado,
+        abertos:
+          item.pendente + item.emAndamento + item.aguardando + item.bloqueado,
       }))
-      .sort((left, right) => right.abertos - left.abertos || left.responsavelNome.localeCompare(right.responsavelNome));
+      .sort(
+        (left, right) =>
+          right.abertos - left.abertos ||
+          left.responsavelNome.localeCompare(right.responsavelNome),
+      );
 
-    const mediaAbertos = items.length ? items.reduce((acc, item) => acc + item.abertos, 0) / items.length : 0;
+    const mediaAbertos = items.length
+      ? items.reduce((acc, item) => acc + item.abertos, 0) / items.length
+      : 0;
 
     return {
       periodo: {
@@ -590,186 +753,209 @@ export const prazosRouter = router({
     };
   }),
 
-  agendaList: publicProcedure.input(prazoAgendaListInputSchema).query(async ({ ctx, input }) => {
-    const db = requireDb();
-    const currentUserId = ctx.user?.id ?? null;
-    const { all } = await loadAgendaItems(db);
-    const items = filterAgendaItems(all, input, currentUserId);
-    const total = items.length;
-    const offset = (input.pagina - 1) * input.limite;
-    const paged = items.slice(offset, offset + input.limite);
+  agendaList: publicProcedure
+    .input(prazoAgendaListInputSchema)
+    .query(async ({ ctx, input }) => {
+      const db = requireDb();
+      const currentUserId = ctx.user?.id ?? null;
+      const { all } = await loadAgendaItems(db);
+      const items = filterAgendaItems(all, input, currentUserId);
+      const total = items.length;
+      const offset = (input.pagina - 1) * input.limite;
+      const paged = items.slice(offset, offset + input.limite);
 
-    return {
-      pagina: input.pagina,
-      limite: input.limite,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / input.limite)),
-      items: paged,
-    };
-  }),
+      return {
+        pagina: input.pagina,
+        limite: input.limite,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / input.limite)),
+        items: paged,
+      };
+    }),
 
+  agendaShareCreate: operadorProcedure
+    .input(agendaShareCreateInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const now = new Date();
+      const token = randomBytes(24).toString("base64url");
+      const filtros = normalizeShareFilters(input.filtros);
+      const ownerId = ctx.user?.id;
+      if (!ownerId) {
+        throw new Error("Usuario nao autenticado.");
+      }
 
-  agendaShareCreate: operadorProcedure.input(agendaShareCreateInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const now = new Date();
-    const token = randomBytes(24).toString("base64url");
-    const filtros = normalizeShareFilters(input.filtros);
-    const ownerId = ctx.user?.id;
-    if (!ownerId) {
-      throw new Error("Usuario nao autenticado.");
-    }
+      const [created] = await db
+        .insert(prazosAgendaCompartilhamentos)
+        .values({
+          token,
+          compartilhadoPorId: ownerId,
+          compartilhadoComId: input.compartilhadoComId ?? null,
+          permissao: input.permissao,
+          filtros,
+          ativo: true,
+          criadoEm: now,
+          atualizadoEm: now,
+        })
+        .returning();
 
-    const [created] = await db
-      .insert(prazosAgendaCompartilhamentos)
-      .values({
-        token,
-        compartilhadoPorId: ownerId,
-        compartilhadoComId: input.compartilhadoComId ?? null,
-        permissao: input.permissao,
-        filtros,
-        ativo: true,
-        criadoEm: now,
-        atualizadoEm: now,
-      })
-      .returning();
+      return {
+        token: created.token,
+        permissao: created.permissao,
+        compartilhadoComId: created.compartilhadoComId ?? null,
+        criadoEm: created.criadoEm,
+      };
+    }),
 
-    return {
-      token: created.token,
-      permissao: created.permissao,
-      compartilhadoComId: created.compartilhadoComId ?? null,
-      criadoEm: created.criadoEm,
-    };
-  }),
+  agendaShareResolve: publicProcedure
+    .input(agendaShareResolveInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const share = await loadAgendaShare(db, input.token);
+      const names = await loadUserNames(db, [
+        share.compartilhadoPorId,
+        share.compartilhadoComId ?? null,
+      ]);
+      const now = new Date();
 
-  agendaShareResolve: publicProcedure.input(agendaShareResolveInputSchema).query(async ({ input }) => {
-    const db = requireDb();
-    const share = await loadAgendaShare(db, input.token);
-    const names = await loadUserNames(db, [share.compartilhadoPorId, share.compartilhadoComId ?? null]);
-    const now = new Date();
+      await db
+        .update(prazosAgendaCompartilhamentos)
+        .set({ ultimoAcessoEm: now, atualizadoEm: now })
+        .where(eq(prazosAgendaCompartilhamentos.id, share.id));
 
-    await db
-      .update(prazosAgendaCompartilhamentos)
-      .set({ ultimoAcessoEm: now, atualizadoEm: now })
-      .where(eq(prazosAgendaCompartilhamentos.id, share.id));
+      return {
+        token: share.token,
+        permissao: share.permissao,
+        filtros: normalizeShareFilters(share.filtros),
+        compartilhadoPor: names.get(share.compartilhadoPorId) ?? null,
+        compartilhadoCom: share.compartilhadoComId
+          ? (names.get(share.compartilhadoComId) ?? null)
+          : null,
+        compartilhadoComId: share.compartilhadoComId ?? null,
+        expiraEm: share.expiraEm ?? null,
+      };
+    }),
 
-    return {
-      token: share.token,
-      permissao: share.permissao,
-      filtros: normalizeShareFilters(share.filtros),
-      compartilhadoPor: names.get(share.compartilhadoPorId) ?? null,
-      compartilhadoCom: share.compartilhadoComId ? names.get(share.compartilhadoComId) ?? null : null,
-      compartilhadoComId: share.compartilhadoComId ?? null,
-      expiraEm: share.expiraEm ?? null,
-    };
-  }),
+  agendaSharedList: publicProcedure
+    .input(agendaSharedListInputSchema)
+    .query(async ({ input }) => {
+      const db = requireDb();
+      const share = await loadAgendaShare(db, input.token);
+      const shareFilters = normalizeShareFilters(share.filtros);
+      const { all } = await loadAgendaItems(db);
+      const contextUserId = resolveShareContextUserId(share);
+      const items = filterAgendaItems(
+        all,
+        {
+          ...shareFilters,
+          busca: input.busca ?? shareFilters.busca,
+        },
+        contextUserId,
+      );
 
-  agendaSharedList: publicProcedure.input(agendaSharedListInputSchema).query(async ({ input }) => {
-    const db = requireDb();
-    const share = await loadAgendaShare(db, input.token);
-    const shareFilters = normalizeShareFilters(share.filtros);
-    const { all } = await loadAgendaItems(db);
-    const contextUserId = resolveShareContextUserId(share);
-    const items = filterAgendaItems(
-      all,
-      {
-        ...shareFilters,
-        busca: input.busca ?? shareFilters.busca,
-      },
-      contextUserId,
-    );
+      const total = items.length;
+      const offset = (input.pagina - 1) * input.limite;
+      const paged = items.slice(offset, offset + input.limite);
 
-    const total = items.length;
-    const offset = (input.pagina - 1) * input.limite;
-    const paged = items.slice(offset, offset + input.limite);
+      await db
+        .update(prazosAgendaCompartilhamentos)
+        .set({ ultimoAcessoEm: new Date(), atualizadoEm: new Date() })
+        .where(eq(prazosAgendaCompartilhamentos.id, share.id));
 
-    await db
-      .update(prazosAgendaCompartilhamentos)
-      .set({ ultimoAcessoEm: new Date(), atualizadoEm: new Date() })
-      .where(eq(prazosAgendaCompartilhamentos.id, share.id));
+      return {
+        pagina: input.pagina,
+        limite: input.limite,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / input.limite)),
+        items: paged,
+        permissao: share.permissao,
+      };
+    }),
 
-    return {
-      pagina: input.pagina,
-      limite: input.limite,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / input.limite)),
-      items: paged,
-      permissao: share.permissao,
-    };
-  }),
+  agendaSharedComment: publicProcedure
+    .input(agendaSharedCommentInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const share = await loadAgendaShare(db, input.token);
+      if (share.permissao !== "COMENTARIOS") {
+        throw new Error("Compartilhamento apenas para visualizacao.");
+      }
 
-  agendaSharedComment: publicProcedure.input(agendaSharedCommentInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const share = await loadAgendaShare(db, input.token);
-    if (share.permissao !== "COMENTARIOS") {
-      throw new Error("Compartilhamento apenas para visualizacao.");
-    }
+      const now = new Date();
+      if (input.itemTipo === "TAREFA_EQUIPE") {
+        const [previous] = await db
+          .select()
+          .from(tarefasEquipe)
+          .where(eq(tarefasEquipe.id, input.itemId))
+          .limit(1);
+        if (!previous) {
+          throw new Error("Tarefa nao encontrada.");
+        }
 
-    const now = new Date();
-    if (input.itemTipo === "TAREFA_EQUIPE") {
+        const [updated] = await db
+          .update(tarefasEquipe)
+          .set({
+            descricao: appendTextBlock(
+              previous.descricao,
+              input.comentario,
+            ) as any,
+            atualizadoEm: now,
+          })
+          .where(eq(tarefasEquipe.id, input.itemId))
+          .returning();
+
+        await logAuditoria(ctx, {
+          tabela: "tarefas_equipe",
+          registroId: updated.id,
+          acao: "UPDATE",
+          dadosAnteriores: previous,
+          dadosNovos: updated,
+          descricao: `Comentario adicionado via compartilhamento na tarefa ${updated.titulo}`,
+        });
+
+        return updated;
+      }
+
       const [previous] = await db
         .select()
-        .from(tarefasEquipe)
-        .where(eq(tarefasEquipe.id, input.itemId))
+        .from(prazosProcessuais)
+        .where(eq(prazosProcessuais.id, input.itemId))
         .limit(1);
       if (!previous) {
-        throw new Error("Tarefa nao encontrada.");
+        throw new Error("Prazo nao encontrado.");
       }
 
       const [updated] = await db
-        .update(tarefasEquipe)
+        .update(prazosProcessuais)
         .set({
-          descricao: appendTextBlock(previous.descricao, input.comentario) as any,
+          observacao: appendTextBlock(
+            previous.observacao,
+            input.comentario,
+          ) as any,
           atualizadoEm: now,
         })
-        .where(eq(tarefasEquipe.id, input.itemId))
+        .where(eq(prazosProcessuais.id, input.itemId))
         .returning();
 
       await logAuditoria(ctx, {
-        tabela: "tarefas_equipe",
+        tabela: "prazos_processuais",
         registroId: updated.id,
         acao: "UPDATE",
         dadosAnteriores: previous,
         dadosNovos: updated,
-        descricao: `Comentario adicionado via compartilhamento na tarefa ${updated.titulo}`,
+        descricao: `Comentario adicionado via compartilhamento no prazo ${updated.titulo}`,
       });
 
       return updated;
-    }
-
-    const [previous] = await db
-      .select()
-      .from(prazosProcessuais)
-      .where(eq(prazosProcessuais.id, input.itemId))
-      .limit(1);
-    if (!previous) {
-      throw new Error("Prazo nao encontrado.");
-    }
-
-    const [updated] = await db
-      .update(prazosProcessuais)
-      .set({
-        observacao: appendTextBlock(previous.observacao, input.comentario) as any,
-        atualizadoEm: now,
-      })
-      .where(eq(prazosProcessuais.id, input.itemId))
-      .returning();
-
-    await logAuditoria(ctx, {
-      tabela: "prazos_processuais",
-      registroId: updated.id,
-      acao: "UPDATE",
-      dadosAnteriores: previous,
-      dadosNovos: updated,
-      descricao: `Comentario adicionado via compartilhamento no prazo ${updated.titulo}`,
-    });
-
-    return updated;
-  }),  list: publicProcedure.input(prazoListInputSchema).query(async ({ input }) => {
+    }),
+  list: publicProcedure.input(prazoListInputSchema).query(async ({ input }) => {
     const db = requireDb();
     const filters: any[] = [];
 
-    if (input.processoId) filters.push(eq(prazosProcessuais.processoId, input.processoId));
-    if (input.tipo) filters.push(eq(prazosProcessuais.tipo, input.tipo as never));
+    if (input.processoId)
+      filters.push(eq(prazosProcessuais.processoId, input.processoId));
+    if (input.tipo)
+      filters.push(eq(prazosProcessuais.tipo, input.tipo as never));
     if (input.status === "CONCLUIDO") {
       filters.push(eq(prazosProcessuais.status, "CONCLUIDO"));
     }
@@ -816,7 +1002,11 @@ export const prazosRouter = router({
       items = items.filter((item) => item.status === input.status);
     }
     if (input.somenteCriticos) {
-      items = items.filter((item) => item.status === "EM_ATRASO" || (item.daysRemaining !== null && item.daysRemaining <= 2));
+      items = items.filter(
+        (item) =>
+          item.status === "EM_ATRASO" ||
+          (item.daysRemaining !== null && item.daysRemaining <= 2),
+      );
     }
 
     const total = items.length;
@@ -864,27 +1054,87 @@ export const prazosRouter = router({
       .orderBy(asc(users.name));
   }),
 
-  save: operadorProcedure.input(prazoSaveInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const dataPrevista = toDateOnly(input.dataPrevista);
-    const status: PrazoProcessualInsert["status"] =
-      new Date(`${dataPrevista}T00:00:00`) < startOfDay() ? "EM_ATRASO" : "PENDENTE";
-    const payload: PrazoProcessualInsert = {
-      processoId: input.processoId,
-      tipo: input.tipo,
-      titulo: input.titulo.trim(),
-      dataPrevista,
-      status,
-      responsavelId: input.responsavelId ?? ctx.user?.id ?? null,
-      observacao: input.observacao?.trim() || null,
-      alertasConfig: { lembretes: Array.from(new Set(input.lembretes)).sort((a, b) => b - a), canais: ["sistema"] },
-      atualizadoEm: new Date(),
-    };
+  save: operadorProcedure
+    .input(prazoSaveInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const dataPrevista = toDateOnly(input.dataPrevista);
+      const status: PrazoProcessualInsert["status"] =
+        new Date(`${dataPrevista}T00:00:00`) < startOfDay()
+          ? "EM_ATRASO"
+          : "PENDENTE";
+      const payload: PrazoProcessualInsert = {
+        processoId: input.processoId,
+        tipo: input.tipo,
+        titulo: input.titulo.trim(),
+        dataPrevista,
+        status,
+        responsavelId: input.responsavelId ?? ctx.user?.id ?? null,
+        observacao: input.observacao?.trim() || null,
+        alertasConfig: {
+          lembretes: Array.from(new Set(input.lembretes)).sort((a, b) => b - a),
+          canais: ["sistema"],
+        },
+        atualizadoEm: new Date(),
+      };
 
-    if (input.prazoId) {
+      if (input.prazoId) {
+        const [updated] = await db
+          .update(prazosProcessuais)
+          .set(payload)
+          .where(eq(prazosProcessuais.id, input.prazoId))
+          .returning();
+
+        if (!updated) {
+          throw new Error("Prazo não encontrado.");
+        }
+
+        await logAuditoria(ctx, {
+          tabela: "prazos_processuais",
+          registroId: updated.id,
+          acao: "UPDATE",
+          dadosNovos: updated,
+          descricao: `Prazo ${updated.titulo} atualizado`,
+        });
+
+        return updated;
+      }
+
+      const [created] = await db
+        .insert(prazosProcessuais)
+        .values({
+          ...payload,
+          criadoPor: ctx.user?.id ?? null,
+          criadoEm: new Date(),
+        })
+        .returning();
+
+      await logAuditoria(ctx, {
+        tabela: "prazos_processuais",
+        registroId: created.id,
+        acao: "CREATE",
+        dadosNovos: created,
+        descricao: `Prazo ${created.titulo} criado`,
+      });
+
+      return created;
+    }),
+
+  conclude: operadorProcedure
+    .input(prazoConcluirInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const now = new Date();
       const [updated] = await db
         .update(prazosProcessuais)
-        .set(payload)
+        .set({
+          dataRealizada: input.dataRealizada
+            ? toDateOnly(input.dataRealizada)
+            : now.toISOString().slice(0, 10),
+          status: "CONCLUIDO",
+          observacao: input.observacaoConclusao?.trim() || null,
+          atualizadoEm: now,
+        })
         .where(eq(prazosProcessuais.id, input.prazoId))
         .returning();
 
@@ -892,150 +1142,211 @@ export const prazosRouter = router({
         throw new Error("Prazo não encontrado.");
       }
 
+      if (input.arquivarTarefasRelacionadas) {
+        const tarefasAtualizadas = await db
+          .update(tarefasEquipe)
+          .set({
+            status: "CONCLUIDO",
+            concluidaEm: now,
+            atualizadoEm: now,
+            descricao: `Arquivada automaticamente após conclusão do prazo #${updated.id}.`,
+          })
+          .where(
+            and(
+              eq(tarefasEquipe.prazoId, updated.id),
+              ne(tarefasEquipe.status, "CONCLUIDO"),
+            ),
+          )
+          .returning();
+
+        for (const tarefa of tarefasAtualizadas) {
+          await logAuditoria(ctx, {
+            tabela: "tarefas_equipe",
+            registroId: tarefa.id,
+            acao: "UPDATE",
+            dadosNovos: tarefa,
+            descricao: `Tarefa ${tarefa.titulo} arquivada pela conclusão do prazo ${updated.titulo}`,
+          });
+        }
+      }
+
       await logAuditoria(ctx, {
         tabela: "prazos_processuais",
         registroId: updated.id,
         acao: "UPDATE",
         dadosNovos: updated,
-        descricao: `Prazo ${updated.titulo} atualizado`,
+        descricao: `Prazo ${updated.titulo} concluído`,
       });
 
+      const notificationTargets = Array.from(
+        new Set(
+          [
+            updated.responsavelId,
+            updated.criadoPor,
+            ctx.user?.id ?? null,
+          ].filter((id): id is number => typeof id === "number" && id > 0),
+        ),
+      );
+      if (notificationTargets.length) {
+        await upsertSystemNotifications(
+          db,
+          notificationTargets.map((userId) => ({
+            userId,
+            processoId: updated.processoId,
+            prazoId: updated.id,
+            chave: `prazo:${updated.id}:concluido`,
+            titulo: "Prazo concluído",
+            mensagem: `${updated.titulo} foi concluído.`,
+            prioridade: "MEDIA",
+            href: "/prazos",
+          })),
+        );
+      }
+
       return updated;
-    }
+    }),
 
-    const [created] = await db
-      .insert(prazosProcessuais)
-      .values({
-        ...payload,
-        criadoPor: ctx.user?.id ?? null,
-        criadoEm: new Date(),
-      })
-      .returning();
-
-    await logAuditoria(ctx, {
-      tabela: "prazos_processuais",
-      registroId: created.id,
-      acao: "CREATE",
-      dadosNovos: created,
-      descricao: `Prazo ${created.titulo} criado`,
-    });
-
-    return created;
-  }),
-
-  conclude: operadorProcedure.input(prazoConcluirInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const now = new Date();
-    const [updated] = await db
-      .update(prazosProcessuais)
-      .set({
-        dataRealizada: input.dataRealizada ? toDateOnly(input.dataRealizada) : now.toISOString().slice(0, 10),
-        status: "CONCLUIDO",
-        observacao: input.observacaoConclusao?.trim() || null,
-        atualizadoEm: now,
-      })
-      .where(eq(prazosProcessuais.id, input.prazoId))
-      .returning();
-
-    if (!updated) {
-      throw new Error("Prazo não encontrado.");
-    }
-
-    if (input.arquivarTarefasRelacionadas) {
-      const tarefasAtualizadas = await db
-        .update(tarefasEquipe)
-        .set({
-          status: "CONCLUIDO",
-          concluidaEm: now,
-          atualizadoEm: now,
-          descricao: `Arquivada automaticamente após conclusão do prazo #${updated.id}.`,
-        })
-        .where(and(eq(tarefasEquipe.prazoId, updated.id), ne(tarefasEquipe.status, "CONCLUIDO")))
+  remove: operadorProcedure
+    .input(prazoDeleteInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [deleted] = await db
+        .delete(prazosProcessuais)
+        .where(eq(prazosProcessuais.id, input.prazoId))
         .returning();
+      if (!deleted) {
+        throw new Error("Prazo não encontrado.");
+      }
 
-      for (const tarefa of tarefasAtualizadas) {
+      await logAuditoria(ctx, {
+        tabela: "prazos_processuais",
+        registroId: deleted.id,
+        acao: "DELETE",
+        dadosAnteriores: deleted,
+        descricao: `Prazo ${deleted.titulo} removido`,
+      });
+
+      return { success: true };
+    }),
+
+  taskSave: operadorProcedure
+    .input(tarefaEquipeSaveInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const now = new Date();
+      const payload: TarefaEquipeInsert = {
+        processoId: input.processoId ?? null,
+        prazoId: input.prazoId ?? null,
+        titulo: input.titulo.trim(),
+        descricao: input.descricao?.trim() || null,
+        dataEntrega: toDateOnly(input.dataEntrega),
+        prioridade: input.prioridade,
+        status: input.status,
+        delegadoPorId: ctx.user?.id ?? null,
+        responsavelId: input.responsavelId,
+        notificarResponsavel: input.notificarResponsavel,
+        concluidaEm: input.status === "CONCLUIDO" ? now : null,
+        atualizadoEm: now,
+      };
+
+      if (input.tarefaId) {
+        const [previous] = await db
+          .select()
+          .from(tarefasEquipe)
+          .where(eq(tarefasEquipe.id, input.tarefaId))
+          .limit(1);
+        if (!previous) {
+          throw new Error("Tarefa não encontrada.");
+        }
+
+        const [updated] = await db
+          .update(tarefasEquipe)
+          .set({
+            ...payload,
+            atualizadoEm: now,
+            delegadoPorId:
+              previous.responsavelId !== input.responsavelId
+                ? (ctx.user?.id ?? previous.delegadoPorId ?? null)
+                : (previous.delegadoPorId ?? ctx.user?.id ?? null),
+          })
+          .where(eq(tarefasEquipe.id, input.tarefaId))
+          .returning();
+
         await logAuditoria(ctx, {
           tabela: "tarefas_equipe",
-          registroId: tarefa.id,
+          registroId: updated.id,
           acao: "UPDATE",
-          dadosNovos: tarefa,
-          descricao: `Tarefa ${tarefa.titulo} arquivada pela conclusão do prazo ${updated.titulo}`,
+          dadosAnteriores: previous,
+          dadosNovos: updated,
+          descricao: `Tarefa ${updated.titulo} atualizada`,
         });
+
+        if (updated.notificarResponsavel && updated.responsavelId) {
+          const houveDelegacao =
+            previous.responsavelId !== updated.responsavelId;
+          await upsertSystemNotifications(db, [
+            {
+              userId: updated.responsavelId,
+              processoId: updated.processoId ?? null,
+              prazoId: updated.prazoId ?? null,
+              chave: `tarefa:${updated.id}:save:${updated.responsavelId}:${updated.status}:${updated.dataEntrega}`,
+              titulo: houveDelegacao
+                ? "Nova tarefa delegada"
+                : "Tarefa atualizada",
+              mensagem: `${updated.titulo} com entrega em ${updated.dataEntrega}.`,
+              prioridade: updated.prioridade === "ALTA" ? "ALTA" : "MEDIA",
+              href: "/prazos",
+            },
+          ]);
+        }
+
+        return updated;
       }
-    }
 
-    await logAuditoria(ctx, {
-      tabela: "prazos_processuais",
-      registroId: updated.id,
-      acao: "UPDATE",
-      dadosNovos: updated,
-      descricao: `Prazo ${updated.titulo} concluído`,
-    });
+      const [created] = await db
+        .insert(tarefasEquipe)
+        .values({
+          ...payload,
+          criadoEm: now,
+        })
+        .returning();
 
-    const notificationTargets = Array.from(
-      new Set(
-        [updated.responsavelId, updated.criadoPor, ctx.user?.id ?? null].filter(
-          (id): id is number => typeof id === "number" && id > 0,
-        ),
-      ),
-    );
-    if (notificationTargets.length) {
-      await upsertSystemNotifications(
-        db,
-        notificationTargets.map((userId) => ({
-          userId,
-          processoId: updated.processoId,
-          prazoId: updated.id,
-          chave: `prazo:${updated.id}:concluido`,
-          titulo: "Prazo concluído",
-          mensagem: `${updated.titulo} foi concluído.`,
-          prioridade: "MEDIA",
-          href: "/prazos",
-        })),
-      );
-    }
+      await logAuditoria(ctx, {
+        tabela: "tarefas_equipe",
+        registroId: created.id,
+        acao: "CREATE",
+        dadosNovos: created,
+        descricao: `Tarefa ${created.titulo} criada`,
+      });
 
-    return updated;
-  }),
+      if (created.notificarResponsavel && created.responsavelId) {
+        await upsertSystemNotifications(db, [
+          {
+            userId: created.responsavelId,
+            processoId: created.processoId ?? null,
+            prazoId: created.prazoId ?? null,
+            chave: `tarefa:${created.id}:create:${created.responsavelId}:${created.dataEntrega}`,
+            titulo: "Nova tarefa delegada",
+            mensagem: `${created.titulo} com entrega em ${created.dataEntrega}.`,
+            prioridade: created.prioridade === "ALTA" ? "ALTA" : "MEDIA",
+            href: "/prazos",
+          },
+        ]);
+      }
 
-  remove: operadorProcedure.input(prazoDeleteInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const [deleted] = await db.delete(prazosProcessuais).where(eq(prazosProcessuais.id, input.prazoId)).returning();
-    if (!deleted) {
-      throw new Error("Prazo não encontrado.");
-    }
+      return created;
+    }),
 
-    await logAuditoria(ctx, {
-      tabela: "prazos_processuais",
-      registroId: deleted.id,
-      acao: "DELETE",
-      dadosAnteriores: deleted,
-      descricao: `Prazo ${deleted.titulo} removido`,
-    });
-
-    return { success: true };
-  }),
-
-  taskSave: operadorProcedure.input(tarefaEquipeSaveInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const now = new Date();
-    const payload: TarefaEquipeInsert = {
-      processoId: input.processoId ?? null,
-      prazoId: input.prazoId ?? null,
-      titulo: input.titulo.trim(),
-      descricao: input.descricao?.trim() || null,
-      dataEntrega: toDateOnly(input.dataEntrega),
-      prioridade: input.prioridade,
-      status: input.status,
-      delegadoPorId: ctx.user?.id ?? null,
-      responsavelId: input.responsavelId,
-      notificarResponsavel: input.notificarResponsavel,
-      concluidaEm: input.status === "CONCLUIDO" ? now : null,
-      atualizadoEm: now,
-    };
-
-    if (input.tarefaId) {
-      const [previous] = await db.select().from(tarefasEquipe).where(eq(tarefasEquipe.id, input.tarefaId)).limit(1);
+  taskSetStatus: operadorProcedure
+    .input(tarefaEquipeStatusInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const now = new Date();
+      const [previous] = await db
+        .select()
+        .from(tarefasEquipe)
+        .where(eq(tarefasEquipe.id, input.tarefaId))
+        .limit(1);
       if (!previous) {
         throw new Error("Tarefa não encontrada.");
       }
@@ -1043,12 +1354,16 @@ export const prazosRouter = router({
       const [updated] = await db
         .update(tarefasEquipe)
         .set({
-          ...payload,
+          status: input.status,
+          dataEntrega: input.dataEntrega
+            ? toDateOnly(input.dataEntrega)
+            : undefined,
+          descricao: appendTextBlock(
+            previous.descricao,
+            input.comentario,
+          ) as any,
+          concluidaEm: input.status === "CONCLUIDO" ? now : null,
           atualizadoEm: now,
-          delegadoPorId:
-            previous.responsavelId !== input.responsavelId
-              ? ctx.user?.id ?? previous.delegadoPorId ?? null
-              : previous.delegadoPorId ?? ctx.user?.id ?? null,
         })
         .where(eq(tarefasEquipe.id, input.tarefaId))
         .returning();
@@ -1059,146 +1374,208 @@ export const prazosRouter = router({
         acao: "UPDATE",
         dadosAnteriores: previous,
         dadosNovos: updated,
-        descricao: `Tarefa ${updated.titulo} atualizada`,
+        descricao: `Status da tarefa ${updated.titulo} atualizado para ${updated.status}`,
       });
 
-      if (updated.notificarResponsavel && updated.responsavelId) {
-        const houveDelegacao = previous.responsavelId !== updated.responsavelId;
-        await upsertSystemNotifications(db, [
-          {
-            userId: updated.responsavelId,
-            processoId: updated.processoId ?? null,
-            prazoId: updated.prazoId ?? null,
-            chave: `tarefa:${updated.id}:save:${updated.responsavelId}:${updated.status}:${updated.dataEntrega}`,
-            titulo: houveDelegacao ? "Nova tarefa delegada" : "Tarefa atualizada",
-            mensagem: `${updated.titulo} com entrega em ${updated.dataEntrega}.`,
-            prioridade: updated.prioridade === "ALTA" ? "ALTA" : "MEDIA",
-            href: "/prazos",
-          },
-        ]);
+      const notifications: SystemNotificationPayload[] = [];
+      if (updated.responsavelId) {
+        notifications.push({
+          userId: updated.responsavelId,
+          processoId: updated.processoId ?? null,
+          prazoId: updated.prazoId ?? null,
+          chave: `tarefa:${updated.id}:status:${updated.status}:${updated.atualizadoEm}`,
+          titulo: "Status de tarefa atualizado",
+          mensagem: `${updated.titulo} está em ${updated.status}.`,
+          prioridade: updated.status === "BLOQUEADO" ? "ALTA" : "MEDIA",
+          href: "/prazos",
+        });
+      }
+
+      if (updated.status === "CONCLUIDO" && updated.prazoId) {
+        const tarefaAberta = await db
+          .select({ id: tarefasEquipe.id })
+          .from(tarefasEquipe)
+          .where(
+            and(
+              eq(tarefasEquipe.prazoId, updated.prazoId),
+              ne(tarefasEquipe.status, "CONCLUIDO"),
+            ),
+          )
+          .limit(1);
+
+        if (!tarefaAberta.length) {
+          const [prazoAtualizado] = await db
+            .update(prazosProcessuais)
+            .set({
+              status: "CONCLUIDO",
+              dataRealizada: now.toISOString().slice(0, 10),
+              atualizadoEm: now,
+            })
+            .where(
+              and(
+                eq(prazosProcessuais.id, updated.prazoId),
+                ne(prazosProcessuais.status, "CONCLUIDO"),
+              ),
+            )
+            .returning();
+
+          if (prazoAtualizado) {
+            await logAuditoria(ctx, {
+              tabela: "prazos_processuais",
+              registroId: prazoAtualizado.id,
+              acao: "UPDATE",
+              dadosNovos: prazoAtualizado,
+              descricao: `Prazo ${prazoAtualizado.titulo} concluído automaticamente por tarefas finalizadas`,
+            });
+
+            const targets = Array.from(
+              new Set(
+                [
+                  prazoAtualizado.responsavelId,
+                  prazoAtualizado.criadoPor,
+                ].filter(
+                  (id): id is number => typeof id === "number" && id > 0,
+                ),
+              ),
+            );
+
+            notifications.push(
+              ...targets.map((userId) => ({
+                userId,
+                processoId: prazoAtualizado.processoId,
+                prazoId: prazoAtualizado.id,
+                chave: `prazo:${prazoAtualizado.id}:auto-concluido`,
+                titulo: "Prazo concluído automaticamente",
+                mensagem: `${prazoAtualizado.titulo} foi concluído após finalização das tarefas relacionadas.`,
+                prioridade: "MEDIA" as const,
+                href: "/prazos",
+              })),
+            );
+          }
+        }
+      }
+
+      if (notifications.length) {
+        await upsertSystemNotifications(db, notifications);
       }
 
       return updated;
-    }
+    }),
 
-    const [created] = await db
-      .insert(tarefasEquipe)
-      .values({
-        ...payload,
-        criadoEm: now,
-      })
-      .returning();
+  taskBulkAction: operadorProcedure
+    .input(tarefaEquipeBulkInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const now = new Date();
+      const patch: Partial<TarefaEquipeInsert> = { atualizadoEm: now };
 
-    await logAuditoria(ctx, {
-      tabela: "tarefas_equipe",
-      registroId: created.id,
-      acao: "CREATE",
-      dadosNovos: created,
-      descricao: `Tarefa ${created.titulo} criada`,
-    });
+      if (input.acao === "CONCLUIR") {
+        patch.status = "CONCLUIDO";
+        patch.concluidaEm = now;
+      } else if (input.acao === "DELEGAR") {
+        if (!input.responsavelId) {
+          throw new Error("Informe o responsável para delegar.");
+        }
+        patch.responsavelId = input.responsavelId;
+        patch.delegadoPorId = ctx.user?.id ?? null;
+        patch.concluidaEm = null;
+        if (input.comentario) patch.descricao = input.comentario.trim();
+      } else if (input.acao === "REAGENDAR") {
+        if (!input.dataEntrega) {
+          throw new Error("Informe uma data para reagendar.");
+        }
+        patch.dataEntrega = toDateOnly(input.dataEntrega);
+        patch.concluidaEm = null;
+        if (input.comentario) patch.descricao = input.comentario.trim();
+      }
 
-    if (created.notificarResponsavel && created.responsavelId) {
-      await upsertSystemNotifications(db, [
-        {
-          userId: created.responsavelId,
-          processoId: created.processoId ?? null,
-          prazoId: created.prazoId ?? null,
-          chave: `tarefa:${created.id}:create:${created.responsavelId}:${created.dataEntrega}`,
-          titulo: "Nova tarefa delegada",
-          mensagem: `${created.titulo} com entrega em ${created.dataEntrega}.`,
-          prioridade: created.prioridade === "ALTA" ? "ALTA" : "MEDIA",
-          href: "/prazos",
-        },
-      ]);
-    }
+      const updated = await db
+        .update(tarefasEquipe)
+        .set(patch)
+        .where(inArray(tarefasEquipe.id, input.tarefaIds))
+        .returning();
 
-    return created;
-  }),
+      const notifications: SystemNotificationPayload[] = [];
+      const prazoIdsConcluidos = new Set<number>();
 
-  taskSetStatus: operadorProcedure.input(tarefaEquipeStatusInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const now = new Date();
-    const [previous] = await db.select().from(tarefasEquipe).where(eq(tarefasEquipe.id, input.tarefaId)).limit(1);
-    if (!previous) {
-      throw new Error("Tarefa não encontrada.");
-    }
+      for (const item of updated) {
+        await logAuditoria(ctx, {
+          tabela: "tarefas_equipe",
+          registroId: item.id,
+          acao: "UPDATE",
+          dadosNovos: item,
+          descricao: `Ação em lote (${input.acao}) na tarefa ${item.titulo}`,
+        });
 
-    const [updated] = await db
-      .update(tarefasEquipe)
-      .set({
-        status: input.status,
-        dataEntrega: input.dataEntrega ? toDateOnly(input.dataEntrega) : undefined,
-        descricao: appendTextBlock(previous.descricao, input.comentario) as any,
-        concluidaEm: input.status === "CONCLUIDO" ? now : null,
-        atualizadoEm: now,
-      })
-      .where(eq(tarefasEquipe.id, input.tarefaId))
-      .returning();
+        if (input.acao === "DELEGAR" && item.responsavelId) {
+          notifications.push({
+            userId: item.responsavelId,
+            processoId: item.processoId ?? null,
+            prazoId: item.prazoId ?? null,
+            chave: `tarefa:${item.id}:delegada-lote:${item.responsavelId}:${item.atualizadoEm}`,
+            titulo: "Nova tarefa delegada",
+            mensagem: `${item.titulo} foi delegada para você.`,
+            prioridade: item.prioridade === "ALTA" ? "ALTA" : "MEDIA",
+            href: "/prazos",
+          });
+        }
 
-    await logAuditoria(ctx, {
-      tabela: "tarefas_equipe",
-      registroId: updated.id,
-      acao: "UPDATE",
-      dadosAnteriores: previous,
-      dadosNovos: updated,
-      descricao: `Status da tarefa ${updated.titulo} atualizado para ${updated.status}`,
-    });
+        if (input.acao === "CONCLUIR" && item.prazoId) {
+          prazoIdsConcluidos.add(item.prazoId);
+        }
+      }
 
-    const notifications: SystemNotificationPayload[] = [];
-    if (updated.responsavelId) {
-      notifications.push({
-        userId: updated.responsavelId,
-        processoId: updated.processoId ?? null,
-        prazoId: updated.prazoId ?? null,
-        chave: `tarefa:${updated.id}:status:${updated.status}:${updated.atualizadoEm}`,
-        titulo: "Status de tarefa atualizado",
-        mensagem: `${updated.titulo} está em ${updated.status}.`,
-        prioridade: updated.status === "BLOQUEADO" ? "ALTA" : "MEDIA",
-        href: "/prazos",
-      });
-    }
+      if (input.acao === "CONCLUIR" && prazoIdsConcluidos.size) {
+        for (const prazoId of prazoIdsConcluidos) {
+          const tarefaAberta = await db
+            .select({ id: tarefasEquipe.id })
+            .from(tarefasEquipe)
+            .where(
+              and(
+                eq(tarefasEquipe.prazoId, prazoId),
+                ne(tarefasEquipe.status, "CONCLUIDO"),
+              ),
+            )
+            .limit(1);
+          if (tarefaAberta.length) continue;
 
-    if (updated.status === "CONCLUIDO" && updated.prazoId) {
-      const tarefaAberta = await db
-        .select({ id: tarefasEquipe.id })
-        .from(tarefasEquipe)
-        .where(and(eq(tarefasEquipe.prazoId, updated.prazoId), ne(tarefasEquipe.status, "CONCLUIDO")))
-        .limit(1);
+          const [prazoAtualizado] = await db
+            .update(prazosProcessuais)
+            .set({
+              status: "CONCLUIDO",
+              dataRealizada: now.toISOString().slice(0, 10),
+              atualizadoEm: now,
+            })
+            .where(
+              and(
+                eq(prazosProcessuais.id, prazoId),
+                ne(prazosProcessuais.status, "CONCLUIDO"),
+              ),
+            )
+            .returning();
+          if (!prazoAtualizado) continue;
 
-      if (!tarefaAberta.length) {
-        const [prazoAtualizado] = await db
-          .update(prazosProcessuais)
-          .set({
-            status: "CONCLUIDO",
-            dataRealizada: now.toISOString().slice(0, 10),
-            atualizadoEm: now,
-          })
-          .where(and(eq(prazosProcessuais.id, updated.prazoId), ne(prazosProcessuais.status, "CONCLUIDO")))
-          .returning();
-
-        if (prazoAtualizado) {
           await logAuditoria(ctx, {
             tabela: "prazos_processuais",
             registroId: prazoAtualizado.id,
             acao: "UPDATE",
             dadosNovos: prazoAtualizado,
-            descricao: `Prazo ${prazoAtualizado.titulo} concluído automaticamente por tarefas finalizadas`,
+            descricao: `Prazo ${prazoAtualizado.titulo} concluído automaticamente por ação em lote`,
           });
 
-          const targets = Array.from(
+          const prazoTargets = Array.from(
             new Set(
               [prazoAtualizado.responsavelId, prazoAtualizado.criadoPor].filter(
                 (id): id is number => typeof id === "number" && id > 0,
               ),
             ),
           );
-
           notifications.push(
-            ...targets.map((userId) => ({
+            ...prazoTargets.map((userId) => ({
               userId,
               processoId: prazoAtualizado.processoId,
               prazoId: prazoAtualizado.id,
-              chave: `prazo:${prazoAtualizado.id}:auto-concluido`,
+              chave: `prazo:${prazoAtualizado.id}:auto-concluido-lote`,
               titulo: "Prazo concluído automaticamente",
               mensagem: `${prazoAtualizado.titulo} foi concluído após finalização das tarefas relacionadas.`,
               prioridade: "MEDIA" as const,
@@ -1207,149 +1584,34 @@ export const prazosRouter = router({
           );
         }
       }
-    }
 
-    if (notifications.length) {
-      await upsertSystemNotifications(db, notifications);
-    }
-
-    return updated;
-  }),
-
-  taskBulkAction: operadorProcedure.input(tarefaEquipeBulkInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const now = new Date();
-    const patch: Partial<TarefaEquipeInsert> = { atualizadoEm: now };
-
-    if (input.acao === "CONCLUIR") {
-      patch.status = "CONCLUIDO";
-      patch.concluidaEm = now;
-    } else if (input.acao === "DELEGAR") {
-      if (!input.responsavelId) {
-        throw new Error("Informe o responsável para delegar.");
+      if (notifications.length) {
+        await upsertSystemNotifications(db, notifications);
       }
-      patch.responsavelId = input.responsavelId;
-      patch.delegadoPorId = ctx.user?.id ?? null;
-      patch.concluidaEm = null;
-      if (input.comentario) patch.descricao = input.comentario.trim();
-    } else if (input.acao === "REAGENDAR") {
-      if (!input.dataEntrega) {
-        throw new Error("Informe uma data para reagendar.");
+
+      return { updated: updated.length };
+    }),
+
+  taskRemove: operadorProcedure
+    .input(tarefaEquipeDeleteInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const [deleted] = await db
+        .delete(tarefasEquipe)
+        .where(eq(tarefasEquipe.id, input.tarefaId))
+        .returning();
+      if (!deleted) {
+        throw new Error("Tarefa não encontrada.");
       }
-      patch.dataEntrega = toDateOnly(input.dataEntrega);
-      patch.concluidaEm = null;
-      if (input.comentario) patch.descricao = input.comentario.trim();
-    }
 
-    const updated = await db
-      .update(tarefasEquipe)
-      .set(patch)
-      .where(inArray(tarefasEquipe.id, input.tarefaIds))
-      .returning();
-
-    const notifications: SystemNotificationPayload[] = [];
-    const prazoIdsConcluidos = new Set<number>();
-
-    for (const item of updated) {
       await logAuditoria(ctx, {
         tabela: "tarefas_equipe",
-        registroId: item.id,
-        acao: "UPDATE",
-        dadosNovos: item,
-        descricao: `Ação em lote (${input.acao}) na tarefa ${item.titulo}`,
+        registroId: deleted.id,
+        acao: "DELETE",
+        dadosAnteriores: deleted,
+        descricao: `Tarefa ${deleted.titulo} removida`,
       });
 
-      if (input.acao === "DELEGAR" && item.responsavelId) {
-        notifications.push({
-          userId: item.responsavelId,
-          processoId: item.processoId ?? null,
-          prazoId: item.prazoId ?? null,
-          chave: `tarefa:${item.id}:delegada-lote:${item.responsavelId}:${item.atualizadoEm}`,
-          titulo: "Nova tarefa delegada",
-          mensagem: `${item.titulo} foi delegada para você.`,
-          prioridade: item.prioridade === "ALTA" ? "ALTA" : "MEDIA",
-          href: "/prazos",
-        });
-      }
-
-      if (input.acao === "CONCLUIR" && item.prazoId) {
-        prazoIdsConcluidos.add(item.prazoId);
-      }
-    }
-
-    if (input.acao === "CONCLUIR" && prazoIdsConcluidos.size) {
-      for (const prazoId of prazoIdsConcluidos) {
-        const tarefaAberta = await db
-          .select({ id: tarefasEquipe.id })
-          .from(tarefasEquipe)
-          .where(and(eq(tarefasEquipe.prazoId, prazoId), ne(tarefasEquipe.status, "CONCLUIDO")))
-          .limit(1);
-        if (tarefaAberta.length) continue;
-
-        const [prazoAtualizado] = await db
-          .update(prazosProcessuais)
-          .set({
-            status: "CONCLUIDO",
-            dataRealizada: now.toISOString().slice(0, 10),
-            atualizadoEm: now,
-          })
-          .where(and(eq(prazosProcessuais.id, prazoId), ne(prazosProcessuais.status, "CONCLUIDO")))
-          .returning();
-        if (!prazoAtualizado) continue;
-
-        await logAuditoria(ctx, {
-          tabela: "prazos_processuais",
-          registroId: prazoAtualizado.id,
-          acao: "UPDATE",
-          dadosNovos: prazoAtualizado,
-          descricao: `Prazo ${prazoAtualizado.titulo} concluído automaticamente por ação em lote`,
-        });
-
-        const prazoTargets = Array.from(
-          new Set(
-            [prazoAtualizado.responsavelId, prazoAtualizado.criadoPor].filter(
-              (id): id is number => typeof id === "number" && id > 0,
-            ),
-          ),
-        );
-        notifications.push(
-          ...prazoTargets.map((userId) => ({
-            userId,
-            processoId: prazoAtualizado.processoId,
-            prazoId: prazoAtualizado.id,
-            chave: `prazo:${prazoAtualizado.id}:auto-concluido-lote`,
-            titulo: "Prazo concluído automaticamente",
-            mensagem: `${prazoAtualizado.titulo} foi concluído após finalização das tarefas relacionadas.`,
-            prioridade: "MEDIA" as const,
-            href: "/prazos",
-          })),
-        );
-      }
-    }
-
-    if (notifications.length) {
-      await upsertSystemNotifications(db, notifications);
-    }
-
-    return { updated: updated.length };
-  }),
-
-  taskRemove: operadorProcedure.input(tarefaEquipeDeleteInputSchema).mutation(async ({ ctx, input }) => {
-    const db = requireDb();
-    const [deleted] = await db.delete(tarefasEquipe).where(eq(tarefasEquipe.id, input.tarefaId)).returning();
-    if (!deleted) {
-      throw new Error("Tarefa não encontrada.");
-    }
-
-    await logAuditoria(ctx, {
-      tabela: "tarefas_equipe",
-      registroId: deleted.id,
-      acao: "DELETE",
-      dadosAnteriores: deleted,
-      descricao: `Tarefa ${deleted.titulo} removida`,
-    });
-
-    return { success: true };
-  }),
+      return { success: true };
+    }),
 });
-

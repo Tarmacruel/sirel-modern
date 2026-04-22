@@ -1,5 +1,12 @@
-export type LicitacaoMacroPhaseKey = "PLANEJAMENTO" | "COMPRAS" | "LICITACAO" | "CONTRATO";
-export type LicitacaoSubphaseKey = "FASE_INTERNA" | "FASE_EXTERNA" | "CRONOGRAMA";
+export type LicitacaoMacroPhaseKey =
+  | "PLANEJAMENTO"
+  | "COMPRAS"
+  | "LICITACAO"
+  | "CONTRATO";
+export type LicitacaoSubphaseKey =
+  | "FASE_INTERNA"
+  | "FASE_EXTERNA"
+  | "CRONOGRAMA";
 
 export interface LicitacaoMacroPhaseItem {
   key: LicitacaoMacroPhaseKey;
@@ -33,25 +40,25 @@ export const licitacaoMacroPhases: LicitacaoMacroPhaseItem[] = [
   {
     key: "PLANEJAMENTO",
     label: "Planejamento",
-    hint: "DFD, ETP, TR e consolidacao preliminar.",
+    hint: "DFD, ETP, TR e consolidação preliminar.",
     href: "/planejamento",
   },
   {
     key: "COMPRAS",
     label: "Compras",
-    hint: "Pesquisa definitiva, mapa comparativo e consolidacao final.",
+    hint: "Pesquisa definitiva, mapa comparativo e consolidação final.",
     href: "/compras",
   },
   {
     key: "LICITACAO",
-    label: "Licitacao",
+    label: "Licitação",
     hint: "Fase interna, fase externa e cronograma oficial.",
     href: "/licitacao",
   },
   {
     key: "CONTRATO",
     label: "Contrato",
-    hint: "Formalizacao, vigencia e acompanhamento contratual.",
+    hint: "Formalização, vigência e acompanhamento contratual.",
     href: "/contratos",
   },
 ];
@@ -60,17 +67,17 @@ export const licitacaoSubphases: LicitacaoSubphaseItem[] = [
   {
     key: "FASE_INTERNA",
     label: "Fase interna",
-    hint: "Checklist documental e liberacao para publicidade.",
+    hint: "Checklist documental e liberação para publicidade.",
   },
   {
     key: "FASE_EXTERNA",
     label: "Fase externa",
-    hint: "Publicacao, sessao, julgamento e homologacao.",
+    hint: "Publicação, sessão, julgamento e homologação.",
   },
   {
     key: "CRONOGRAMA",
     label: "Cronograma",
-    hint: "Prazos automaticos ou modo manual extemporaneo.",
+    hint: "Prazos automáticos ou modo manual extemporâneo.",
   },
 ];
 
@@ -86,7 +93,9 @@ function isPregao(modalidadeCodigo?: string | null) {
   return /PREGAO/.test(modalidadeCodigo ?? "");
 }
 
-export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprintParams) {
+export function getLicitacaoDocumentBlueprint(
+  params: LicitacaoDocumentBlueprintParams,
+) {
   const modalidadeCodigo = params.modalidadeCodigo ?? "";
   const dispensa = isDispensa(modalidadeCodigo);
   const inexigibilidade = isInexigibilidade(modalidadeCodigo);
@@ -95,8 +104,9 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
   const internal: LicitacaoDocumentRequirement[] = [
     {
       category: "LICITACAO_DECRETO_COMISSAO",
-      label: "Decreto da Comissao Permanente de Contratacao",
-      description: "Ato de designacao da comissao responsavel pela fase licitatoria.",
+      label: "Decreto da Comissão Permanente de Contratação",
+      description:
+        "Ato de designação da comissão responsável pela fase licitatória.",
       obrigatorio: true,
     },
     {
@@ -107,44 +117,46 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
     },
     {
       category: "LICITACAO_COMUNICACAO_RESERVA_ORCAMENTARIA",
-      label: "CI para reserva orcamentaria",
-      description: "Comunicacao interna ao setor de Orcamento para abertura da reserva.",
+      label: "CI para reserva orçamentária",
+      description:
+        "Comunicação interna ao setor de Orçamento para abertura da reserva.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_RESERVA_ORCAMENTARIA",
-      label: "Reserva orcamentaria",
+      label: "Reserva orçamentária",
       description: "Comprovante da reserva vinculada ao processo.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
       label: "Decreto do Ordenador de Despesas",
-      description: "Documento do ordenador ou secretario competente.",
+      description: "Documento do ordenador ou secretário competente.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_ATO_AUTORIZACAO_AUTORIDADE",
-      label: "Ato de autorizacao da autoridade competente",
-      description: "Libera oficialmente o prosseguimento da licitacao.",
+      label: "Ato de autorização da autoridade competente",
+      description: "Libera oficialmente o prosseguimento da licitação.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_MINUTA_AVISO",
       label: "Minuta do aviso",
-      description: "Minuta interna preparada antes da publicacao.",
+      description: "Minuta interna preparada antes da publicação.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_COMUNICACAO_PARECER_JURIDICO",
-      label: "CI solicitando parecer juridico",
-      description: "Encaminhamento formal para a Procuradoria Geral do Municipio.",
+      label: "CI solicitando parecer jurídico",
+      description:
+        "Encaminhamento formal para a Procuradoria-Geral do Município.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_PARECER_JURIDICO",
-      label: "Parecer juridico",
-      description: "Manifestacao juridica obrigatoria antes da publicidade.",
+      label: "Parecer jurídico",
+      description: "Manifestação jurídica obrigatória antes da publicidade.",
       obrigatorio: true,
     },
   ];
@@ -152,8 +164,9 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
   if (dispensa || params.exigeDeclaracaoNaoFracionamento) {
     internal.push({
       category: "LICITACAO_DECLARACAO_NAO_FRACIONAMENTO",
-      label: "Declaracao de nao fracionamento",
-      description: "Obrigatoria nas hipoteses municipais de dispensa que exigem a declaracao.",
+      label: "Declaração de não fracionamento",
+      description:
+        "Obrigatória nas hipóteses municipais de dispensa que exigem a declaração.",
       obrigatorio: true,
       condicional: true,
       baseLegal: "Art. 75, Lei 14.133/2021",
@@ -165,14 +178,16 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
       {
         category: "LICITACAO_JUSTIFICATIVA_DISPENSA",
         label: "Justificativa da dispensa",
-        description: "Fundamentacao formal da contratacao direta ou dispensa com disputa.",
+        description:
+          "Fundamentação formal da contratação direta ou dispensa com disputa.",
         obrigatorio: true,
         baseLegal: "Art. 75, Lei 14.133/2021",
       },
       {
         category: "LICITACAO_PESQUISA_PRECOS",
-        label: "Pesquisa de precos",
-        description: "Base comparativa para confirmar a vantajosidade da contratacao.",
+        label: "Pesquisa de preços",
+        description:
+          "Base comparativa para confirmar a vantajosidade da contratação.",
         obrigatorio: true,
       },
     );
@@ -183,14 +198,15 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
       {
         category: "LICITACAO_JUSTIFICATIVA_INEXIGIBILIDADE",
         label: "Justificativa da inexigibilidade",
-        description: "Demonstracao da inviabilidade de competicao.",
+        description: "Demonstração da inviabilidade de competição.",
         obrigatorio: true,
         baseLegal: "Art. 74, Lei 14.133/2021",
       },
       {
         category: "LICITACAO_COMPROVANTE_EXCLUSIVIDADE",
         label: "Comprovante de exclusividade",
-        description: "Documento comprobatório da exclusividade do fornecedor ou representante.",
+        description:
+          "Documento comprobatório da exclusividade do fornecedor ou representante.",
         obrigatorio: true,
       },
     );
@@ -199,71 +215,82 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
   const external: LicitacaoDocumentRequirement[] = [
     {
       category: "LICITACAO_TERMO_AUTUACAO",
-      label: "Termo de autuacao",
-      description: "Autuacao formal do processo pelo agente de contratacao ou pregoeiro.",
+      label: "Termo de autuação",
+      description:
+        "Autuação formal do processo pelo agente de contratação ou pregoeiro.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_DECRETO_AGENTE_CONTRATACAO",
-      label: "Decreto do Agente de Contratacao",
-      description: "Designacao do agente responsavel pela conducao da sessao.",
+      label: "Decreto do Agente de Contratação",
+      description: "Designação do agente responsável pela condução da sessão.",
       obrigatorio: true,
     },
     {
       category: pregao ? "LICITACAO_AVISO_PREGAO" : "LICITACAO_AVISO_DISPENSA",
-      label: pregao ? "Aviso de Pregao Eletronico" : "Aviso de Dispensa",
-      description: "Versao oficial do aviso conforme a modalidade adotada.",
+      label: pregao ? "Aviso de Pregão Eletrônico" : "Aviso de Dispensa",
+      description: "Versão oficial do aviso conforme a modalidade adotada.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_CONFIRMACAO_PNCP",
-      label: "Confirmacao de publicacao no PNCP",
-      description: "Comprovante da publicacao oficial no Portal Nacional de Contratacoes Publicas.",
+      label: "Confirmação de publicação no PNCP",
+      description:
+        "Comprovante da publicação oficial no Portal Nacional de Contratações Públicas.",
       obrigatorio: true,
-      completionHint: "Tambem pode ser considerado concluido quando o processo ja estiver publicado no sistema.",
+      completionHint:
+        "Também pode ser considerado concluído quando o processo já estiver publicado no sistema.",
     },
     {
       category: "LICITACAO_DOCUMENTOS_PLATAFORMA_DISPUTA",
       label: "Documentos da plataforma de disputa",
-      description: "Arquivos de abertura, prints ou exportacoes da plataforma utilizada.",
+      description:
+        "Arquivos de abertura, comprovantes ou exportações da plataforma utilizada.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_PROPOSTAS_PARTICIPANTES",
       label: "Propostas dos participantes",
-      description: "Conjunto de propostas recebidas ou exportadas da plataforma.",
+      description:
+        "Conjunto de propostas recebidas ou exportadas da plataforma.",
       obrigatorio: true,
-      completionHint: "Tambem pode ser marcado automaticamente quando houver propostas registradas.",
+      completionHint:
+        "Também pode ser marcado automaticamente quando houver propostas registradas.",
     },
     {
       category: "LICITACAO_JULGAMENTO_PROPOSTA_TECNICA",
-      label: "Julgamento da proposta e area tecnica",
-      description: "Pareceres, planilhas e documentos da classificacao tecnica ou economica.",
+      label: "Julgamento da proposta e área técnica",
+      description:
+        "Pareceres, planilhas e documentos da classificação técnica ou econômica.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_HABILITACAO_EMPRESAS",
-      label: "Habilitacao das empresas",
-      description: "Conferencia documental e resultado da habilitacao dos licitantes.",
+      label: "Habilitação das empresas",
+      description:
+        "Conferência documental e resultado da habilitação dos licitantes.",
       obrigatorio: true,
-      completionHint: "Tambem pode ser considerado concluido quando ja existir licitante com status definido.",
+      completionHint:
+        "Também pode ser considerado concluído quando já existir licitante com status definido.",
     },
     {
       category: "LICITACAO_RECURSOS",
       label: "Recursos",
-      description: "Recursos administrativos, decisoes e anexos correlatos quando existirem.",
+      description:
+        "Recursos administrativos, decisões e anexos correlatos quando existirem.",
       obrigatorio: false,
     },
     {
       category: "LICITACAO_ATAS_SESSAO_ADJUDICACAO",
-      label: "Atas de sessao e adjudicacao",
-      description: "Atas operacionais da sessao publica e da adjudicacao do resultado.",
+      label: "Atas de sessão e adjudicação",
+      description:
+        "Atas operacionais da sessão pública e da adjudicação do resultado.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_COMUNICACAO_CONTROLADORIA",
-      label: "Comunicacao para Controladoria",
-      description: "Encaminhamento do processo para analise da Controladoria.",
+      label: "Comunicação para Controladoria",
+      description: "Encaminhamento do processo para análise da Controladoria.",
       obrigatorio: true,
     },
   ];
@@ -271,8 +298,9 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
   if (pregao) {
     external.push({
       category: "LICITACAO_ATA_RELATORIO_FINAL",
-      label: "Ata de relatorio final",
-      description: "Documento final consolidado da sessao do pregao eletronico.",
+      label: "Ata de relatório final",
+      description:
+        "Documento final consolidado da sessão do pregão eletrônico.",
       obrigatorio: true,
     });
   }
@@ -280,16 +308,17 @@ export function getLicitacaoDocumentBlueprint(params: LicitacaoDocumentBlueprint
   external.push(
     {
       category: "LICITACAO_ATA_HOMOLOGACAO",
-      label: "Ata de homologacao",
-      description: "Ata final que registra a homologacao do resultado.",
+      label: "Ata de homologação",
+      description: "Ata final que registra a homologação do resultado.",
       obrigatorio: true,
     },
     {
       category: "LICITACAO_TERMO_HOMOLOGACAO",
-      label: "Termo de homologacao",
-      description: "Termo final assinado para conclusao da fase licitatoria.",
+      label: "Termo de homologação",
+      description: "Termo final assinado para conclusão da fase licitatória.",
       obrigatorio: true,
-      completionHint: "Tambem pode ser considerado concluido quando o processo ja estiver homologado.",
+      completionHint:
+        "Também pode ser considerado concluído quando o processo já estiver homologado.",
     },
   );
 

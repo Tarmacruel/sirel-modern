@@ -1,3 +1,8 @@
+import {
+  buildPrintableShell,
+  type PrintableBranding,
+} from "@sirel/shared/document-templates/planejamento";
+
 import { getRuntimeBrandingSnapshot, systemFullName } from "@/lib/branding";
 
 export interface ReportColumn {
@@ -16,6 +21,12 @@ export interface WorkbookSheet {
   columns: ReportColumn[];
   rows: Record<string, unknown>[];
   summary?: ReportSummaryItem[];
+}
+
+export interface ReportBrandingOptions {
+  secondaryLine?: string | null;
+  footerText?: string | null;
+  eyebrow?: string | null;
 }
 
 function toText(value: unknown) {
@@ -49,31 +60,67 @@ function buildSummaryLines(summary: ReportSummaryItem[]) {
   return summary.map((item) => `${item.label}: ${toText(item.value)}`);
 }
 
+function formatGeneratedAt(value = new Date()) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(value);
+}
+
+function resolveAbsoluteAssetUrl(url: string | null | undefined) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (typeof window === "undefined") return url;
+  return new URL(url, window.location.origin).toString();
+}
+
+function resolvePdfLogoUrl(url: string | null | undefined) {
+  const absoluteUrl = resolveAbsoluteAssetUrl(url);
+  if (/\.(png|jpe?g)$/i.test(absoluteUrl)) return absoluteUrl;
+  return resolveAbsoluteAssetUrl("/logo-prefeitura.png");
+}
+
+function buildReportBranding(
+  override?: ReportBrandingOptions,
+): PrintableBranding {
+  const branding = getRuntimeBrandingSnapshot();
+
+  return {
+    logoUrl: resolveAbsoluteAssetUrl(branding.prefeituraLogoUrl),
+    lines: branding.prefeituraLines,
+    secondaryLine: override?.secondaryLine,
+    footerText: override?.footerText ?? branding.systemFooterText,
+  };
+}
+
 function buildSheetData(
   title: string,
   columns: ReportColumn[],
   rows: Record<string, unknown>[],
   summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
 ) {
   const branding = getRuntimeBrandingSnapshot();
+  const secondaryLine =
+    brandingOptions?.secondaryLine?.trim() || branding.prefeituraLines[1];
   const summaryLines = buildSummaryLines(summary);
 
   return [
     [branding.prefeituraLines[0]],
-    [branding.prefeituraLines[1]],
+    [secondaryLine],
     [branding.prefeituraLines[2]],
     [branding.prefeituraLines[3]],
     [systemFullName],
     [],
     [title],
-    [`Gerado em ${new Date().toLocaleString("pt-BR")}`],
+    [`Gerado em ${formatGeneratedAt()}`],
     [],
     ...summaryLines.map((line) => [line]),
     ...(summaryLines.length ? [[]] : []),
     columns.map((column) => column.label),
     ...rows.map((row) => columns.map((column) => toText(row[column.key]))),
     [],
-    [branding.systemFooterText],
+    [brandingOptions?.footerText ?? branding.systemFooterText],
   ];
 }
 
@@ -95,9 +142,209 @@ function sanitizeSheetName(name: string, usedNames: Set<string>) {
   return candidate;
 }
 
-export function exportReportToCsv(filename: string, columns: ReportColumn[], rows: Record<string, unknown>[]) {
+async function fetchImageDataUrl(url: string | null | undefined) {
+  const absoluteUrl = resolveAbsoluteAssetUrl(url);
+  if (!absoluteUrl) return null;
+
+  try {
+    const response = await fetch(absoluteUrl);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise<string | null>((resolvePromise) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolvePromise(
+          typeof reader.result === "string" ? reader.result : null,
+        );
+      reader.onerror = () => resolvePromise(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+function renderSummaryCardsHtml(summary: ReportSummaryItem[]) {
+  if (!summary.length) return "";
+
+  return `
+    <section class="grid">
+      ${summary
+        .map(
+          (item) => `
+            <article class="card">
+              <div class="label">${escapeHtml(item.label)}</div>
+              <div class="value">${escapeHtml(toText(item.value))}</div>
+            </article>
+          `,
+        )
+        .join("")}
+    </section>
+  `;
+}
+
+function buildPrintableReportBodyHtml(
+  title: string,
+  columns: ReportColumn[],
+  rows: Record<string, unknown>[],
+  summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
+) {
+  const eyebrow =
+    brandingOptions?.eyebrow?.trim() || "Relatórios · Exportação institucional";
+  const footerText =
+    brandingOptions?.footerText?.trim() ||
+    getRuntimeBrandingSnapshot().systemFooterText;
+
+  return `
+    <header class="header">
+      <div class="eyebrow">${escapeHtml(eyebrow)}</div>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="muted">Documento gerado em ${escapeHtml(formatGeneratedAt())}</p>
+    </header>
+
+    ${renderSummaryCardsHtml(summary)}
+
+    <table>
+      <thead>
+        <tr>${columns
+          .map((column) => `<th>${escapeHtml(column.label)}</th>`)
+          .join("")}</tr>
+      </thead>
+      <tbody>
+        ${
+          rows.length
+            ? rows
+                .map(
+                  (row) => `
+                    <tr>${columns
+                      .map(
+                        (column) =>
+                          `<td>${escapeHtml(toText(row[column.key]))}</td>`,
+                      )
+                      .join("")}</tr>
+                  `,
+                )
+                .join("")
+            : `<tr><td colspan="${columns.length}">Nenhum registro encontrado para os filtros informados.</td></tr>`
+        }
+      </tbody>
+    </table>
+
+    <div class="footer">${escapeHtml(footerText)} • Documento gerado em ${escapeHtml(formatGeneratedAt())}.</div>
+  `;
+}
+
+function drawPdfSummaryCards(
+  doc: any,
+  summary: ReportSummaryItem[],
+  startY: number,
+  pageWidth: number,
+) {
+  if (!summary.length) return startY;
+
+  const columns = 2;
+  const gap = 12;
+  const left = 40;
+  const contentWidth = pageWidth - 80;
+  const cardWidth = (contentWidth - gap) / columns;
+  const cardHeight = 46;
+  let currentY = startY;
+
+  summary.forEach((item, index) => {
+    const columnIndex = index % columns;
+    const rowIndex = Math.floor(index / columns);
+    const x = left + columnIndex * (cardWidth + gap);
+    const y = currentY + rowIndex * (cardHeight + gap);
+
+    doc.setFillColor(248, 250, 255);
+    doc.setDrawColor(36, 64, 167);
+    doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(36, 64, 167);
+    doc.text(String(item.label).toUpperCase(), x + 10, y + 14, {
+      maxWidth: cardWidth - 20,
+    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text(toText(item.value), x + 10, y + 29, {
+      maxWidth: cardWidth - 20,
+    });
+  });
+
+  const totalRows = Math.ceil(summary.length / columns);
+  return currentY + totalRows * (cardHeight + gap);
+}
+
+function drawPdfHeader(
+  doc: any,
+  title: string,
+  brandingOptions?: ReportBrandingOptions,
+  logoDataUrl?: string | null,
+) {
+  const branding = getRuntimeBrandingSnapshot();
+  const secondaryLine =
+    brandingOptions?.secondaryLine?.trim() || branding.prefeituraLines[1];
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const logoX = 40;
+  const logoY = 24;
+  const logoWidth = 150;
+  const logoHeight = 50;
+  const textX = logoDataUrl ? 205 : 40;
+  const eyebrow =
+    brandingOptions?.eyebrow?.trim() || "Relatórios · Exportação institucional";
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", logoX, logoY, logoWidth, logoHeight);
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(36, 64, 167);
+  doc.text(branding.prefeituraLines[0], textX, 36);
+  doc.text(secondaryLine, textX, 50);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(branding.prefeituraLines[2], textX, 64);
+  doc.text(branding.prefeituraLines[3], textX, 77, {
+    maxWidth: pageWidth - textX - 40,
+  });
+
+  doc.setDrawColor(36, 64, 167);
+  doc.setLineWidth(1.8);
+  doc.line(40, 94, pageWidth - 40, 94);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(36, 64, 167);
+  doc.text(eyebrow.toUpperCase(), 40, 116);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(15, 23, 42);
+  doc.text(title, 40, 138);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Documento gerado em ${formatGeneratedAt()}`, 40, 154);
+
+  return 172;
+}
+
+export function exportReportToCsv(
+  filename: string,
+  columns: ReportColumn[],
+  rows: Record<string, unknown>[],
+) {
   const lines = [
-    columns.map((column) => `"${column.label.replaceAll('"', '""')}"`).join(";"),
+    columns
+      .map((column) => `"${column.label.replaceAll('"', '""')}"`)
+      .join(";"),
     ...rows.map((row) =>
       columns
         .map((column) => `"${toText(row[column.key]).replaceAll('"', '""')}"`)
@@ -105,7 +352,12 @@ export function exportReportToCsv(filename: string, columns: ReportColumn[], row
     ),
   ];
 
-  downloadBlob(filename, new Blob([`\uFEFF${lines.join("\r\n")}`], { type: "text/csv;charset=utf-8;" }));
+  downloadBlob(
+    filename,
+    new Blob([`\uFEFF${lines.join("\r\n")}`], {
+      type: "text/csv;charset=utf-8;",
+    }),
+  );
 }
 
 export function exportReportToJson(
@@ -118,7 +370,12 @@ export function exportReportToJson(
     summary?: ReportSummaryItem[];
   },
 ) {
-  downloadBlob(filename, new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8;" }));
+  downloadBlob(
+    filename,
+    new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8;",
+    }),
+  );
 }
 
 export async function exportReportToXlsx(
@@ -127,9 +384,16 @@ export async function exportReportToXlsx(
   columns: ReportColumn[],
   rows: Record<string, unknown>[],
   summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
 ) {
   const XLSX = await import("xlsx");
-  const sheetData = buildSheetData(title, columns, rows, summary);
+  const sheetData = buildSheetData(
+    title,
+    columns,
+    rows,
+    summary,
+    brandingOptions,
+  );
 
   const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
   worksheet["!cols"] = columns.map((column) => ({
@@ -146,6 +410,7 @@ export async function exportWorkbookToXlsx(
   title: string,
   sheets: WorkbookSheet[],
   summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
 ) {
   const XLSX = await import("xlsx");
   const workbook = XLSX.utils.book_new();
@@ -161,7 +426,13 @@ export async function exportWorkbookToXlsx(
       value: toText(item.value),
     }));
     const resumoSheet = XLSX.utils.aoa_to_sheet(
-      buildSheetData(`${title} - Resumo`, resumoColumns, resumoRows),
+      buildSheetData(
+        `${title} - Resumo`,
+        resumoColumns,
+        resumoRows,
+        [],
+        brandingOptions,
+      ),
     );
     resumoSheet["!cols"] = [{ wch: 34 }, { wch: 42 }];
     XLSX.utils.book_append_sheet(
@@ -178,6 +449,7 @@ export async function exportWorkbookToXlsx(
         sheet.columns,
         sheet.rows,
         sheet.summary ?? [],
+        brandingOptions,
       ),
     );
     worksheet["!cols"] = sheet.columns.map((column) => ({
@@ -199,9 +471,14 @@ export async function exportReportToPdf(
   columns: ReportColumn[],
   rows: Record<string, unknown>[],
   summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
 ) {
   const branding = getRuntimeBrandingSnapshot();
-  const [{ default: jsPDF }, autoTableModule] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+  const [{ default: jsPDF }, autoTableModule, logoDataUrl] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+    fetchImageDataUrl(resolvePdfLogoUrl(branding.prefeituraLogoUrl)),
+  ]);
   const autoTable = autoTableModule.default;
 
   const doc = new jsPDF({
@@ -210,39 +487,13 @@ export async function exportReportToPdf(
     format: "a4",
   });
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(branding.prefeituraLines[0], 40, 28);
-  doc.text(branding.prefeituraLines[1], 40, 42);
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.text(branding.prefeituraLines[2], 40, 56);
-  doc.text(branding.prefeituraLines[3], 40, 68, { maxWidth: 520 });
-  doc.text(systemFullName, 40, 82);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(title, 40, 106);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 40, 122);
-
-  let currentY = 144;
-  if (summary.length) {
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(15, 23, 42);
-    doc.text("Totalizadores", 40, currentY);
-    currentY += 14;
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(51, 65, 85);
-    summary.forEach((item) => {
-      doc.text(`${item.label}: ${toText(item.value)}`, 40, currentY);
-      currentY += 14;
-    });
-    currentY += 8;
-  }
+  let currentY = drawPdfHeader(doc, title, brandingOptions, logoDataUrl);
+  currentY = drawPdfSummaryCards(
+    doc,
+    summary,
+    currentY,
+    doc.internal.pageSize.getWidth(),
+  );
 
   autoTable(doc, {
     startY: currentY,
@@ -263,7 +514,7 @@ export async function exportReportToPdf(
       valign: "top",
     },
     styles: {
-      lineColor: [203, 213, 225],
+      lineColor: [36, 64, 167],
       lineWidth: 0.5,
       overflow: "linebreak",
     },
@@ -271,11 +522,23 @@ export async function exportReportToPdf(
     didDrawPage: () => {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
+      doc.setDrawColor(36, 64, 167);
+      doc.setLineWidth(0.8);
+      doc.line(40, pageHeight - 30, pageWidth - 40, pageHeight - 30);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(100, 116, 139);
-      doc.text(branding.systemFooterText, 40, pageHeight - 18);
-      doc.text(`Página ${doc.getCurrentPageInfo().pageNumber}`, pageWidth - 40, pageHeight - 18, { align: "right" });
+      doc.text(
+        brandingOptions?.footerText ?? branding.systemFooterText,
+        40,
+        pageHeight - 16,
+      );
+      doc.text(
+        `Página ${doc.getCurrentPageInfo().pageNumber}`,
+        pageWidth - 40,
+        pageHeight - 16,
+        { align: "right" },
+      );
     },
   });
 
@@ -287,107 +550,25 @@ export function openPrintableReport(
   columns: ReportColumn[],
   rows: Record<string, unknown>[],
   summary: ReportSummaryItem[] = [],
+  brandingOptions?: ReportBrandingOptions,
 ) {
-  const branding = getRuntimeBrandingSnapshot();
-  const printableHtml = `
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${escapeHtml(title)}</title>
-        <style>
-          body { font-family: "Segoe UI", Arial, sans-serif; margin: 24px; color: #0f172a; }
-          .brand { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 2px solid #dbeafe; }
-          .brand img { width: 220px; max-width: 36vw; height: auto; }
-          .brand-copy { display: grid; gap: 4px; }
-          .brand-copy strong { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: #2440a7; }
-          .brand-copy span { font-size: 12px; color: #475569; }
-          h1 { margin: 0 0 8px; font-size: 24px; }
-          p { margin: 0 0 16px; color: #475569; }
-          .summary { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 20px; }
-          .summary-card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px 16px; min-width: 180px; background: #f8fafc; }
-          .summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: #475569; }
-          .summary-value { margin-top: 8px; font-size: 18px; font-weight: 700; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #cbd5e1; padding: 10px 12px; text-align: left; vertical-align: top; }
-          th { background: #e2e8f0; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
-          tfoot td { background: #f8fafc; font-weight: 600; }
-          .footer-summary { margin-top: 20px; border-top: 2px solid #cbd5e1; padding-top: 16px; display: grid; gap: 8px; }
-          .footer-line { display: flex; justify-content: space-between; gap: 16px; font-size: 14px; }
-          .system-footer { margin-top: 22px; padding-top: 16px; border-top: 2px solid #dbeafe; font-size: 12px; color: #475569; text-align: center; }
-          @media print { body { margin: 12px; } }
-        </style>
-      </head>
-      <body>
-        <section class="brand">
-          <img src="${branding.prefeituraLogoUrl}" alt="Prefeitura Municipal de Teixeira de Freitas" />
-          <div class="brand-copy">
-            <strong>${escapeHtml(branding.prefeituraLines[0])}</strong>
-            <strong>${escapeHtml(branding.prefeituraLines[1])}</strong>
-            <span>${escapeHtml(branding.prefeituraLines[2])}</span>
-            <span>${escapeHtml(branding.prefeituraLines[3])}</span>
-            <span>${escapeHtml(systemFullName)}</span>
-          </div>
-        </section>
-        <h1>${escapeHtml(title)}</h1>
-        <p>Gerado em ${new Date().toLocaleString("pt-BR")}</p>
-        ${
-          summary.length
-            ? `<section class="summary">${summary
-                .map(
-                  (item) => `
-                    <article class="summary-card">
-                      <div class="summary-label">${escapeHtml(item.label)}</div>
-                      <div class="summary-value">${escapeHtml(toText(item.value))}</div>
-                    </article>
-                  `,
-                )
-                .join("")}</section>`
-            : ""
-        }
-        <table>
-          <thead>
-            <tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}</tr>
-          </thead>
-          <tbody>
-            ${
-              rows.length
-                ? rows
-                    .map(
-                      (row) => `<tr>${columns.map((column) => `<td>${escapeHtml(toText(row[column.key]))}</td>`).join("")}</tr>`,
-                    )
-                    .join("")
-                : `<tr><td colspan="${columns.length}">Nenhum registro para impressão.</td></tr>`
-            }
-          </tbody>
-          ${
-            summary.length
-              ? `<tfoot><tr><td colspan="${columns.length}">${summary
-                  .map((item) => `${escapeHtml(item.label)}: ${escapeHtml(toText(item.value))}`)
-                  .join(" • ")}</td></tr></tfoot>`
-              : ""
-          }
-        </table>
-        ${
-          summary.length
-            ? `<section class="footer-summary">${summary
-                .map(
-                  (item) => `<div class="footer-line"><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(toText(item.value))}</span></div>`,
-                )
-                .join("")}</section>`
-            : ""
-        }
-        <div class="system-footer">${escapeHtml(branding.systemFooterText)}</div>
-      </body>
-    </html>
-  `;
-
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
 
   printWindow.document.open();
-  printWindow.document.write(printableHtml);
+  printWindow.document.write(
+    buildPrintableShell(
+      title,
+      buildPrintableReportBodyHtml(
+        title,
+        columns,
+        rows,
+        summary,
+        brandingOptions,
+      ),
+      buildReportBranding(brandingOptions),
+    ),
+  );
   printWindow.document.close();
 
   window.setTimeout(() => {

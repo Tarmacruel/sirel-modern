@@ -3,6 +3,7 @@
   buildMapaComparativoHtml,
   buildPrintableShell,
   buildTrHtml,
+  type PrintableBranding,
 } from "@sirel/shared/document-templates/planejamento";
 import {
   buildDossieFornecedorHtml,
@@ -22,26 +23,34 @@ export {
   buildTrHtml,
 };
 
-function buildPreviewStatusHtml(title: string, message: string) {
+function buildPrintableBranding(
+  override?: Partial<PrintableBranding>,
+): PrintableBranding {
   const branding = getRuntimeBrandingSnapshot();
+
+  return {
+    logoUrl:
+      resolveServerAssetUrl(branding.prefeituraLogoUrl) ??
+      branding.prefeituraLogoUrl,
+    lines: branding.prefeituraLines,
+    footerText: branding.systemFooterText,
+    ...override,
+  };
+}
+
+function buildPreviewStatusHtml(title: string, message: string) {
   return buildPrintableShell(
     title,
     `
       <section style="display:flex;min-height:60vh;align-items:center;justify-content:center;">
         <article style="max-width:32rem;border:1px solid #cbd5e1;border-radius:24px;padding:2rem;background:#fff;box-shadow:0 20px 40px rgba(15,23,42,.08);">
-          <p style="margin:0 0 .75rem;font-size:.75rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#0f766e;">${systemName}</p>
+          <p style="margin:0 0 .75rem;font-size:.75rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#2440A7;">${systemName}</p>
           <h1 style="margin:0 0 .75rem;font-size:1.75rem;font-weight:900;color:#0f172a;">${title}</h1>
           <p style="margin:0;font-size:1rem;line-height:1.7;color:#475569;">${message}</p>
         </article>
       </section>
     `,
-    {
-      logoUrl:
-        resolveServerAssetUrl(branding.prefeituraLogoUrl) ??
-        branding.prefeituraLogoUrl,
-      lines: branding.prefeituraLines,
-      footerText: branding.systemFooterText,
-    },
+    buildPrintableBranding(),
   );
 }
 
@@ -81,23 +90,18 @@ export function openPrintableHtml({
   title,
   bodyHtml,
   autoPrint = false,
+  branding,
 }: {
   title: string;
   bodyHtml: string;
   autoPrint?: boolean;
+  branding?: Partial<PrintableBranding>;
 }) {
   const printWindow = openPreviewWindow(title);
-  const branding = getRuntimeBrandingSnapshot();
 
   printWindow.document.open();
   printWindow.document.write(
-    buildPrintableShell(title, bodyHtml, {
-      logoUrl:
-        resolveServerAssetUrl(branding.prefeituraLogoUrl) ??
-        branding.prefeituraLogoUrl,
-      lines: branding.prefeituraLines,
-      footerText: branding.systemFooterText,
-    }),
+    buildPrintableShell(title, bodyHtml, buildPrintableBranding(branding)),
   );
   printWindow.document.close();
   printWindow.focus();

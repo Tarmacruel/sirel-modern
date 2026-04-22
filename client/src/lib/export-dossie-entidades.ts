@@ -19,6 +19,7 @@ import {
   exportReportToPdf,
   exportWorkbookToXlsx,
   type ReportColumn,
+  type ReportBrandingOptions,
   type ReportSummaryItem,
   type WorkbookSheet,
 } from "@/lib/report-export";
@@ -55,6 +56,50 @@ function buildDefaultColumns(): ReportColumn[] {
   ];
 }
 
+function resolveMostFrequentLabel(
+  values: Array<string | null | undefined>,
+): string | undefined {
+  const counts = new Map<string, number>();
+
+  values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .forEach((value) => {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    });
+
+  let winner: string | undefined;
+  let winnerCount = 0;
+  counts.forEach((count, label) => {
+    if (count > winnerCount) {
+      winner = label;
+      winnerCount = count;
+    }
+  });
+
+  return winner;
+}
+
+function buildItemBrandingOptions(
+  detail: DossieItemDetail,
+): ReportBrandingOptions | undefined {
+  const secondaryLine = resolveMostFrequentLabel(
+    detail.processos.map((row) => row.secretaria),
+  );
+
+  return secondaryLine ? { secondaryLine } : undefined;
+}
+
+function buildFornecedorBrandingOptions(
+  detail: DossieFornecedorDetail,
+): ReportBrandingOptions | undefined {
+  const secondaryLine = resolveMostFrequentLabel(
+    detail.participacoes.map((row) => row.secretaria),
+  );
+
+  return secondaryLine ? { secondaryLine } : undefined;
+}
+
 function buildItemReport(detail: DossieItemDetail): {
   filenameBase: string;
   title: string;
@@ -67,11 +112,26 @@ function buildItemReport(detail: DossieItemDetail): {
     { label: "Item", value: detail.identificacao.descricaoResumida },
     { label: "Código interno", value: detail.identificacao.codigoInterno },
     { label: "Unidade", value: detail.identificacao.unidadeMedida },
-    { label: "Processos", value: detail.resumo.totalProcessos.toLocaleString("pt-BR") },
-    { label: "Licitações", value: detail.resumo.totalLicitacoes.toLocaleString("pt-BR") },
-    { label: "Contratos", value: detail.resumo.totalContratos.toLocaleString("pt-BR") },
-    { label: "Valor contratado", value: formatCurrencyBRL(detail.resumo.valorTotalContratado) },
-    { label: "Fornecedores", value: detail.resumo.totalFornecedoresDistintos.toLocaleString("pt-BR") },
+    {
+      label: "Processos",
+      value: detail.resumo.totalProcessos.toLocaleString("pt-BR"),
+    },
+    {
+      label: "Licitações",
+      value: detail.resumo.totalLicitacoes.toLocaleString("pt-BR"),
+    },
+    {
+      label: "Contratos",
+      value: detail.resumo.totalContratos.toLocaleString("pt-BR"),
+    },
+    {
+      label: "Valor contratado",
+      value: formatCurrencyBRL(detail.resumo.valorTotalContratado),
+    },
+    {
+      label: "Fornecedores",
+      value: detail.resumo.totalFornecedoresDistintos.toLocaleString("pt-BR"),
+    },
     {
       label: "Taxa de sucesso",
       value:
@@ -124,7 +184,10 @@ function buildItemReport(detail: DossieItemDetail): {
       contexto: `${row.participacoes} participações / ${row.vitorias} vitórias`,
       valorPrincipal: formatCurrencyBRL(row.valorMedioOfertado),
       valorSecundario: `${formatCurrencyBRL(row.menorValorOfertado)} / ${formatCurrencyBRL(row.maiorValorOfertado)}`,
-      status: row.taxaVitoria === null ? "–" : `${formatNumberBR(row.taxaVitoria, 2)}%`,
+      status:
+        row.taxaVitoria === null
+          ? "–"
+          : `${formatNumberBR(row.taxaVitoria, 2)}%`,
       observacoes: `Último vencedor ${formatCurrencyBRL(row.ultimoValorVencedor)}`,
     })),
     ...detail.evolucaoPrecos.map((row) => ({
@@ -152,7 +215,11 @@ function buildItemReport(detail: DossieItemDetail): {
   ];
 
   return {
-    filenameBase: buildFilename("dossie-item", detail.identificacao.descricaoResumida, "pdf").replace(/\.pdf$/, ""),
+    filenameBase: buildFilename(
+      "dossie-item",
+      detail.identificacao.descricaoResumida,
+      "pdf",
+    ).replace(/\.pdf$/, ""),
     title,
     columns: buildDefaultColumns(),
     rows,
@@ -172,16 +239,33 @@ function buildFornecedorReport(detail: DossieFornecedorDetail): {
     { label: "Fornecedor", value: detail.identificacao.razaoSocial },
     { label: "Documento", value: formatCnpjBR(detail.identificacao.documento) },
     { label: "Status", value: detail.identificacao.status },
-    { label: "Processos", value: detail.resumo.totalProcessos.toLocaleString("pt-BR") },
-    { label: "Licitações", value: detail.resumo.totalLicitacoes.toLocaleString("pt-BR") },
-    { label: "Vitórias", value: detail.resumo.totalVitorias.toLocaleString("pt-BR") },
+    {
+      label: "Processos",
+      value: detail.resumo.totalProcessos.toLocaleString("pt-BR"),
+    },
+    {
+      label: "Licitações",
+      value: detail.resumo.totalLicitacoes.toLocaleString("pt-BR"),
+    },
+    {
+      label: "Vitórias",
+      value: detail.resumo.totalVitorias.toLocaleString("pt-BR"),
+    },
     {
       label: "Taxa de vitória",
       value:
-        detail.resumo.taxaVitoria === null ? "–" : `${formatNumberBR(detail.resumo.taxaVitoria, 2)}%`,
+        detail.resumo.taxaVitoria === null
+          ? "–"
+          : `${formatNumberBR(detail.resumo.taxaVitoria, 2)}%`,
     },
-    { label: "Valor vencido", value: formatCurrencyBRL(detail.resumo.valorTotalVencido) },
-    { label: "Valor contratado", value: formatCurrencyBRL(detail.resumo.valorTotalContratado) },
+    {
+      label: "Valor vencido",
+      value: formatCurrencyBRL(detail.resumo.valorTotalVencido),
+    },
+    {
+      label: "Valor contratado",
+      value: formatCurrencyBRL(detail.resumo.valorTotalContratado),
+    },
   ];
 
   const rows: ReportRow[] = [
@@ -189,7 +273,9 @@ function buildFornecedorReport(detail: DossieFornecedorDetail): {
       secao: "Participações",
       referencia: row.numeroSirel,
       detalhe: row.objetoProcesso,
-      contexto: [row.modalidade, row.papel, row.tipoParticipacao].filter(Boolean).join(" | "),
+      contexto: [row.modalidade, row.papel, row.tipoParticipacao]
+        .filter(Boolean)
+        .join(" | "),
       valorPrincipal: formatCurrencyBRL(row.valorGlobalOfertado),
       valorSecundario: row.melhorClassificacao ?? "",
       status: row.statusFornecedor ?? "–",
@@ -205,7 +291,7 @@ function buildFornecedorReport(detail: DossieFornecedorDetail): {
       status: row.resultado ?? "–",
       observacoes:
         row.diferencaPercentualEstimado === null
-          ? row.classificacao ?? ""
+          ? (row.classificacao ?? "")
           : `${formatNumberBR(row.diferencaPercentualEstimado, 2)}%`,
     })),
     ...detail.vitorias.map((row) => ({
@@ -264,7 +350,11 @@ function buildFornecedorReport(detail: DossieFornecedorDetail): {
   ];
 
   return {
-    filenameBase: buildFilename("dossie-fornecedor", detail.identificacao.razaoSocial, "pdf").replace(/\.pdf$/, ""),
+    filenameBase: buildFilename(
+      "dossie-fornecedor",
+      detail.identificacao.razaoSocial,
+      "pdf",
+    ).replace(/\.pdf$/, ""),
     title,
     columns: buildDefaultColumns(),
     rows,
@@ -272,9 +362,7 @@ function buildFornecedorReport(detail: DossieFornecedorDetail): {
   };
 }
 
-function buildItemWorkbook(
-  detail: DossieItemDetail,
-): {
+function buildItemWorkbook(detail: DossieItemDetail): {
   filenameBase: string;
   title: string;
   summary: ReportSummaryItem[];
@@ -426,9 +514,7 @@ function buildItemWorkbook(
   };
 }
 
-function buildFornecedorWorkbook(
-  detail: DossieFornecedorDetail,
-): {
+function buildFornecedorWorkbook(detail: DossieFornecedorDetail): {
   filenameBase: string;
   title: string;
   summary: ReportSummaryItem[];
@@ -602,6 +688,7 @@ export function printDossieItem(detail: DossieItemDetail, autoPrint = false) {
     title: `Dossiê do item - ${detail.identificacao.descricaoResumida}`,
     bodyHtml: buildDossieItemHtml(detail),
     autoPrint,
+    branding: buildItemBrandingOptions(detail),
   });
 }
 
@@ -613,38 +700,47 @@ export function printDossieFornecedor(
     title: `Dossiê do fornecedor - ${detail.identificacao.razaoSocial}`,
     bodyHtml: buildDossieFornecedorHtml(detail),
     autoPrint,
+    branding: buildFornecedorBrandingOptions(detail),
   });
 }
 
 export async function exportDossieItemToPdf(detail: DossieItemDetail) {
   const report = buildItemReport(detail);
+  const brandingOptions = buildItemBrandingOptions(detail);
   await exportReportToPdf(
     `${report.filenameBase}.pdf`,
     report.title,
     report.columns,
     report.rows,
     report.summary,
+    brandingOptions,
   );
 }
 
 export async function exportDossieItemToXlsx(detail: DossieItemDetail) {
   const workbook = buildItemWorkbook(detail);
+  const brandingOptions = buildItemBrandingOptions(detail);
   await exportWorkbookToXlsx(
     `${workbook.filenameBase}.xlsx`,
     workbook.title,
     workbook.sheets,
     workbook.summary,
+    brandingOptions,
   );
 }
 
-export async function exportDossieFornecedorToPdf(detail: DossieFornecedorDetail) {
+export async function exportDossieFornecedorToPdf(
+  detail: DossieFornecedorDetail,
+) {
   const report = buildFornecedorReport(detail);
+  const brandingOptions = buildFornecedorBrandingOptions(detail);
   await exportReportToPdf(
     `${report.filenameBase}.pdf`,
     report.title,
     report.columns,
     report.rows,
     report.summary,
+    brandingOptions,
   );
 }
 
@@ -652,10 +748,12 @@ export async function exportDossieFornecedorToXlsx(
   detail: DossieFornecedorDetail,
 ) {
   const workbook = buildFornecedorWorkbook(detail);
+  const brandingOptions = buildFornecedorBrandingOptions(detail);
   await exportWorkbookToXlsx(
     `${workbook.filenameBase}.xlsx`,
     workbook.title,
     workbook.sheets,
     workbook.summary,
+    brandingOptions,
   );
 }

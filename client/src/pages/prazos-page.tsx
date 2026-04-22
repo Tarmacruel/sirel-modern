@@ -1,5 +1,26 @@
-import { Clock3, Siren, CheckCircle2, CalendarRange, Search, Users2, Plus, Bell, History, UserCircle2, Download, Share2, BarChart3, Mail, Smartphone, BellRing } from "lucide-react";
+import {
+  ArrowRight,
+  Bell,
+  BellRing,
+  CalendarRange,
+  CheckCircle2,
+  Clock3,
+  Download,
+  FileText,
+  History,
+  Mail,
+  Plus,
+  Search,
+  Share2,
+  Siren,
+  Smartphone,
+  UserCircle2,
+  Users2,
+  X,
+  BarChart3,
+} from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "wouter";
 
 import { SimpleBarChart } from "@/components/dashboard/simple-bar-chart";
 import { SectionCard } from "@/components/shared/section-card";
@@ -12,7 +33,14 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "@/components/ui/table";
 import {
   prazoProcessualStatusLabels,
   prazoProcessualStatusOptions,
@@ -25,7 +53,11 @@ import {
 } from "@sirel/shared/const";
 import type { NotificationPreferences } from "@sirel/shared/schemas/notificacoes";
 import { formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
-import { isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/lib/push-notifications";
+import {
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from "@/lib/push-notifications";
 import { exportReportToCsv, exportReportToPdf } from "@/lib/report-export";
 import { trpc } from "@/lib/trpc";
 
@@ -33,7 +65,13 @@ type PrazoTipo = (typeof prazoProcessualTipoOptions)[number];
 type PrazoStatus = (typeof prazoProcessualStatusOptions)[number];
 type TarefaStatus = (typeof tarefaEquipeStatusOptions)[number];
 type TarefaPrioridade = (typeof tarefaEquipePrioridadeOptions)[number];
-type PrazosTab = "DASHBOARD" | "MEUS_PRAZOS" | "TAREFAS_EQUIPE" | "NOVO" | "ALERTAS" | "HISTORICO";
+type PrazosTab =
+  | "DASHBOARD"
+  | "MEUS_PRAZOS"
+  | "TAREFAS_EQUIPE"
+  | "NOVO"
+  | "ALERTAS"
+  | "HISTORICO";
 
 const initialPrazoForm = {
   prazoId: null as number | null,
@@ -66,7 +104,12 @@ type ProcessOption = {
   secretariaNome: string | null;
 };
 
-type AgendaRowAction = "CONCLUIR" | "REAGENDAR" | "DELEGAR" | "COMENTAR" | "EXCLUIR";
+type AgendaRowAction =
+  | "CONCLUIR"
+  | "REAGENDAR"
+  | "DELEGAR"
+  | "COMENTAR"
+  | "EXCLUIR";
 
 const defaultNotificationPreferences: NotificationPreferences = {
   frequencia: "IMEDIATA",
@@ -144,7 +187,9 @@ function ProcessAutocompleteField({
       bucket.push(item);
       grouped.set(group, bucket);
     }
-    return Array.from(grouped.entries()).sort(([left], [right]) => left.localeCompare(right));
+    return Array.from(grouped.entries()).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
   }, [options, query]);
 
   return (
@@ -187,7 +232,9 @@ function ProcessAutocompleteField({
           {groupedResults.length ? (
             groupedResults.map(([group, items]) => (
               <div key={group} className="mb-2 last:mb-0">
-                <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-neutral-500)]">{group}</p>
+                <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-neutral-500)]">
+                  {group}
+                </p>
                 <div className="space-y-1">
                   {items.slice(0, 10).map((item) => (
                     <button
@@ -202,15 +249,21 @@ function ProcessAutocompleteField({
                       className="w-full rounded-xl px-2 py-2 text-left text-sm text-[var(--color-neutral-700)] transition hover:bg-[var(--color-primary-50)]"
                       title={item.objeto}
                     >
-                      <span className="block font-semibold text-[var(--color-primary-900)]">{item.numeroSirel}</span>
-                      <span className="block truncate text-xs text-[var(--color-neutral-500)]">{item.objeto}</span>
+                      <span className="block font-semibold text-[var(--color-primary-900)]">
+                        {item.numeroSirel}
+                      </span>
+                      <span className="block truncate text-xs text-[var(--color-neutral-500)]">
+                        {item.objeto}
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
             ))
           ) : (
-            <p className="px-2 py-2 text-sm text-[var(--color-neutral-500)]">Nenhum processo encontrado.</p>
+            <p className="px-2 py-2 text-sm text-[var(--color-neutral-500)]">
+              Nenhum processo encontrado.
+            </p>
           )}
         </div>
       ) : null}
@@ -258,19 +311,48 @@ function alertBadge(level: string) {
   }
 }
 
+function buildAgendaItemKey(item: { itemTipo: string; id: number }) {
+  return `${item.itemTipo}-${item.id}`;
+}
+
+function resolveAgendaStatusLabel(item: any) {
+  return item.itemTipo === "TAREFA_EQUIPE"
+    ? (tarefaEquipeStatusLabels[
+        item.status as keyof typeof tarefaEquipeStatusLabels
+      ] ?? item.status)
+    : (prazoProcessualStatusLabels[
+        item.status as keyof typeof prazoProcessualStatusLabels
+      ] ?? item.status);
+}
+
+function resolveAgendaReminderLabel(item: any) {
+  if (item.itemTipo === "PRAZO_PROCESSUAL") {
+    return Array.isArray(item.alertasConfig?.lembretes) &&
+      item.alertasConfig.lembretes.length
+      ? `${item.alertasConfig.lembretes.join(", ")} dia(s)`
+      : "Sem lembrete";
+  }
+  return item.notificarResponsavel ? "Notificacao ativa" : "Notificacao off";
+}
+
 export function PrazosPage() {
   const utils = trpc.useUtils();
   const [tab, setTab] = useState<PrazosTab>("DASHBOARD");
-  const [tabBeforeCreate, setTabBeforeCreate] = useState<PrazosTab>("DASHBOARD");
+  const [tabBeforeCreate, setTabBeforeCreate] =
+    useState<PrazosTab>("DASHBOARD");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [formMode, setFormMode] = useState<"PRAZO_PROCESSUAL" | "TAREFA_EQUIPE">("PRAZO_PROCESSUAL");
+  const [formMode, setFormMode] = useState<
+    "PRAZO_PROCESSUAL" | "TAREFA_EQUIPE"
+  >("PRAZO_PROCESSUAL");
   const [pagina, setPagina] = useState(1);
   const [limite, setLimite] = useState(10);
   const [busca, setBusca] = useState("");
   const [tipo, setTipo] = useState<"" | PrazoTipo>("");
   const [status, setStatus] = useState<"" | PrazoStatus>("");
   const [statusTarefa, setStatusTarefa] = useState<"" | TarefaStatus>("");
-  const [prioridadeTarefa, setPrioridadeTarefa] = useState<"" | TarefaPrioridade>("");
+  const [prioridadeTarefa, setPrioridadeTarefa] = useState<
+    "" | TarefaPrioridade
+  >("");
   const [responsavelFiltro, setResponsavelFiltro] = useState("");
   const [somenteCriticos, setSomenteCriticos] = useState(false);
   const [somenteDelegadosPorMim, setSomenteDelegadosPorMim] = useState(false);
@@ -278,33 +360,62 @@ export function PrazosPage() {
   const [form, setForm] = useState(initialPrazoForm);
   const [taskForm, setTaskForm] = useState(initialTaskForm);
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
-  const [bulkAction, setBulkAction] = useState<"" | "CONCLUIR" | "DELEGAR" | "REAGENDAR">("");
+  const [selectedAgendaItemKey, setSelectedAgendaItemKey] = useState<
+    string | null
+  >(null);
+  const [bulkAction, setBulkAction] = useState<
+    "" | "CONCLUIR" | "DELEGAR" | "REAGENDAR"
+  >("");
   const [bulkResponsavelId, setBulkResponsavelId] = useState("");
   const [bulkDataEntrega, setBulkDataEntrega] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
-  const [exportAction, setExportAction] = useState<"" | "CSV" | "PDF" | "LINK">("");
+  const [exportAction, setExportAction] = useState<"" | "CSV" | "PDF" | "LINK">(
+    "",
+  );
   const [shareMemberId, setShareMemberId] = useState("");
-  const [sharePermission, setSharePermission] = useState<"SOMENTE_VISUALIZACAO" | "COMENTARIOS">("SOMENTE_VISUALIZACAO");
-  const [exporting, setExporting] = useState<null | "CSV" | "PDF" | "LINK">(null);
-  const [shareToken] = useState(() => new URLSearchParams(window.location.search).get("share") ?? "");
-  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(defaultNotificationPreferences);
+  const [sharePermission, setSharePermission] = useState<
+    "SOMENTE_VISUALIZACAO" | "COMENTARIOS"
+  >("SOMENTE_VISUALIZACAO");
+  const [exporting, setExporting] = useState<null | "CSV" | "PDF" | "LINK">(
+    null,
+  );
+  const [shareToken] = useState(
+    () => new URLSearchParams(window.location.search).get("share") ?? "",
+  );
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<NotificationPreferences>(defaultNotificationPreferences);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isSharedView = Boolean(shareToken);
 
-  const summaryQuery = trpc.prazos.agendaSummary.useQuery(undefined, { retry: false });
-  const processOptionsQuery = trpc.prazos.processOptions.useQuery(undefined, { retry: false });
-  const teamMembersQuery = trpc.prazos.teamMembers.useQuery(undefined, { retry: false });
-  const teamWorkloadQuery = trpc.prazos.teamWorkload.useQuery(undefined, { retry: false });
-  const shareResolveQuery = trpc.prazos.agendaShareResolve.useQuery({ token: shareToken }, { enabled: isSharedView, retry: false });
-  const notificationPreferencesQuery = trpc.notificacoes.preferences.useQuery(undefined, { retry: false });
-  const saveNotificationPreferencesMutation = trpc.notificacoes.savePreferences.useMutation({
-    onError: (mutationError) => {
-      setError(mutationError.message);
-    },
+  const summaryQuery = trpc.prazos.agendaSummary.useQuery(undefined, {
+    retry: false,
   });
+  const processOptionsQuery = trpc.prazos.processOptions.useQuery(undefined, {
+    retry: false,
+  });
+  const teamMembersQuery = trpc.prazos.teamMembers.useQuery(undefined, {
+    retry: false,
+  });
+  const teamWorkloadQuery = trpc.prazos.teamWorkload.useQuery(undefined, {
+    retry: false,
+  });
+  const shareResolveQuery = trpc.prazos.agendaShareResolve.useQuery(
+    { token: shareToken },
+    { enabled: isSharedView, retry: false },
+  );
+  const notificationPreferencesQuery = trpc.notificacoes.preferences.useQuery(
+    undefined,
+    { retry: false },
+  );
+  const saveNotificationPreferencesMutation =
+    trpc.notificacoes.savePreferences.useMutation({
+      onError: (mutationError) => {
+        setError(mutationError.message);
+      },
+    });
   const registerPushMutation = trpc.notificacoes.registerPush.useMutation({
     onError: (mutationError) => {
       setError(mutationError.message);
@@ -328,7 +439,9 @@ export function PrazosPage() {
 
   const processOptions = processOptionsQuery.data ?? [];
   const notifyResponsibleDefault =
-    notificationPreferences.canais.inApp || notificationPreferences.canais.email || notificationPreferences.canais.push;
+    notificationPreferences.canais.inApp ||
+    notificationPreferences.canais.email ||
+    notificationPreferences.canais.push;
 
   useEffect(() => {
     if (!notificationPreferencesQuery.data) return;
@@ -355,13 +468,16 @@ export function PrazosPage() {
     setStatus((filtros.statusPrazo as PrazoStatus) ?? "");
     setStatusTarefa((filtros.statusTarefa as TarefaStatus) ?? "");
     setPrioridadeTarefa((filtros.prioridadeTarefa as TarefaPrioridade) ?? "");
-    setResponsavelFiltro(filtros.responsavelId ? String(filtros.responsavelId) : "");
+    setResponsavelFiltro(
+      filtros.responsavelId ? String(filtros.responsavelId) : "",
+    );
     setSomenteCriticos(Boolean(filtros.somenteCriticos));
     setSomenteDelegadosPorMim(Boolean(filtros.somenteDelegadosPorMim));
     setOcultarConcluidos(Boolean(filtros.ocultarConcluidos));
   }, [isSharedView, shareResolveQuery.data]);
 
-  const sharedPermission = shareResolveQuery.data?.permissao ?? "SOMENTE_VISUALIZACAO";
+  const sharedPermission =
+    shareResolveQuery.data?.permissao ?? "SOMENTE_VISUALIZACAO";
   const sharedReadOnly = isSharedView && sharedPermission !== "COMENTARIOS";
   const agendaEnabled = tab !== "HISTORICO";
   const filters = useMemo(
@@ -369,7 +485,8 @@ export function PrazosPage() {
       pagina,
       limite,
       busca: busca.trim() || undefined,
-      escopo: tab === "NOVO" ? "DASHBOARD" : tab === "HISTORICO" ? "DASHBOARD" : tab,
+      escopo:
+        tab === "NOVO" ? "DASHBOARD" : tab === "HISTORICO" ? "DASHBOARD" : tab,
       prazoTipo: tipo || undefined,
       statusPrazo: status || undefined,
       statusTarefa: statusTarefa || undefined,
@@ -395,8 +512,19 @@ export function PrazosPage() {
       tipo,
     ],
   );
-  const agendaListQuery = trpc.prazos.agendaList.useQuery(filters as any, { enabled: agendaEnabled && !isSharedView, retry: false, placeholderData: (previous) => previous });
-  const sharedListQuery = trpc.prazos.agendaSharedList.useQuery({ token: shareToken, pagina, limite, busca: busca.trim() || undefined }, { enabled: agendaEnabled && isSharedView && !!shareToken, retry: false, placeholderData: (previous) => previous });
+  const agendaListQuery = trpc.prazos.agendaList.useQuery(filters as any, {
+    enabled: agendaEnabled && !isSharedView,
+    retry: false,
+    placeholderData: (previous) => previous,
+  });
+  const sharedListQuery = trpc.prazos.agendaSharedList.useQuery(
+    { token: shareToken, pagina, limite, busca: busca.trim() || undefined },
+    {
+      enabled: agendaEnabled && isSharedView && !!shareToken,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
+  );
   const listQuery = isSharedView ? sharedListQuery : agendaListQuery;
 
   const historyQuery = trpc.auditoria.list.useQuery(
@@ -464,7 +592,10 @@ export function PrazosPage() {
         utils.prazos.agendaList.invalidate(),
         utils.prazos.teamWorkload.invalidate(),
       ]);
-      setTaskForm({ ...initialTaskForm, notificarResponsavel: notifyResponsibleDefault });
+      setTaskForm({
+        ...initialTaskForm,
+        notificarResponsavel: notifyResponsibleDefault,
+      });
       closeCreateModal();
       setError(null);
       setFeedback("Tarefa salva com sucesso.");
@@ -579,7 +710,9 @@ export function PrazosPage() {
 
     if (formMode === "PRAZO_PROCESSUAL") {
       if (!form.processoId || !form.titulo.trim() || !form.dataPrevista) {
-        setError("Informe processo, título e data prevista para salvar o prazo.");
+        setError(
+          "Informe processo, título e data prevista para salvar o prazo.",
+        );
         return;
       }
       const lembretes = parseLembretes(form.lembretes);
@@ -589,15 +722,23 @@ export function PrazosPage() {
         tipo: form.tipo as any,
         titulo: form.titulo,
         dataPrevista: form.dataPrevista,
-        responsavelId: form.responsavelId ? Number(form.responsavelId) : undefined,
+        responsavelId: form.responsavelId
+          ? Number(form.responsavelId)
+          : undefined,
         observacao: form.observacao || undefined,
         lembretes: lembretes.length ? lembretes : [7, 3, 1],
       });
       return;
     }
 
-    if (!taskForm.titulo.trim() || !taskForm.dataEntrega || !taskForm.responsavelId) {
-      setError("Informe título, responsável e data de entrega para salvar a tarefa.");
+    if (
+      !taskForm.titulo.trim() ||
+      !taskForm.dataEntrega ||
+      !taskForm.responsavelId
+    ) {
+      setError(
+        "Informe título, responsável e data de entrega para salvar a tarefa.",
+      );
       return;
     }
 
@@ -615,7 +756,9 @@ export function PrazosPage() {
     });
   }
 
-  function openCreateModal(nextMode: "PRAZO_PROCESSUAL" | "TAREFA_EQUIPE" = "PRAZO_PROCESSUAL") {
+  function openCreateModal(
+    nextMode: "PRAZO_PROCESSUAL" | "TAREFA_EQUIPE" = "PRAZO_PROCESSUAL",
+  ) {
     if (isSharedView) {
       setError("Visualizacao compartilhada nao permite criar novos itens.");
       return;
@@ -625,7 +768,10 @@ export function PrazosPage() {
     if (nextMode === "PRAZO_PROCESSUAL") {
       setForm(initialPrazoForm);
     } else {
-      setTaskForm({ ...initialTaskForm, notificarResponsavel: notifyResponsibleDefault });
+      setTaskForm({
+        ...initialTaskForm,
+        notificarResponsavel: notifyResponsibleDefault,
+      });
     }
     setError(null);
     setFeedback(null);
@@ -651,7 +797,8 @@ export function PrazosPage() {
         responsavelId: item.responsavelId ? String(item.responsavelId) : "",
         prioridade: item.prioridade ?? "MEDIA",
         status: item.status,
-        notificarResponsavel: item.notificarResponsavel ?? notifyResponsibleDefault,
+        notificarResponsavel:
+          item.notificarResponsavel ?? notifyResponsibleDefault,
       });
       setTabBeforeCreate((current) => (tab === "NOVO" ? current : tab));
       setTab("NOVO");
@@ -668,7 +815,9 @@ export function PrazosPage() {
       dataPrevista: toDateInputValue(item.dataPrevista),
       responsavelId: item.responsavelId ? String(item.responsavelId) : "",
       observacao: item.observacao ?? "",
-      lembretes: Array.isArray(item.alertasConfig?.lembretes) ? item.alertasConfig.lembretes.join(",") : "7,3,1",
+      lembretes: Array.isArray(item.alertasConfig?.lembretes)
+        ? item.alertasConfig.lembretes.join(",")
+        : "7,3,1",
     });
     setTabBeforeCreate((current) => (tab === "NOVO" ? current : tab));
     setTab("NOVO");
@@ -677,21 +826,32 @@ export function PrazosPage() {
     setError(null);
   }
 
-  async function handleConclude(itemId: number, arquivarTarefasRelacionadas = false) {
-    await concludeMutation.mutateAsync({ prazoId: itemId, arquivarTarefasRelacionadas });
+  async function handleConclude(
+    itemId: number,
+    arquivarTarefasRelacionadas = false,
+  ) {
+    await concludeMutation.mutateAsync({
+      prazoId: itemId,
+      arquivarTarefasRelacionadas,
+    });
   }
 
   async function handleRemove(itemId: number) {
-    if (!window.confirm("Deseja realmente remover este prazo processual?")) return;
+    if (!window.confirm("Deseja realmente remover este prazo processual?"))
+      return;
     await removeMutation.mutateAsync({ prazoId: itemId });
   }
 
   async function handleTaskStatus(itemId: number, nextStatus: TarefaStatus) {
-    await taskSetStatusMutation.mutateAsync({ tarefaId: itemId, status: nextStatus });
+    await taskSetStatusMutation.mutateAsync({
+      tarefaId: itemId,
+      status: nextStatus,
+    });
   }
 
   async function handleTaskRemove(itemId: number) {
-    if (!window.confirm("Deseja realmente remover esta tarefa da equipe?")) return;
+    if (!window.confirm("Deseja realmente remover esta tarefa da equipe?"))
+      return;
     await taskRemoveMutation.mutateAsync({ tarefaId: itemId });
   }
 
@@ -711,7 +871,9 @@ export function PrazosPage() {
 
   function suggestTaskFromPrazo() {
     if (!form.processoId || !form.dataPrevista) {
-      setError("Selecione processo e data prevista para gerar sugestão automática de tarefa.");
+      setError(
+        "Selecione processo e data prevista para gerar sugestão automática de tarefa.",
+      );
       return;
     }
     const suggestedTitle = `Revisar ${prazoProcessualTipoLabels[form.tipo].toLowerCase()}`;
@@ -720,14 +882,17 @@ export function PrazosPage() {
       processoId: form.processoId,
       prazoId: form.prazoId ? String(form.prazoId) : "",
       titulo: suggestedTitle,
-      dataEntrega: offsetDateInputValue(form.dataPrevista, -2) || form.dataPrevista,
+      dataEntrega:
+        offsetDateInputValue(form.dataPrevista, -2) || form.dataPrevista,
       responsavelId: form.responsavelId,
       prioridade: "MEDIA",
       notificarResponsavel: notifyResponsibleDefault,
     });
     setFormMode("TAREFA_EQUIPE");
     setError(null);
-    setFeedback("Sugestão de tarefa aplicada. Ajuste e salve para concluir a integração prazo?tarefa.");
+    setFeedback(
+      "Sugestão de tarefa aplicada. Ajuste e salve para concluir a integração prazo?tarefa.",
+    );
   }
 
   async function handleRowAction(item: any, action: AgendaRowAction) {
@@ -758,13 +923,20 @@ export function PrazosPage() {
 
     if (action === "DELEGAR") {
       handleEdit(item);
-      setFeedback("Item aberto em modo de edição. Ajuste o responsável e salve para delegar.");
+      setFeedback(
+        "Item aberto em modo de edição. Ajuste o responsável e salve para delegar.",
+      );
       return;
     }
 
     if (action === "REAGENDAR") {
-      const suggestedDate = toDateInputValue(item.dataLimite ?? item.dataPrevista);
-      const nextDate = window.prompt("Informe a nova data (AAAA-MM-DD):", suggestedDate);
+      const suggestedDate = toDateInputValue(
+        item.dataLimite ?? item.dataPrevista,
+      );
+      const nextDate = window.prompt(
+        "Informe a nova data (AAAA-MM-DD):",
+        suggestedDate,
+      );
       if (!nextDate) return;
       if (item.itemTipo === "TAREFA_EQUIPE") {
         await taskSetStatusMutation.mutateAsync({
@@ -779,9 +951,13 @@ export function PrazosPage() {
           tipo: item.tipo,
           titulo: item.titulo,
           dataPrevista: nextDate,
-          responsavelId: item.responsavelId ? Number(item.responsavelId) : undefined,
+          responsavelId: item.responsavelId
+            ? Number(item.responsavelId)
+            : undefined,
           observacao: item.observacao || undefined,
-          lembretes: Array.isArray(item.alertasConfig?.lembretes) ? item.alertasConfig.lembretes : [7, 3, 1],
+          lembretes: Array.isArray(item.alertasConfig?.lembretes)
+            ? item.alertasConfig.lembretes
+            : [7, 3, 1],
         });
       }
       return;
@@ -797,16 +973,22 @@ export function PrazosPage() {
           comentario: comentario.trim(),
         });
       } else {
-        const observacaoAtualizada = [item.observacao, comentario.trim()].filter(Boolean).join("\n");
+        const observacaoAtualizada = [item.observacao, comentario.trim()]
+          .filter(Boolean)
+          .join("\n");
         await saveMutation.mutateAsync({
           prazoId: item.id,
           processoId: Number(item.processoId),
           tipo: item.tipo,
           titulo: item.titulo,
           dataPrevista: toDateInputValue(item.dataPrevista),
-          responsavelId: item.responsavelId ? Number(item.responsavelId) : undefined,
+          responsavelId: item.responsavelId
+            ? Number(item.responsavelId)
+            : undefined,
           observacao: observacaoAtualizada,
-          lembretes: Array.isArray(item.alertasConfig?.lembretes) ? item.alertasConfig.lembretes : [7, 3, 1],
+          lembretes: Array.isArray(item.alertasConfig?.lembretes)
+            ? item.alertasConfig.lembretes
+            : [7, 3, 1],
         });
       }
       return;
@@ -817,7 +999,9 @@ export function PrazosPage() {
         await handleTaskStatus(item.id, "CONCLUIDO");
         return;
       }
-      const arquivarRelacionadas = window.confirm("Deseja arquivar automaticamente as tarefas relacionadas a este prazo?");
+      const arquivarRelacionadas = window.confirm(
+        "Deseja arquivar automaticamente as tarefas relacionadas a este prazo?",
+      );
       await handleConclude(item.id, arquivarRelacionadas);
       return;
     }
@@ -853,8 +1037,12 @@ export function PrazosPage() {
       dataPrevista: formatShortDateBR(item.dataLimite ?? item.dataPrevista),
       status:
         item.itemTipo === "TAREFA_EQUIPE"
-          ? tarefaEquipeStatusLabels[item.status as keyof typeof tarefaEquipeStatusLabels] ?? item.status
-          : prazoProcessualStatusLabels[item.status as keyof typeof prazoProcessualStatusLabels] ?? item.status,
+          ? (tarefaEquipeStatusLabels[
+              item.status as keyof typeof tarefaEquipeStatusLabels
+            ] ?? item.status)
+          : (prazoProcessualStatusLabels[
+              item.status as keyof typeof prazoProcessualStatusLabels
+            ] ?? item.status),
       dias: item.daysRemaining ?? "-",
       lembretes:
         item.itemTipo === "PRAZO_PROCESSUAL"
@@ -865,6 +1053,20 @@ export function PrazosPage() {
             ? "Ativo"
             : "Desativado",
     }));
+  }
+
+  function resolveAgendaSecondaryLine(
+    items: Array<{ secretariaNome?: string | null }>,
+  ) {
+    const labels = Array.from(
+      new Set(
+        items
+          .map((item) => item.secretariaNome?.trim())
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    return labels.length === 1 ? labels[0] : undefined;
   }
 
   async function fetchRowsForExport() {
@@ -890,7 +1092,11 @@ export function PrazosPage() {
       const columns = buildExportColumns();
       const stamp = new Date().toISOString().slice(0, 10);
       if (exportAction === "CSV") {
-        exportReportToCsv(`sirel-prazos-agenda-${stamp}.csv`, columns, exportRows as Record<string, unknown>[]);
+        exportReportToCsv(
+          `sirel-prazos-agenda-${stamp}.csv`,
+          columns,
+          exportRows as Record<string, unknown>[],
+        );
         setFeedback("Exportação CSV concluída.");
       } else if (exportAction === "PDF") {
         await exportReportToPdf(
@@ -902,6 +1108,7 @@ export function PrazosPage() {
             { label: "Total de itens", value: exportRows.length },
             { label: "Escopo", value: tab },
           ],
+          { secondaryLine: resolveAgendaSecondaryLine(rowsToExport) },
         );
         setFeedback("Exportação PDF concluída.");
       } else {
@@ -911,10 +1118,14 @@ export function PrazosPage() {
         if (tipo) url.searchParams.set("tipo", tipo);
         if (status) url.searchParams.set("status", status);
         if (statusTarefa) url.searchParams.set("statusTarefa", statusTarefa);
-        if (prioridadeTarefa) url.searchParams.set("prioridade", prioridadeTarefa);
-        if (responsavelFiltro) url.searchParams.set("responsavelId", responsavelFiltro);
+        if (prioridadeTarefa)
+          url.searchParams.set("prioridade", prioridadeTarefa);
+        if (responsavelFiltro)
+          url.searchParams.set("responsavelId", responsavelFiltro);
         await navigator.clipboard.writeText(url.toString());
-        setFeedback("Link da visão filtrada copiado para a área de transferência.");
+        setFeedback(
+          "Link da visão filtrada copiado para a área de transferência.",
+        );
       }
     } catch (requestError: any) {
       setFeedback(null);
@@ -925,7 +1136,7 @@ export function PrazosPage() {
     }
   }
 
-    async function handleShareLink() {
+  async function handleShareLink() {
     if (isSharedView) {
       setError("Visualizacao compartilhada nao permite novo compartilhamento.");
       return;
@@ -934,7 +1145,9 @@ export function PrazosPage() {
       setError("Selecione um membro da equipe para compartilhar.");
       return;
     }
-    const member = teamMembersQuery.data?.find((item) => String(item.id) === shareMemberId);
+    const member = teamMembersQuery.data?.find(
+      (item) => String(item.id) === shareMemberId,
+    );
     if (!member) {
       setError("Membro selecionado invalido.");
       return;
@@ -964,20 +1177,42 @@ export function PrazosPage() {
     const url = new URL(window.location.href);
     url.searchParams.set("share", response.token);
     await navigator.clipboard.writeText(url.toString());
-    setFeedback(`Link seguro copiado para compartilhar com ${member.name}. Permissao: ${sharePermission === "COMENTARIOS" ? "Comentarios" : "Somente visualizacao"}.`);
+    setFeedback(
+      `Link seguro copiado para compartilhar com ${member.name}. Permissao: ${sharePermission === "COMENTARIOS" ? "Comentarios" : "Somente visualizacao"}.`,
+    );
   }
   const rows = listQuery.data?.items ?? [];
-  const historyRows = (historyQuery.data?.items ?? []).filter((item) => item.tabela === "prazos_processuais" || item.tabela === "tarefas_equipe");
+  const selectedAgendaItem = useMemo(
+    () =>
+      rows.find(
+        (item: any) => buildAgendaItemKey(item) === selectedAgendaItemKey,
+      ) ?? null,
+    [rows, selectedAgendaItemKey],
+  );
+  const historyRows = (historyQuery.data?.items ?? []).filter(
+    (item) =>
+      item.tabela === "prazos_processuais" || item.tabela === "tarefas_equipe",
+  );
   const workloadRows = teamWorkloadQuery.data?.items ?? [];
   const workloadChartItems = workloadRows.map((item) => ({
     id: item.responsavelId,
     label: item.responsavelNome,
     value: item.abertos,
   }));
-  const workloadPeriodLabel =
-    teamWorkloadQuery.data?.periodo
-      ? `${formatShortDateBR(teamWorkloadQuery.data.periodo.inicio)} - ${formatShortDateBR(teamWorkloadQuery.data.periodo.fim)}`
-      : "";
+  const workloadPeriodLabel = teamWorkloadQuery.data?.periodo
+    ? `${formatShortDateBR(teamWorkloadQuery.data.periodo.inicio)} - ${formatShortDateBR(teamWorkloadQuery.data.periodo.fim)}`
+    : "";
+
+  useEffect(() => {
+    if (
+      selectedAgendaItemKey &&
+      !rows.some(
+        (item: any) => buildAgendaItemKey(item) === selectedAgendaItemKey,
+      )
+    ) {
+      setSelectedAgendaItemKey(null);
+    }
+  }, [rows, selectedAgendaItemKey]);
 
   return (
     <div className="space-y-6">
@@ -993,18 +1228,78 @@ export function PrazosPage() {
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
-            { label: "Atrasados", value: summaryQuery.data?.atrasados ?? 0, icon: Siren, tone: "border-[rgba(239,68,68,0.2)]", onClick: () => { setTab("ALERTAS"); setSomenteCriticos(true); } },
-            { label: "Próximas 48h", value: summaryQuery.data?.em48h ?? 0, icon: Clock3, tone: "border-[rgba(245,158,11,0.22)]", onClick: () => { setTab("ALERTAS"); setSomenteCriticos(true); } },
-            { label: "Esta semana", value: summaryQuery.data?.estaSemana ?? 0, icon: CalendarRange, tone: "border-[rgba(204,225,255,0.95)]", onClick: () => { setTab("DASHBOARD"); setSomenteCriticos(false); } },
-            { label: "Delegados", value: summaryQuery.data?.delegados ?? 0, icon: Users2, tone: "border-[rgba(56,189,248,0.24)]", onClick: () => { setTab("TAREFAS_EQUIPE"); setSomenteDelegadosPorMim(true); } },
-            { label: "Concluídos", value: summaryQuery.data?.concluidosSemana ?? 0, icon: CheckCircle2, tone: "border-[rgba(16,185,129,0.24)]", onClick: () => { setTab("DASHBOARD"); setOcultarConcluidos(false); } },
+            {
+              label: "Atrasados",
+              value: summaryQuery.data?.atrasados ?? 0,
+              icon: Siren,
+              tone: "border-[rgba(239,68,68,0.2)]",
+              onClick: () => {
+                setTab("ALERTAS");
+                setSomenteCriticos(true);
+              },
+            },
+            {
+              label: "Próximas 48h",
+              value: summaryQuery.data?.em48h ?? 0,
+              icon: Clock3,
+              tone: "border-[rgba(245,158,11,0.22)]",
+              onClick: () => {
+                setTab("ALERTAS");
+                setSomenteCriticos(true);
+              },
+            },
+            {
+              label: "Esta semana",
+              value: summaryQuery.data?.estaSemana ?? 0,
+              icon: CalendarRange,
+              tone: "border-[rgba(204,225,255,0.95)]",
+              onClick: () => {
+                setTab("DASHBOARD");
+                setSomenteCriticos(false);
+              },
+            },
+            {
+              label: "Delegados",
+              value: summaryQuery.data?.delegados ?? 0,
+              icon: Users2,
+              tone: "border-[rgba(56,189,248,0.24)]",
+              onClick: () => {
+                setTab("TAREFAS_EQUIPE");
+                setSomenteDelegadosPorMim(true);
+              },
+            },
+            {
+              label: "Concluídos",
+              value: summaryQuery.data?.concluidosSemana ?? 0,
+              icon: CheckCircle2,
+              tone: "border-[rgba(16,185,129,0.24)]",
+              onClick: () => {
+                setTab("DASHBOARD");
+                setOcultarConcluidos(false);
+              },
+            },
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <button type="button" key={item.label} onClick={item.onClick} className={`rounded-[28px] border ${item.tone} bg-white px-4 py-4 text-left shadow-[0_12px_28px_-24px_rgba(15,26,109,0.22)] transition hover:-translate-y-0.5`}>
-                <div className="inline-flex rounded-2xl bg-[linear-gradient(135deg,var(--color-primary-900),var(--color-primary-700))] p-3 text-white"><Icon className="h-4 w-4" /></div>
-                <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">{item.label}</p>
-                {summaryQuery.isLoading ? <Skeleton className="mt-3 h-10 w-16" /> : <p className="mt-3 text-3xl font-black text-[var(--color-primary-900)]">{item.value}</p>}
+              <button
+                type="button"
+                key={item.label}
+                onClick={item.onClick}
+                className={`rounded-[28px] border ${item.tone} bg-white px-4 py-4 text-left shadow-[0_12px_28px_-24px_rgba(15,26,109,0.22)] transition hover:-translate-y-0.5`}
+              >
+                <div className="inline-flex rounded-2xl bg-[linear-gradient(135deg,var(--color-primary-900),var(--color-primary-700))] p-3 text-white">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
+                  {item.label}
+                </p>
+                {summaryQuery.isLoading ? (
+                  <Skeleton className="mt-3 h-10 w-16" />
+                ) : (
+                  <p className="mt-3 text-3xl font-black text-[var(--color-primary-900)]">
+                    {item.value}
+                  </p>
+                )}
               </button>
             );
           })}
@@ -1012,16 +1307,23 @@ export function PrazosPage() {
       </SectionCard>
 
       <div className="flex flex-wrap gap-2 rounded-[22px] border border-[rgba(204,225,255,0.92)] bg-white p-2">
-        {([
-          { value: "DASHBOARD", label: "Dashboard", icon: Clock3 },
-          { value: "MEUS_PRAZOS", label: "Meus Prazos", icon: UserCircle2 },
-          { value: "TAREFAS_EQUIPE", label: "Tarefas da Equipe", icon: Users2 },
-          { value: "NOVO", label: "Novo", icon: Plus },
-          { value: "ALERTAS", label: "Alertas", icon: Bell },
-          { value: "HISTORICO", label: "Histórico", icon: History },
-        ] as Array<{ value: PrazosTab; label: string; icon: any }>).map((item) => {
+        {(
+          [
+            { value: "DASHBOARD", label: "Dashboard", icon: Clock3 },
+            { value: "MEUS_PRAZOS", label: "Meus Prazos", icon: UserCircle2 },
+            {
+              value: "TAREFAS_EQUIPE",
+              label: "Tarefas da Equipe",
+              icon: Users2,
+            },
+            { value: "NOVO", label: "Novo", icon: Plus },
+            { value: "ALERTAS", label: "Alertas", icon: Bell },
+            { value: "HISTORICO", label: "Histórico", icon: History },
+          ] as Array<{ value: PrazosTab; label: string; icon: any }>
+        ).map((item) => {
           const Icon = item.icon;
-          const isActive = item.value === "NOVO" ? isCreateModalOpen : tab === item.value;
+          const isActive =
+            item.value === "NOVO" ? isCreateModalOpen : tab === item.value;
           return (
             <button
               key={item.value}
@@ -1029,7 +1331,9 @@ export function PrazosPage() {
               disabled={isSharedView && item.value !== tab}
               onClick={() => {
                 if (isSharedView && item.value !== tab) {
-                  setError("Visualizacao compartilhada nao permite trocar de aba.");
+                  setError(
+                    "Visualizacao compartilhada nao permite trocar de aba.",
+                  );
                   return;
                 }
                 if (item.value === "NOVO") {
@@ -1049,12 +1353,21 @@ export function PrazosPage() {
 
       {isSharedView ? (
         <Alert variant={sharedReadOnly ? "info" : "success"}>
-          Visualizacao compartilhada por {shareResolveQuery.data?.compartilhadoPor ?? "outro usuario"}. Permissao: {sharedPermission === "COMENTARIOS" ? "Comentarios" : "Somente visualizacao"}.
+          Visualizacao compartilhada por{" "}
+          {shareResolveQuery.data?.compartilhadoPor ?? "outro usuario"}.
+          Permissao:{" "}
+          {sharedPermission === "COMENTARIOS"
+            ? "Comentarios"
+            : "Somente visualizacao"}
+          .
         </Alert>
       ) : null}
 
       {tab === "HISTORICO" ? (
-        <SectionCard title="Histórico de Ações" description="Auditoria de mudanças em prazos processuais e tarefas delegadas.">
+        <SectionCard
+          title="Histórico de Ações"
+          description="Auditoria de mudanças em prazos processuais e tarefas delegadas."
+        >
           <div className="overflow-x-auto rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white">
             <Table className="min-w-[940px]">
               <TableHead>
@@ -1069,11 +1382,17 @@ export function PrazosPage() {
               <TableBody>
                 {historyQuery.isLoading
                   ? Array.from({ length: 6 }).map((_, index) => (
-                      <TableRow key={index}><TableCell colSpan={5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
+                      <TableRow key={index}>
+                        <TableCell colSpan={5}>
+                          <Skeleton className="h-10 w-full" />
+                        </TableCell>
+                      </TableRow>
                     ))
                   : historyRows.map((row) => (
                       <TableRow key={row.id}>
-                        <TableCell>{formatShortDateTimeBR(row.criadoEm)}</TableCell>
+                        <TableCell>
+                          {formatShortDateTimeBR(row.criadoEm)}
+                        </TableCell>
                         <TableCell>{row.tabela}</TableCell>
                         <TableCell>{row.acao}</TableCell>
                         <TableCell>{row.descricao ?? "-"}</TableCell>
@@ -1084,410 +1403,945 @@ export function PrazosPage() {
             </Table>
           </div>
           <div className="mt-4 flex justify-end">
-            <Pagination page={historyPage} totalPages={Math.max(1, Math.ceil((historyQuery.data?.total ?? 0) / 20))} onPageChange={setHistoryPage} />
+            <Pagination
+              page={historyPage}
+              totalPages={Math.max(
+                1,
+                Math.ceil((historyQuery.data?.total ?? 0) / 20),
+              )}
+              onPageChange={setHistoryPage}
+            />
           </div>
         </SectionCard>
       ) : (
-      <div className="space-y-6">
-        <SectionCard title="Alertas prioritários" description="Fila resumida com itens vencendo em 48h ou já atrasados.">
-          <div className="space-y-3">
-            {summaryQuery.isLoading
-              ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 w-full rounded-[24px]" />)
-              : summaryQuery.data?.alerts.map((item) => (
-                  <article key={`${item.itemTipo}-${item.id}`} className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(230,240,255,0.54),rgba(255,255,255,0.96))] px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-bold text-[var(--color-primary-900)]">{item.numeroSirel ?? "Sem processo"} · {item.itemTipo === "TAREFA_EQUIPE" ? "Tarefa" : "Prazo"}</p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-700)]">{item.titulo}</p>
-                        <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
-                          {formatShortDateBR(item.dataLimite ?? item.dataPrevista)}
-                          {" · "}
-                          {item.responsavelNome ?? "Sem responsável"}
-                        </p>
+        <div className="space-y-6">
+          <SectionCard
+            title="Alertas prioritários"
+            description="Fila resumida com itens vencendo em 48h ou já atrasados."
+          >
+            <div className="space-y-3">
+              {summaryQuery.isLoading
+                ? Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton
+                      key={index}
+                      className="h-20 w-full rounded-[24px]"
+                    />
+                  ))
+                : summaryQuery.data?.alerts.map((item) => (
+                    <article
+                      key={`${item.itemTipo}-${item.id}`}
+                      className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(230,240,255,0.54),rgba(255,255,255,0.96))] px-4 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-[var(--color-primary-900)]">
+                            {item.numeroSirel ?? "Sem processo"} ·{" "}
+                            {item.itemTipo === "TAREFA_EQUIPE"
+                              ? "Tarefa"
+                              : "Prazo"}
+                          </p>
+                          <p className="mt-1 text-sm text-[var(--color-neutral-700)]">
+                            {item.titulo}
+                          </p>
+                          <p className="mt-1 text-xs text-[var(--color-neutral-500)]">
+                            {formatShortDateBR(
+                              item.dataLimite ?? item.dataPrevista,
+                            )}
+                            {" · "}
+                            {item.responsavelNome ?? "Sem responsável"}
+                          </p>
+                        </div>
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${alertBadge(item.alertLevel)}`}
+                        >
+                          {item.daysRemaining === null
+                            ? "-"
+                            : item.daysRemaining === 0
+                              ? "Hoje"
+                              : `${item.daysRemaining} dia(s)`}
+                        </span>
                       </div>
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${alertBadge(item.alertLevel)}`}>
-                        {item.daysRemaining === null ? "-" : item.daysRemaining === 0 ? "Hoje" : `${item.daysRemaining} dia(s)`}
-                      </span>
-                    </div>
-                  </article>
-                ))}
-            {!summaryQuery.isLoading && !summaryQuery.data?.alerts.length ? <Alert variant="info">Nenhum alerta crítico na semana.</Alert> : null}
-          </div>
-        </SectionCard>
-        {!isSharedView ? (
-          <SectionCard title="Gestão da equipe e comunicação" description="Exportação, compartilhamento seguro, carga por responsável e preferências de notificação.">
-                    <div className="grid gap-3 xl:grid-cols-3">
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">Exportar visão atual</p>
-                        <div className="mt-3 flex items-center gap-2">
-                          <Select value={exportAction} onChange={(event) => setExportAction(event.target.value as any)} className="min-w-[180px]">
-                            <option value="">Selecione</option>
-                            <option value="CSV">CSV</option>
-                            <option value="PDF">PDF</option>
-                            <option value="LINK">Link filtrado</option>
-                          </Select>
-                          <Button type="button" size="sm" onClick={() => void handleExport()} disabled={!exportAction || exporting !== null}>
-                            <Download className="h-4 w-4" />
-                            {exporting ? "Gerando..." : "Exportar"}
-                          </Button>
-                        </div>
-                      </article>
-          
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">Compartilhar com a equipe</p>
-                        <div className="mt-3 grid gap-2">
-                          <Select value={shareMemberId} onChange={(event) => setShareMemberId(event.target.value)}>
-                            <option value="">Selecione um membro</option>
-                            {teamMembersQuery.data?.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                          </Select>
-                          <Select value={sharePermission} onChange={(event) => setSharePermission(event.target.value as any)}>
-                            <option value="SOMENTE_VISUALIZACAO">Somente visualização</option>
-                            <option value="COMENTARIOS">Permitir comentários</option>
-                          </Select>
-                          <Button type="button" size="sm" variant="outline" onClick={() => void handleShareLink()}>
-                            <Share2 className="h-4 w-4" />
-                            Copiar link seguro
-                          </Button>
-                        </div>
-                      </article>
-          
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">Preferências de notificação</p>
-                        <div className="mt-3 grid gap-2">
-                          <Select
-                            value={notificationPreferences.frequencia}
-                            onChange={(event) =>
-                              persistNotificationPreferences({
-                                ...notificationPreferences,
-                                frequencia: event.target.value as NotificationPreferences["frequencia"],
-                              })
-                            }
-                          >
-                            <option value="IMEDIATA">Imediata</option>
-                            <option value="RESUMO_DIARIO">Resumo diário</option>
-                            <option value="RESUMO_SEMANAL">Resumo semanal</option>
-                          </Select>
-                          <Select
-                            value={notificationPreferences.escopo}
-                            onChange={(event) =>
-                              persistNotificationPreferences({
-                                ...notificationPreferences,
-                                escopo: event.target.value as NotificationPreferences["escopo"],
-                              })
-                            }
-                          >
-                            <option value="MEUS_ITENS">Apenas meus itens</option>
-                            <option value="EQUIPE">Todos da equipe</option>
-                            <option value="CRITICOS">Somente críticos</option>
-                          </Select>
-                          <div className="flex flex-wrap gap-3 text-xs font-semibold text-[var(--color-neutral-700)]">
-                            <label className="inline-flex items-center gap-1.5">
-                              <Checkbox
-                                checked={notificationPreferences.canais.inApp}
-                                onChange={(event) =>
-                                  persistNotificationPreferences({
-                                    ...notificationPreferences,
-                                    canais: { ...notificationPreferences.canais, inApp: event.target.checked },
-                                  })
-                                }
-                              />
-                              <BellRing className="h-3.5 w-3.5" />
-                              In-app
-                            </label>
-                            <label className="inline-flex items-center gap-1.5">
-                              <Checkbox
-                                checked={notificationPreferences.canais.email}
-                                onChange={(event) =>
-                                  persistNotificationPreferences({
-                                    ...notificationPreferences,
-                                    canais: { ...notificationPreferences.canais, email: event.target.checked },
-                                  })
-                                }
-                              />
-                              <Mail className="h-3.5 w-3.5" />
-                              E-mail
-                            </label>
-                            <label className="inline-flex items-center gap-1.5">
-                              <Checkbox
-                                checked={notificationPreferences.canais.push}
-                                onChange={(event) => void handlePushToggle(event.target.checked)}
-                              />
-                              <Smartphone className="h-3.5 w-3.5" />
-                              Push
-                            </label>
-                          </div>
-                        </div>
-                      </article>
-                    </div>
-          
-                    <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div className="inline-flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4 text-[var(--color-primary-700)]" />
-                          <p className="text-sm font-semibold text-[var(--color-primary-900)]">Distribuição de carga por responsável</p>
-                        </div>
-                        <span className="text-xs text-[var(--color-neutral-500)]">{workloadPeriodLabel}</span>
-                      </div>
-                      {teamWorkloadQuery.isLoading ? (
-                        <Skeleton className="h-28 w-full" />
-                      ) : workloadChartItems.length ? (
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-                          <SimpleBarChart items={workloadChartItems} />
-                          <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)]">
-                            <Table className="min-w-[320px]">
-                              <TableHead>
-                                <tr>
-                                  <TableHeaderCell>Responsável</TableHeaderCell>
-                                  <TableHeaderCell>Pendente</TableHeaderCell>
-                                  <TableHeaderCell>Em andamento</TableHeaderCell>
-                                  <TableHeaderCell>Concluído</TableHeaderCell>
-                                </tr>
-                              </TableHead>
-                              <TableBody>
-                                {workloadRows.map((item) => (
-                                  <TableRow key={item.responsavelId}>
-                                    <TableCell>{item.responsavelNome}</TableCell>
-                                    <TableCell>{item.pendente + item.aguardando + item.bloqueado}</TableCell>
-                                    <TableCell>{item.emAndamento}</TableCell>
-                                    <TableCell>{item.concluido}</TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </div>
-                      ) : (
-                        <Alert variant="info">Sem tarefas da semana para calcular carga por responsável.</Alert>
-                      )}
-                    </div>
-                  </SectionCard>
-        ) : null}
-
-        <SectionCard title="Agenda operacional unificada" description="Acompanhe prazos processuais e tarefas delegadas em uma única fila.">
-          <div className="space-y-4">
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px]">
-              <FormField label="Busca textual" className="w-full">
-                <div className="flex items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.65))] px-3 py-2 shadow-[0_8px_18px_-18px_rgba(15,26,109,0.4)]">
-                  <Search className="h-4 w-4 text-[var(--color-primary-500)]" />
-                  <input
-                    value={busca}
-                    onChange={(event) => { setPagina(1); setBusca(event.target.value); }}
-                    placeholder="Processo, título ou secretaria"
-                    className="w-full border-none bg-transparent text-sm text-[var(--color-neutral-700)] outline-none placeholder:text-[var(--color-neutral-400)]"
-                  />
-                </div>
-              </FormField>
-              <FormField label="Listagem">
-                <Select value={String(limite)} onChange={(event) => { setPagina(1); setLimite(Number(event.target.value)); }}>
-                  {[10, 20, 30].map((option) => <option key={option} value={option}>{option} por página</option>)}
-                </Select>
-              </FormField>
+                    </article>
+                  ))}
+              {!summaryQuery.isLoading && !summaryQuery.data?.alerts.length ? (
+                <Alert variant="info">Nenhum alerta crítico na semana.</Alert>
+              ) : null}
             </div>
+          </SectionCard>
+          {!isSharedView ? (
+            <SectionCard
+              title="Gestão da equipe e comunicação"
+              description="Exportação, compartilhamento seguro, carga por responsável e preferências de notificação."
+            >
+              <div className="grid gap-3 xl:grid-cols-3">
+                <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                    Exportar visão atual
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Select
+                      value={exportAction}
+                      onChange={(event) =>
+                        setExportAction(event.target.value as any)
+                      }
+                      className="min-w-[180px]"
+                    >
+                      <option value="">Selecione</option>
+                      <option value="CSV">CSV</option>
+                      <option value="PDF">PDF</option>
+                      <option value="LINK">Link filtrado</option>
+                    </Select>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleExport()}
+                      disabled={!exportAction || exporting !== null}
+                    >
+                      <Download className="h-4 w-4" />
+                      {exporting ? "Gerando..." : "Exportar"}
+                    </Button>
+                  </div>
+                </article>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <FormField label="Tipo de prazo">
-                <Select value={tipo} disabled={isSharedView} onChange={(event) => { setPagina(1); setTipo(event.target.value as "" | PrazoTipo); }}>
-                  <option value="">Todos</option>
-                  {Object.entries(prazoProcessualTipoLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
-                </Select>
-              </FormField>
-              <FormField label="Status prazo">
-                <Select value={status} disabled={isSharedView} onChange={(event) => { setPagina(1); setStatus(event.target.value as "" | PrazoStatus); }}>
-                  <option value="">Todos</option>
-                  {Object.entries(prazoProcessualStatusLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
-                </Select>
-              </FormField>
-              <FormField label="Status tarefa">
-                <Select value={statusTarefa} disabled={isSharedView} onChange={(event) => { setPagina(1); setStatusTarefa(event.target.value as "" | TarefaStatus); }}>
-                  <option value="">Todos</option>
-                  {Object.entries(tarefaEquipeStatusLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
-                </Select>
-              </FormField>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <FormField label="Prioridade tarefa">
-                <Select value={prioridadeTarefa} disabled={isSharedView} onChange={(event) => { setPagina(1); setPrioridadeTarefa(event.target.value as "" | TarefaPrioridade); }}>
-                  <option value="">Todas</option>
-                  {Object.entries(tarefaEquipePrioridadeLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
-                </Select>
-              </FormField>
-              <FormField label="Responsável">
-                <Select value={responsavelFiltro} disabled={isSharedView} onChange={(event) => { setPagina(1); setResponsavelFiltro(event.target.value); }}>
-                  <option value="">Todos</option>
-                  {teamMembersQuery.data?.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                </Select>
-              </FormField>
-            </div>
-
-            <div className="flex flex-wrap gap-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(230,240,255,0.52),rgba(255,255,255,0.96))] px-4 py-3">
-              <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
-                <Checkbox checked={somenteCriticos} disabled={isSharedView} onChange={(event) => { setPagina(1); setSomenteCriticos(event.target.checked); }} />
-                Somente críticos
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
-                <Checkbox checked={somenteDelegadosPorMim} disabled={isSharedView} onChange={(event) => { setPagina(1); setSomenteDelegadosPorMim(event.target.checked); }} />
-                Delegados por mim
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
-                <Checkbox checked={ocultarConcluidos} disabled={isSharedView} onChange={(event) => { setPagina(1); setOcultarConcluidos(event.target.checked); }} />
-                Ocultar concluídos
-              </label>
-            </div>
-
-            {listQuery.error ? <Alert variant="error">Falha ao carregar a agenda unificada.</Alert> : null}
-            {feedback ? <Alert variant="success">{feedback}</Alert> : null}
-            {error ? <Alert variant="error">{error}</Alert> : null}
-
-            {selectedTaskIds.length && !isSharedView ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2">
-                <span className="text-sm font-semibold text-[var(--color-primary-900)]">Selecionados: {selectedTaskIds.length}</span>
-                <Select value={bulkAction} onChange={(event) => setBulkAction(event.target.value as any)} className="min-w-[150px]">
-                  <option value="">Ação em lote</option>
-                  <option value="CONCLUIR">Concluir</option>
-                  <option value="DELEGAR">Delegar</option>
-                  <option value="REAGENDAR">Reagendar</option>
-                </Select>
-                {bulkAction === "DELEGAR" ? (
-                  <Select value={bulkResponsavelId} onChange={(event) => setBulkResponsavelId(event.target.value)} className="min-w-[220px]">
-                    <option value="">Selecione responsável</option>
-                    {teamMembersQuery.data?.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                  </Select>
-                ) : null}
-                {bulkAction === "REAGENDAR" ? (
-                  <Input type="date" value={bulkDataEntrega} onChange={(event) => setBulkDataEntrega(event.target.value)} className="max-w-[180px]" />
-                ) : null}
-                <Button size="sm" onClick={handleBulkAction} disabled={!bulkAction || taskBulkMutation.isPending}>Aplicar</Button>
-              </div>
-            ) : null}
-
-            <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_14px_30px_-26px_rgba(15,26,109,0.22)]">
-              <Table className="min-w-[1120px]">
-                <TableHead>
-                  <tr>
-                    <TableHeaderCell><Checkbox checked={rows.length > 0 && rows.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE").every((item: any) => selectedTaskIds.includes(item.id))} disabled={isSharedView} onChange={(event) => setSelectedTaskIds(event.target.checked ? rows.filter((item: any) => item.itemTipo === "TAREFA_EQUIPE").map((item: any) => item.id) : [])} /></TableHeaderCell>
-                    <TableHeaderCell>Tipo</TableHeaderCell>
-                    <TableHeaderCell>Processo / Tarefa</TableHeaderCell>
-                    <TableHeaderCell>Objeto do processo</TableHeaderCell>
-                    <TableHeaderCell>Responsável</TableHeaderCell>
-                    <TableHeaderCell>Data prevista</TableHeaderCell>
-                    <TableHeaderCell>Status / Dias</TableHeaderCell>
-                    <TableHeaderCell>Lembretes</TableHeaderCell>
-                    <TableHeaderCell>Ações</TableHeaderCell>
-                  </tr>
-                </TableHead>
-                <TableBody>
-                  {listQuery.isLoading
-                    ? Array.from({ length: 6 }).map((_, index) => (
-                        <TableRow key={index}><TableCell colSpan={9}><Skeleton className="h-12 w-full" /></TableCell></TableRow>
-                      ))
-                    : rows.map((item) => (
-                        <TableRow key={`${item.itemTipo}-${item.id}`}>
-                          <TableCell>
-                            {item.itemTipo === "TAREFA_EQUIPE" ? (
-                              <Checkbox
-                                checked={selectedTaskIds.includes(item.id)} disabled={isSharedView}
-                                onChange={(event) => {
-                                  setSelectedTaskIds((current) =>
-                                    event.target.checked ? [...new Set([...current, item.id])] : current.filter((id) => id !== item.id),
-                                  );
-                                }}
-                              />
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-bold">
-                              {item.itemTipo === "TAREFA_EQUIPE" ? "Tarefa" : "Prazo"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-semibold text-[var(--color-primary-900)]">{item.titulo}</div>
-                            <div className="text-xs text-[var(--color-neutral-500)]">
-                              {item.numeroSirel ?? "-"} {item.itemTipo !== "TAREFA_EQUIPE" && item.tipo ? `· ${prazoProcessualTipoLabels[item.tipo as keyof typeof prazoProcessualTipoLabels]}` : ""}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="max-w-[320px] truncate text-sm text-[var(--color-neutral-700)]" title={item.objeto ?? ""}>
-                              {item.objeto ?? "-"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="inline-flex items-center gap-1.5">
-                              <UserCircle2 className="h-4 w-4 text-[var(--color-primary-500)]" />
-                              <span>{item.responsavelNome ?? "-"}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{formatShortDateBR(item.dataLimite ?? item.dataPrevista)}</TableCell>
-                          <TableCell>
-                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${alertBadge(item.alertLevel)}`}>
-                              {item.itemTipo === "TAREFA_EQUIPE"
-                                ? tarefaEquipeStatusLabels[item.status as keyof typeof tarefaEquipeStatusLabels] ?? item.status
-                                : prazoProcessualStatusLabels[item.status as keyof typeof prazoProcessualStatusLabels]}
-                              {" · "}
-                              {item.daysRemaining === null ? "-" : item.daysRemaining}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-800)]">
-                              <Bell className="h-3.5 w-3.5" />
-                              {item.itemTipo === "PRAZO_PROCESSUAL"
-                                ? Array.isArray(item.alertasConfig?.lembretes) && item.alertasConfig.lembretes.length
-                                  ? `${item.alertasConfig.lembretes.join(", ")} dia(s)`
-                                  : "Sem lembrete"
-                                : item.notificarResponsavel
-                                  ? "Notificação ativa"
-                                  : "Notificação off"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <Select
-                              defaultValue=""
-                              onChange={(event) => {
-                                const value = event.target.value as AgendaRowAction;
-                                event.target.value = "";
-                                if (!value) return;
-                                void handleRowAction(item, value);
-                              }}
-                            >
-                              <option value="">Selecionar ação</option>
-                              <option value="CONCLUIR">Concluir</option>
-                              <option value="REAGENDAR">Reagendar</option>
-                              <option value="DELEGAR">Delegar</option>
-                              <option value="COMENTAR">Comentar</option>
-                              <option value="EXCLUIR">Excluir</option>
-                            </Select>
-                          </TableCell>
-                        </TableRow>
+                <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                    Compartilhar com a equipe
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    <Select
+                      value={shareMemberId}
+                      onChange={(event) => setShareMemberId(event.target.value)}
+                    >
+                      <option value="">Selecione um membro</option>
+                      {teamMembersQuery.data?.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
                       ))}
-                  {!listQuery.isLoading && !rows.length ? (
-                    <TableRow>
-                      <TableCell colSpan={9} className="py-8 text-center text-[var(--color-neutral-500)]">Nenhum item encontrado com os filtros aplicados.</TableCell>
-                    </TableRow>
+                    </Select>
+                    <Select
+                      value={sharePermission}
+                      onChange={(event) =>
+                        setSharePermission(event.target.value as any)
+                      }
+                    >
+                      <option value="SOMENTE_VISUALIZACAO">
+                        Somente visualização
+                      </option>
+                      <option value="COMENTARIOS">Permitir comentários</option>
+                    </Select>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleShareLink()}
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Copiar link seguro
+                    </Button>
+                  </div>
+                </article>
+
+                <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-700)]">
+                    Preferências de notificação
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    <Select
+                      value={notificationPreferences.frequencia}
+                      onChange={(event) =>
+                        persistNotificationPreferences({
+                          ...notificationPreferences,
+                          frequencia: event.target
+                            .value as NotificationPreferences["frequencia"],
+                        })
+                      }
+                    >
+                      <option value="IMEDIATA">Imediata</option>
+                      <option value="RESUMO_DIARIO">Resumo diário</option>
+                      <option value="RESUMO_SEMANAL">Resumo semanal</option>
+                    </Select>
+                    <Select
+                      value={notificationPreferences.escopo}
+                      onChange={(event) =>
+                        persistNotificationPreferences({
+                          ...notificationPreferences,
+                          escopo: event.target
+                            .value as NotificationPreferences["escopo"],
+                        })
+                      }
+                    >
+                      <option value="MEUS_ITENS">Apenas meus itens</option>
+                      <option value="EQUIPE">Todos da equipe</option>
+                      <option value="CRITICOS">Somente críticos</option>
+                    </Select>
+                    <div className="flex flex-wrap gap-3 text-xs font-semibold text-[var(--color-neutral-700)]">
+                      <label className="inline-flex items-center gap-1.5">
+                        <Checkbox
+                          checked={notificationPreferences.canais.inApp}
+                          onChange={(event) =>
+                            persistNotificationPreferences({
+                              ...notificationPreferences,
+                              canais: {
+                                ...notificationPreferences.canais,
+                                inApp: event.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        <BellRing className="h-3.5 w-3.5" />
+                        In-app
+                      </label>
+                      <label className="inline-flex items-center gap-1.5">
+                        <Checkbox
+                          checked={notificationPreferences.canais.email}
+                          onChange={(event) =>
+                            persistNotificationPreferences({
+                              ...notificationPreferences,
+                              canais: {
+                                ...notificationPreferences.canais,
+                                email: event.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        <Mail className="h-3.5 w-3.5" />
+                        E-mail
+                      </label>
+                      <label className="inline-flex items-center gap-1.5">
+                        <Checkbox
+                          checked={notificationPreferences.canais.push}
+                          onChange={(event) =>
+                            void handlePushToggle(event.target.checked)
+                          }
+                        />
+                        <Smartphone className="h-3.5 w-3.5" />
+                        Push
+                      </label>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="inline-flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4 text-[var(--color-primary-700)]" />
+                    <p className="text-sm font-semibold text-[var(--color-primary-900)]">
+                      Distribuição de carga por responsável
+                    </p>
+                  </div>
+                  <span className="text-xs text-[var(--color-neutral-500)]">
+                    {workloadPeriodLabel}
+                  </span>
+                </div>
+                {teamWorkloadQuery.isLoading ? (
+                  <Skeleton className="h-28 w-full" />
+                ) : workloadChartItems.length ? (
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+                    <SimpleBarChart items={workloadChartItems} />
+                    <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)]">
+                      <Table className="min-w-[320px]">
+                        <TableHead>
+                          <tr>
+                            <TableHeaderCell>Responsável</TableHeaderCell>
+                            <TableHeaderCell>Pendente</TableHeaderCell>
+                            <TableHeaderCell>Em andamento</TableHeaderCell>
+                            <TableHeaderCell>Concluído</TableHeaderCell>
+                          </tr>
+                        </TableHead>
+                        <TableBody>
+                          {workloadRows.map((item) => (
+                            <TableRow key={item.responsavelId}>
+                              <TableCell>{item.responsavelNome}</TableCell>
+                              <TableCell>
+                                {item.pendente +
+                                  item.aguardando +
+                                  item.bloqueado}
+                              </TableCell>
+                              <TableCell>{item.emAndamento}</TableCell>
+                              <TableCell>{item.concluido}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                ) : (
+                  <Alert variant="info">
+                    Sem tarefas da semana para calcular carga por responsável.
+                  </Alert>
+                )}
+              </div>
+            </SectionCard>
+          ) : null}
+
+          <SectionCard
+            title="Agenda operacional unificada"
+            description="Acompanhe prazos processuais e tarefas delegadas em uma única fila."
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px]">
+                <FormField label="Busca textual" className="w-full">
+                  <div className="flex items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.65))] px-3 py-2 shadow-[0_8px_18px_-18px_rgba(15,26,109,0.4)]">
+                    <Search className="h-4 w-4 text-[var(--color-primary-500)]" />
+                    <input
+                      value={busca}
+                      onChange={(event) => {
+                        setPagina(1);
+                        setBusca(event.target.value);
+                      }}
+                      placeholder="Processo, título ou secretaria"
+                      className="w-full border-none bg-transparent text-sm text-[var(--color-neutral-700)] outline-none placeholder:text-[var(--color-neutral-400)]"
+                    />
+                  </div>
+                </FormField>
+                <FormField label="Listagem">
+                  <Select
+                    value={String(limite)}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setLimite(Number(event.target.value));
+                    }}
+                  >
+                    {[10, 20, 30].map((option) => (
+                      <option key={option} value={option}>
+                        {option} por página
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <FormField label="Tipo de prazo">
+                  <Select
+                    value={tipo}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setTipo(event.target.value as "" | PrazoTipo);
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(prazoProcessualTipoLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </FormField>
+                <FormField label="Status prazo">
+                  <Select
+                    value={status}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setStatus(event.target.value as "" | PrazoStatus);
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(prazoProcessualStatusLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </FormField>
+                <FormField label="Status tarefa">
+                  <Select
+                    value={statusTarefa}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setStatusTarefa(event.target.value as "" | TarefaStatus);
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(tarefaEquipeStatusLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </FormField>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField label="Prioridade tarefa">
+                  <Select
+                    value={prioridadeTarefa}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setPrioridadeTarefa(
+                        event.target.value as "" | TarefaPrioridade,
+                      );
+                    }}
+                  >
+                    <option value="">Todas</option>
+                    {Object.entries(tarefaEquipePrioridadeLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </FormField>
+                <FormField label="Responsável">
+                  <Select
+                    value={responsavelFiltro}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setResponsavelFiltro(event.target.value);
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    {teamMembersQuery.data?.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              </div>
+
+              <div className="flex flex-wrap gap-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(230,240,255,0.52),rgba(255,255,255,0.96))] px-4 py-3">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
+                  <Checkbox
+                    checked={somenteCriticos}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setSomenteCriticos(event.target.checked);
+                    }}
+                  />
+                  Somente críticos
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
+                  <Checkbox
+                    checked={somenteDelegadosPorMim}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setSomenteDelegadosPorMim(event.target.checked);
+                    }}
+                  />
+                  Delegados por mim
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
+                  <Checkbox
+                    checked={ocultarConcluidos}
+                    disabled={isSharedView}
+                    onChange={(event) => {
+                      setPagina(1);
+                      setOcultarConcluidos(event.target.checked);
+                    }}
+                  />
+                  Ocultar concluídos
+                </label>
+              </div>
+
+              {listQuery.error ? (
+                <Alert variant="error">
+                  Falha ao carregar a agenda unificada.
+                </Alert>
+              ) : null}
+              {feedback ? <Alert variant="success">{feedback}</Alert> : null}
+              {error ? <Alert variant="error">{error}</Alert> : null}
+
+              {selectedTaskIds.length && !isSharedView ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-2">
+                  <span className="text-sm font-semibold text-[var(--color-primary-900)]">
+                    Selecionados: {selectedTaskIds.length}
+                  </span>
+                  <Select
+                    value={bulkAction}
+                    onChange={(event) =>
+                      setBulkAction(event.target.value as any)
+                    }
+                    className="min-w-[150px]"
+                  >
+                    <option value="">Ação em lote</option>
+                    <option value="CONCLUIR">Concluir</option>
+                    <option value="DELEGAR">Delegar</option>
+                    <option value="REAGENDAR">Reagendar</option>
+                  </Select>
+                  {bulkAction === "DELEGAR" ? (
+                    <Select
+                      value={bulkResponsavelId}
+                      onChange={(event) =>
+                        setBulkResponsavelId(event.target.value)
+                      }
+                      className="min-w-[220px]"
+                    >
+                      <option value="">Selecione responsável</option>
+                      {teamMembersQuery.data?.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </Select>
                   ) : null}
-                </TableBody>
-              </Table>
+                  {bulkAction === "REAGENDAR" ? (
+                    <Input
+                      type="date"
+                      value={bulkDataEntrega}
+                      onChange={(event) =>
+                        setBulkDataEntrega(event.target.value)
+                      }
+                      className="max-w-[180px]"
+                    />
+                  ) : null}
+                  <Button
+                    size="sm"
+                    onClick={handleBulkAction}
+                    disabled={!bulkAction || taskBulkMutation.isPending}
+                  >
+                    Aplicar
+                  </Button>
+                </div>
+              ) : null}
+
+              <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_14px_30px_-26px_rgba(15,26,109,0.22)]">
+                <Table className="min-w-[1120px]">
+                  <TableHead>
+                    <tr>
+                      <TableHeaderCell>
+                        <Checkbox
+                          checked={
+                            rows.length > 0 &&
+                            rows
+                              .filter(
+                                (item: any) =>
+                                  item.itemTipo === "TAREFA_EQUIPE",
+                              )
+                              .every((item: any) =>
+                                selectedTaskIds.includes(item.id),
+                              )
+                          }
+                          disabled={isSharedView}
+                          onChange={(event) =>
+                            setSelectedTaskIds(
+                              event.target.checked
+                                ? rows
+                                    .filter(
+                                      (item: any) =>
+                                        item.itemTipo === "TAREFA_EQUIPE",
+                                    )
+                                    .map((item: any) => item.id)
+                                : [],
+                            )
+                          }
+                        />
+                      </TableHeaderCell>
+                      <TableHeaderCell>Tipo</TableHeaderCell>
+                      <TableHeaderCell>Processo / Tarefa</TableHeaderCell>
+                      <TableHeaderCell>Objeto do processo</TableHeaderCell>
+                      <TableHeaderCell>Responsável</TableHeaderCell>
+                      <TableHeaderCell>Data prevista</TableHeaderCell>
+                      <TableHeaderCell>Status / Dias</TableHeaderCell>
+                      <TableHeaderCell>Lembretes</TableHeaderCell>
+                      <TableHeaderCell>Ações</TableHeaderCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {listQuery.isLoading
+                      ? Array.from({ length: 6 }).map((_, index) => (
+                          <TableRow key={index}>
+                            <TableCell colSpan={9}>
+                              <Skeleton className="h-12 w-full" />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      : rows.map((item) => (
+                          <TableRow
+                            key={buildAgendaItemKey(item)}
+                            className="cursor-pointer hover:bg-[rgba(230,240,255,0.42)]"
+                            onClick={() =>
+                              setSelectedAgendaItemKey(buildAgendaItemKey(item))
+                            }
+                          >
+                            <TableCell
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {item.itemTipo === "TAREFA_EQUIPE" ? (
+                                <Checkbox
+                                  checked={selectedTaskIds.includes(item.id)}
+                                  disabled={isSharedView}
+                                  onChange={(event) => {
+                                    setSelectedTaskIds((current) =>
+                                      event.target.checked
+                                        ? [...new Set([...current, item.id])]
+                                        : current.filter(
+                                            (id) => id !== item.id,
+                                          ),
+                                    );
+                                  }}
+                                />
+                              ) : null}
+                            </TableCell>
+                            <TableCell>
+                              <span className="inline-flex rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-xs font-bold">
+                                {item.itemTipo === "TAREFA_EQUIPE"
+                                  ? "Tarefa"
+                                  : "Prazo"}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-semibold text-[var(--color-primary-900)]">
+                                {item.titulo}
+                              </div>
+                              <div className="text-xs text-[var(--color-neutral-500)]">
+                                {item.numeroSirel ?? "-"}{" "}
+                                {item.itemTipo !== "TAREFA_EQUIPE" && item.tipo
+                                  ? `· ${prazoProcessualTipoLabels[item.tipo as keyof typeof prazoProcessualTipoLabels]}`
+                                  : ""}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div
+                                className="max-w-[320px] truncate text-sm text-[var(--color-neutral-700)]"
+                                title={item.objeto ?? ""}
+                              >
+                                {item.objeto ?? "-"}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="inline-flex items-center gap-1.5">
+                                <UserCircle2 className="h-4 w-4 text-[var(--color-primary-500)]" />
+                                <span>{item.responsavelNome ?? "-"}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {formatShortDateBR(
+                                item.dataLimite ?? item.dataPrevista,
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${alertBadge(item.alertLevel)}`}
+                              >
+                                {resolveAgendaStatusLabel(item)}
+                                {" · "}
+                                {item.daysRemaining === null
+                                  ? "-"
+                                  : item.daysRemaining}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-800)]">
+                                <Bell className="h-3.5 w-3.5" />
+                                {item.itemTipo === "PRAZO_PROCESSUAL"
+                                  ? Array.isArray(
+                                      item.alertasConfig?.lembretes,
+                                    ) && item.alertasConfig.lembretes.length
+                                    ? `${item.alertasConfig.lembretes.join(", ")} dia(s)`
+                                    : "Sem lembrete"
+                                  : item.notificarResponsavel
+                                    ? "Notificação ativa"
+                                    : "Notificação off"}
+                              </span>
+                            </TableCell>
+                            <TableCell
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Select
+                                defaultValue=""
+                                onChange={(event) => {
+                                  const value = event.target
+                                    .value as AgendaRowAction;
+                                  event.target.value = "";
+                                  if (!value) return;
+                                  void handleRowAction(item, value);
+                                }}
+                              >
+                                <option value="">Selecionar ação</option>
+                                <option value="CONCLUIR">Concluir</option>
+                                <option value="REAGENDAR">Reagendar</option>
+                                <option value="DELEGAR">Delegar</option>
+                                <option value="COMENTAR">Comentar</option>
+                                <option value="EXCLUIR">Excluir</option>
+                              </Select>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    {!listQuery.isLoading && !rows.length ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={9}
+                          className="py-8 text-center text-[var(--color-neutral-500)]"
+                        >
+                          Nenhum item encontrado com os filtros aplicados.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-[var(--color-neutral-600)]">
+                  Total monitorado:{" "}
+                  <span className="font-bold text-[var(--color-primary-900)]">
+                    {listQuery.data?.total ?? 0}
+                  </span>
+                </p>
+                <Pagination
+                  page={pagina}
+                  totalPages={listQuery.data?.totalPages ?? 1}
+                  onPageChange={setPagina}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      )}
+
+      {selectedAgendaItem ? (
+        <div className="pointer-events-none fixed inset-0 z-[110]">
+          <button
+            type="button"
+            className="pointer-events-auto absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+            onClick={() => setSelectedAgendaItemKey(null)}
+            aria-label="Fechar resumo da agenda"
+          />
+
+          <aside className="pointer-events-auto absolute right-0 top-0 z-[120] h-full w-full max-w-[620px] overflow-y-auto border-l border-[var(--border-color)] bg-[var(--surface-card)] shadow-[var(--shadow-lg)]">
+            <div className="sticky top-0 z-10 border-b border-[var(--border-color)] bg-[var(--surface-card)] px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                    {selectedAgendaItem.itemTipo === "TAREFA_EQUIPE"
+                      ? "Resumo da tarefa"
+                      : "Resumo do prazo"}
+                  </p>
+                  <h2 className="mt-1 text-2xl font-black text-[var(--text-primary)]">
+                    {selectedAgendaItem.titulo}
+                  </h2>
+                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                    {selectedAgendaItem.numeroSirel ?? "Sem processo vinculado"}{" "}
+                    •{" "}
+                    {selectedAgendaItem.itemTipo === "TAREFA_EQUIPE"
+                      ? "Tarefa da equipe"
+                      : selectedAgendaItem.tipo
+                        ? prazoProcessualTipoLabels[
+                            selectedAgendaItem.tipo as keyof typeof prazoProcessualTipoLabels
+                          ]
+                        : "Prazo processual"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAgendaItemKey(null)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] text-[var(--text-secondary)]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${alertBadge(selectedAgendaItem.alertLevel)}`}
+                >
+                  {resolveAgendaStatusLabel(selectedAgendaItem)}
+                  {" • "}
+                  {selectedAgendaItem.daysRemaining === null
+                    ? "sem contagem"
+                    : `${selectedAgendaItem.daysRemaining} dia(s)`}
+                </span>
+                {selectedAgendaItem.prioridade ? (
+                  <span className="inline-flex rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-bold text-[var(--color-primary-800)]">
+                    Prioridade {selectedAgendaItem.prioridade.toLowerCase()}
+                  </span>
+                ) : null}
+                {selectedAgendaItem.secretariaNome ? (
+                  <span className="inline-flex rounded-full bg-[var(--surface-soft)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                    {selectedAgendaItem.secretariaNome}
+                  </span>
+                ) : null}
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-[var(--color-neutral-600)]">Total monitorado: <span className="font-bold text-[var(--color-primary-900)]">{listQuery.data?.total ?? 0}</span></p>
-              <Pagination page={pagina} totalPages={listQuery.data?.totalPages ?? 1} onPageChange={setPagina} />
+            <div className="space-y-4 p-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                    Entrega atual
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">
+                    {formatShortDateBR(
+                      selectedAgendaItem.dataLimite ??
+                        selectedAgendaItem.dataPrevista,
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                    Responsavel
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">
+                    {selectedAgendaItem.responsavelNome ?? "Sem responsavel"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                    Processo vinculado
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">
+                    {selectedAgendaItem.numeroSirel ?? "Nao vinculado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                    Prazo processual de referencia
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">
+                    {selectedAgendaItem.itemTipo === "TAREFA_EQUIPE" &&
+                    selectedAgendaItem.prazoDataPrevista
+                      ? formatShortDateBR(selectedAgendaItem.prazoDataPrevista)
+                      : selectedAgendaItem.itemTipo === "PRAZO_PROCESSUAL"
+                        ? formatShortDateBR(selectedAgendaItem.dataPrevista)
+                        : "Sem prazo vinculado"}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                    {selectedAgendaItem.itemTipo === "TAREFA_EQUIPE"
+                      ? (selectedAgendaItem.prazoTituloVinculado ??
+                        "Tarefa criada sem vinculo direto com prazo processual.")
+                      : selectedAgendaItem.tipo
+                        ? prazoProcessualTipoLabels[
+                            selectedAgendaItem.tipo as keyof typeof prazoProcessualTipoLabels
+                          ]
+                        : "Prazo processual"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                  Objeto do processo
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--text-primary)]">
+                  {selectedAgendaItem.objeto ?? "Sem objeto informado."}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                  Contexto operacional
+                </p>
+                <div className="mt-3 space-y-3 text-sm text-[var(--text-primary)]">
+                  {selectedAgendaItem.itemTipo === "TAREFA_EQUIPE" ? (
+                    <div className="rounded-lg border border-[var(--border-color)] bg-white px-3 py-3">
+                      <p className="font-semibold">
+                        {selectedAgendaItem.prazoTituloVinculado ??
+                          "Tarefa de apoio sem prazo processual vinculado"}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                        {selectedAgendaItem.prazoTipoVinculado
+                          ? prazoProcessualTipoLabels[
+                              selectedAgendaItem.prazoTipoVinculado as keyof typeof prazoProcessualTipoLabels
+                            ]
+                          : "Acompanhamento interno"}
+                        {selectedAgendaItem.delegadoPorNome
+                          ? ` • Delegada por ${selectedAgendaItem.delegadoPorNome}`
+                          : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                  <p className="rounded-lg border border-[var(--border-color)] bg-white px-3 py-3 leading-6 text-[var(--text-secondary)]">
+                    {selectedAgendaItem.observacao ??
+                      "Sem observacoes adicionais registradas para este item."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border-color)] bg-[var(--surface-soft)] p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                  Lembretes e monitoramento
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                  {resolveAgendaReminderLabel(selectedAgendaItem)}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {selectedAgendaItem.processoId ? (
+                  <Link href={`/processos/${selectedAgendaItem.processoId}`}>
+                    <Button
+                      className="w-full"
+                      onClick={() => setSelectedAgendaItemKey(null)}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Abrir processo
+                    </Button>
+                  </Link>
+                ) : null}
+                {!isSharedView ? (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setSelectedAgendaItemKey(null);
+                      handleEdit(selectedAgendaItem);
+                    }}
+                  >
+                    Editar item
+                  </Button>
+                ) : null}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setSelectedAgendaItemKey(null)}
+                >
+                  Fechar resumo
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
-        </SectionCard>
-      </div>
-      )}
+          </aside>
+        </div>
+      ) : null}
 
       <Modal
         open={isCreateModalOpen}
         onClose={closeCreateModal}
         size="xl"
-        title={formMode === "PRAZO_PROCESSUAL" ? (form.prazoId ? "Editar prazo processual" : "Novo prazo processual") : (taskForm.tarefaId ? "Editar tarefa da equipe" : "Nova tarefa da equipe")}
+        title={
+          formMode === "PRAZO_PROCESSUAL"
+            ? form.prazoId
+              ? "Editar prazo processual"
+              : "Novo prazo processual"
+            : taskForm.tarefaId
+              ? "Editar tarefa da equipe"
+              : "Nova tarefa da equipe"
+        }
         description="Formulário unificado para criar ou editar prazo processual e tarefa interna sem tirar espaço da agenda."
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="inline-flex rounded-2xl border border-[rgba(204,225,255,0.92)] p-1">
-            <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold ${formMode === "PRAZO_PROCESSUAL" ? "bg-[var(--color-primary-600)] text-white" : "text-[var(--color-neutral-700)]"}`} onClick={() => setFormMode("PRAZO_PROCESSUAL")}>Prazo</button>
-            <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold ${formMode === "TAREFA_EQUIPE" ? "bg-[var(--color-primary-600)] text-white" : "text-[var(--color-neutral-700)]"}`} onClick={() => setFormMode("TAREFA_EQUIPE")}>Tarefa</button>
+            <button
+              type="button"
+              className={`rounded-xl px-3 py-2 text-sm font-semibold ${formMode === "PRAZO_PROCESSUAL" ? "bg-[var(--color-primary-600)] text-white" : "text-[var(--color-neutral-700)]"}`}
+              onClick={() => setFormMode("PRAZO_PROCESSUAL")}
+            >
+              Prazo
+            </button>
+            <button
+              type="button"
+              className={`rounded-xl px-3 py-2 text-sm font-semibold ${formMode === "TAREFA_EQUIPE" ? "bg-[var(--color-primary-600)] text-white" : "text-[var(--color-neutral-700)]"}`}
+              onClick={() => setFormMode("TAREFA_EQUIPE")}
+            >
+              Tarefa
+            </button>
           </div>
 
           {formMode === "PRAZO_PROCESSUAL" ? (
@@ -1495,44 +2349,117 @@ export function PrazosPage() {
               <FormField label="Processo">
                 <ProcessAutocompleteField
                   value={form.processoId}
-                  onChange={(value) => setForm((current) => ({ ...current, processoId: value }))}
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, processoId: value }))
+                  }
                   options={processOptions as ProcessOption[]}
                   placeholder="Buscar por número SIREL, objeto ou secretaria"
                 />
               </FormField>
               <div className="grid gap-3 md:grid-cols-2">
                 <FormField label="Tipo do prazo">
-                  <Select value={form.tipo} onChange={(event) => setForm((current) => ({ ...current, tipo: event.target.value as PrazoTipo }))}>
-                    {Object.entries(prazoProcessualTipoLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
+                  <Select
+                    value={form.tipo}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        tipo: event.target.value as PrazoTipo,
+                      }))
+                    }
+                  >
+                    {Object.entries(prazoProcessualTipoLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
                   </Select>
                 </FormField>
                 <FormField label="Responsável">
-                  <Select value={form.responsavelId} onChange={(event) => setForm((current) => ({ ...current, responsavelId: event.target.value }))}>
+                  <Select
+                    value={form.responsavelId}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        responsavelId: event.target.value,
+                      }))
+                    }
+                  >
                     <option value="">Automático</option>
-                    {teamMembersQuery.data?.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                    {teamMembersQuery.data?.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
                   </Select>
                 </FormField>
               </div>
               <FormField label="Título operacional">
-                <Input value={form.titulo} onChange={(event) => setForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Ex.: Publicação do aviso no DOM" />
+                <Input
+                  value={form.titulo}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      titulo: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex.: Publicação do aviso no DOM"
+                />
               </FormField>
               <div className="grid gap-3 md:grid-cols-2">
                 <FormField label="Data prevista">
-                  <Input type="date" value={form.dataPrevista} onChange={(event) => setForm((current) => ({ ...current, dataPrevista: event.target.value }))} />
+                  <Input
+                    type="date"
+                    value={form.dataPrevista}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        dataPrevista: event.target.value,
+                      }))
+                    }
+                  />
                 </FormField>
                 <FormField label="Lembretes (dias antes)">
-                  <Input value={form.lembretes} onChange={(event) => setForm((current) => ({ ...current, lembretes: event.target.value }))} placeholder="7,3,1" />
+                  <Input
+                    value={form.lembretes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        lembretes: event.target.value,
+                      }))
+                    }
+                    placeholder="7,3,1"
+                  />
                 </FormField>
               </div>
               <FormField label="Observação">
-                <Input value={form.observacao} onChange={(event) => setForm((current) => ({ ...current, observacao: event.target.value }))} placeholder="Informações complementares para a equipe" />
+                <Input
+                  value={form.observacao}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      observacao: event.target.value,
+                    }))
+                  }
+                  placeholder="Informações complementares para a equipe"
+                />
               </FormField>
               <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                <p className="text-sm font-semibold text-[var(--color-primary-900)]">Integração prazo ? tarefa</p>
-                <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
-                  Gere automaticamente uma tarefa de apoio com entrega antecipada para evitar atraso no prazo principal.
+                <p className="text-sm font-semibold text-[var(--color-primary-900)]">
+                  Integração prazo ? tarefa
                 </p>
-                <Button type="button" size="sm" variant="outline" className="mt-3" onClick={suggestTaskFromPrazo}>
+                <p className="mt-1 text-xs text-[var(--color-neutral-600)]">
+                  Gere automaticamente uma tarefa de apoio com entrega
+                  antecipada para evitar atraso no prazo principal.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={suggestTaskFromPrazo}
+                >
                   Sugerir tarefa vinculada
                 </Button>
               </div>
@@ -1540,39 +2467,105 @@ export function PrazosPage() {
           ) : (
             <>
               <FormField label="Título da tarefa">
-                <Input value={taskForm.titulo} onChange={(event) => setTaskForm((current) => ({ ...current, titulo: event.target.value }))} placeholder="Ex.: Revisar minuta de edital" />
+                <Input
+                  value={taskForm.titulo}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({
+                      ...current,
+                      titulo: event.target.value,
+                    }))
+                  }
+                  placeholder="Ex.: Revisar minuta de edital"
+                />
               </FormField>
               <div className="grid gap-3 md:grid-cols-2">
                 <FormField label="Processo relacionado">
                   <ProcessAutocompleteField
                     value={taskForm.processoId}
-                    onChange={(value) => setTaskForm((current) => ({ ...current, processoId: value }))}
+                    onChange={(value) =>
+                      setTaskForm((current) => ({
+                        ...current,
+                        processoId: value,
+                      }))
+                    }
                     options={processOptions as ProcessOption[]}
                     placeholder="Buscar processo opcional"
                   />
                 </FormField>
                 <FormField label="Responsável">
-                  <Select value={taskForm.responsavelId} onChange={(event) => setTaskForm((current) => ({ ...current, responsavelId: event.target.value }))}>
+                  <Select
+                    value={taskForm.responsavelId}
+                    onChange={(event) =>
+                      setTaskForm((current) => ({
+                        ...current,
+                        responsavelId: event.target.value,
+                      }))
+                    }
+                  >
                     <option value="">Selecione</option>
-                    {teamMembersQuery.data?.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                    {teamMembersQuery.data?.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name}
+                      </option>
+                    ))}
                   </Select>
                 </FormField>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <FormField label="Prioridade">
-                  <Select value={taskForm.prioridade} onChange={(event) => setTaskForm((current) => ({ ...current, prioridade: event.target.value as TarefaPrioridade }))}>
-                    {Object.entries(tarefaEquipePrioridadeLabels).map(([codigo, label]) => <option key={codigo} value={codigo}>{label}</option>)}
+                  <Select
+                    value={taskForm.prioridade}
+                    onChange={(event) =>
+                      setTaskForm((current) => ({
+                        ...current,
+                        prioridade: event.target.value as TarefaPrioridade,
+                      }))
+                    }
+                  >
+                    {Object.entries(tarefaEquipePrioridadeLabels).map(
+                      ([codigo, label]) => (
+                        <option key={codigo} value={codigo}>
+                          {label}
+                        </option>
+                      ),
+                    )}
                   </Select>
                 </FormField>
                 <FormField label="Data de entrega">
-                  <Input type="date" value={taskForm.dataEntrega} onChange={(event) => setTaskForm((current) => ({ ...current, dataEntrega: event.target.value }))} />
+                  <Input
+                    type="date"
+                    value={taskForm.dataEntrega}
+                    onChange={(event) =>
+                      setTaskForm((current) => ({
+                        ...current,
+                        dataEntrega: event.target.value,
+                      }))
+                    }
+                  />
                 </FormField>
               </div>
               <FormField label="Descrição">
-                <Input value={taskForm.descricao} onChange={(event) => setTaskForm((current) => ({ ...current, descricao: event.target.value }))} placeholder="Contexto da tarefa para a equipe" />
+                <Input
+                  value={taskForm.descricao}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({
+                      ...current,
+                      descricao: event.target.value,
+                    }))
+                  }
+                  placeholder="Contexto da tarefa para a equipe"
+                />
               </FormField>
               <label className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-neutral-700)]">
-                <Checkbox checked={taskForm.notificarResponsavel} onChange={(event) => setTaskForm((current) => ({ ...current, notificarResponsavel: event.target.checked }))} />
+                <Checkbox
+                  checked={taskForm.notificarResponsavel}
+                  onChange={(event) =>
+                    setTaskForm((current) => ({
+                      ...current,
+                      notificarResponsavel: event.target.checked,
+                    }))
+                  }
+                />
                 Notificar responsável
               </label>
             </>
@@ -1581,20 +2574,47 @@ export function PrazosPage() {
           {error ? <Alert variant="error">{error}</Alert> : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={saveMutation.isPending || taskSaveMutation.isPending}>
-              {formMode === "PRAZO_PROCESSUAL" ? (saveMutation.isPending ? "Salvando..." : "Salvar prazo") : (taskSaveMutation.isPending ? "Salvando..." : "Salvar tarefa")}
+            <Button
+              type="submit"
+              disabled={saveMutation.isPending || taskSaveMutation.isPending}
+            >
+              {formMode === "PRAZO_PROCESSUAL"
+                ? saveMutation.isPending
+                  ? "Salvando..."
+                  : "Salvar prazo"
+                : taskSaveMutation.isPending
+                  ? "Salvando..."
+                  : "Salvar tarefa"}
             </Button>
-            {formMode === "PRAZO_PROCESSUAL" && form.prazoId ? <Button type="button" variant="outline" onClick={() => setForm(initialPrazoForm)}>Cancelar edição</Button> : null}
-            {formMode === "TAREFA_EQUIPE" && taskForm.tarefaId ? <Button type="button" variant="outline" onClick={() => setTaskForm({ ...initialTaskForm, notificarResponsavel: notifyResponsibleDefault })}>Cancelar edição</Button> : null}
-            <Button type="button" variant="outline" onClick={closeCreateModal}>Fechar</Button>
+            {formMode === "PRAZO_PROCESSUAL" && form.prazoId ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setForm(initialPrazoForm)}
+              >
+                Cancelar edição
+              </Button>
+            ) : null}
+            {formMode === "TAREFA_EQUIPE" && taskForm.tarefaId ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setTaskForm({
+                    ...initialTaskForm,
+                    notificarResponsavel: notifyResponsibleDefault,
+                  })
+                }
+              >
+                Cancelar edição
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" onClick={closeCreateModal}>
+              Fechar
+            </Button>
           </div>
         </form>
       </Modal>
     </div>
   );
 }
-
-
-
-
-

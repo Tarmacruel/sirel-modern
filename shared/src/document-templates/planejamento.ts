@@ -1,9 +1,14 @@
-﻿import { systemFooterText, prefeituraLines, buildPrefeituraLogoSvg } from "../branding.js";
+﻿import {
+  systemFooterText,
+  prefeituraLines,
+  buildPrefeituraLogoSvg,
+} from "../branding.js";
 import { metodologiaCotacaoLabels } from "../const.js";
 
 export interface PrintableBranding {
   logoUrl?: string | null;
   lines?: readonly [string, string, string, string];
+  secondaryLine?: string | null;
   footerText?: string | null;
 }
 
@@ -19,11 +24,17 @@ export function escapeHtml(value: string | number | null | undefined) {
 function formatCurrencyBRL(value: number | string | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed)
-    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parsed)
+    ? new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      }).format(parsed)
     : "-";
 }
 
-function formatNumberBR(value: number | string | null | undefined, maximumFractionDigits = 2) {
+function formatNumberBR(
+  value: number | string | null | undefined,
+  maximumFractionDigits = 2,
+) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "-";
   return new Intl.NumberFormat("pt-BR", {
@@ -35,7 +46,9 @@ function formatNumberBR(value: number | string | null | undefined, maximumFracti
 function formatShortDateBR(value: string | Date | null | undefined) {
   if (!value) return "-";
   const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
+  return Number.isNaN(date.getTime())
+    ? "-"
+    : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
 }
 
 function paragraphsFromText(value: string | null | undefined) {
@@ -52,8 +65,9 @@ export function buildPrintableShell(
   branding?: PrintableBranding,
 ) {
   const lines = branding?.lines ?? prefeituraLines;
+  const secondaryLine = branding?.secondaryLine?.trim() || lines[1];
   const logoMarkup = branding?.logoUrl
-    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(lines[1])}" class="brand-image" />`
+    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(secondaryLine)}" class="brand-image" />`
     : buildPrefeituraLogoSvg();
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -66,10 +80,10 @@ export function buildPrintableShell(
         color-scheme: light;
         --ink: #0f172a;
         --muted: #475569;
-        --line: #cbd5e1;
-        --soft: #e2e8f0;
-        --panel: #f8fafc;
-        --brand: #0f766e;
+        --line: #2440A7;
+        --soft: #c7d2fe;
+        --panel: #f8faff;
+        --brand: #2440A7;
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; background: #eef2ff; color: var(--ink); font: 14px/1.6 "Segoe UI", Tahoma, sans-serif; }
@@ -117,10 +131,10 @@ export function buildPrintableShell(
   <body>
     <main class="page">
       <section class="brand-top">
-        <div class="brand-mark">${logoMarkup}</div>
+          <div class="brand-mark">${logoMarkup}</div>
         <div class="brand-copy">
           <div class="org">${escapeHtml(lines[0])}</div>
-          <div class="org">${escapeHtml(lines[1])}</div>
+          <div class="org">${escapeHtml(secondaryLine)}</div>
           <div class="meta">${escapeHtml(lines[2])}</div>
           <div class="meta">${escapeHtml(lines[3])}</div>
         </div>
@@ -233,7 +247,10 @@ export function buildDfdHtml(detail: any) {
   `;
 }
 
-export function buildMapaComparativoHtml(detail: any, metodologiaLabel: string) {
+export function buildMapaComparativoHtml(
+  detail: any,
+  metodologiaLabel: string,
+) {
   const processo = detail.processo;
   const mapa = detail.mapaComparativo ?? [];
 
@@ -307,8 +324,12 @@ export function buildTrHtml(detail: any) {
   const processo = detail.processo;
   const tr = detail.tr;
   const itens = detail.itens ?? [];
-  const metodologiaCodigo = (detail.etp?.metodologiaCotacao ?? "MEDIA") as keyof typeof metodologiaCotacaoLabels;
-  const metodologiaNome = metodologiaCotacaoLabels[metodologiaCodigo] ?? detail.etp?.metodologiaCotacao ?? "-";
+  const metodologiaCodigo = (detail.etp?.metodologiaCotacao ??
+    "MEDIA") as keyof typeof metodologiaCotacaoLabels;
+  const metodologiaNome =
+    metodologiaCotacaoLabels[metodologiaCodigo] ??
+    detail.etp?.metodologiaCotacao ??
+    "-";
   const orcamentoSigiloso = Boolean(tr?.orcamentoSigiloso);
 
   return `
@@ -375,7 +396,9 @@ export function buildTrHtml(detail: any) {
       <tbody>
         ${
           itens.length
-            ? itens.map((item: any) => `
+            ? itens
+                .map(
+                  (item: any) => `
               <tr>
                 <td>${escapeHtml(item.numeroItem)}</td>
                 <td>${escapeHtml(item.descricao)}</td>
@@ -384,7 +407,9 @@ export function buildTrHtml(detail: any) {
                 <td>${escapeHtml(orcamentoSigiloso ? "Sigiloso" : formatCurrencyBRL(item.valorUnitarioEstimado))}</td>
                 <td>${escapeHtml(orcamentoSigiloso ? "Sigiloso" : formatCurrencyBRL(item.valorTotalEstimado))}</td>
               </tr>
-            `).join("")
+            `,
+                )
+                .join("")
             : `<tr><td colspan="6">Nenhum item consolidado.</td></tr>`
         }
       </tbody>
@@ -393,4 +418,3 @@ export function buildTrHtml(detail: any) {
     <div class="footer">${escapeHtml(systemFooterText)} • Documento gerado em ${escapeHtml(formatShortDateBR(new Date()))}.</div>
   `;
 }
-

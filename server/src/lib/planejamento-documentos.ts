@@ -41,14 +41,23 @@ function slugifyFileName(value: string) {
 function formatCurrencyBRL(value: number | string | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed)
-    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parsed)
+    ? new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      }).format(parsed)
     : "-";
 }
 
-function formatNumberBR(value: number | string | null | undefined, maximumFractionDigits = 2) {
+function formatNumberBR(
+  value: number | string | null | undefined,
+  maximumFractionDigits = 2,
+) {
   const parsed = Number(value);
   return Number.isFinite(parsed)
-    ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits }).format(parsed)
+    ? new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits,
+      }).format(parsed)
     : "-";
 }
 
@@ -56,9 +65,25 @@ function textValue(value: string | null | undefined) {
   return value?.trim() || "-";
 }
 
+function resolveDemandanteHeaderLine(detail: any) {
+  const rawValue =
+    detail?.dfd?.secretariaDemandante?.nome ??
+    detail?.processo?.secretariaDemandante?.nome ??
+    detail?.processo?.secretaria ??
+    "";
+
+  const normalized = String(rawValue ?? "").trim();
+  return normalized || undefined;
+}
+
 function linesFromText(value: string | null | undefined) {
   const cleaned = value?.trim();
-  return cleaned ? cleaned.split(/\n{2,}|\n/).map((line) => line.trim()).filter(Boolean) : ["-"];
+  return cleaned
+    ? cleaned
+        .split(/\n{2,}|\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : ["-"];
 }
 
 function normalizeLogoUrl(value: unknown, baseUrl: string) {
@@ -121,7 +146,9 @@ function createPdfBuffer(render: (doc: PdfDoc) => void) {
   return new Promise<Buffer>((resolvePromise, rejectPromise) => {
     const doc = new PDFDocument({ size: "A4", margin: 42, compress: true });
     const chunks: Buffer[] = [];
-    doc.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    doc.on("data", (chunk) =>
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+    );
     doc.on("end", () => resolvePromise(Buffer.concat(chunks)));
     doc.on("error", rejectPromise);
     render(doc);
@@ -135,8 +162,17 @@ function ensureSpace(doc: PdfDoc, height = 24) {
   }
 }
 
-function drawHeader(doc: PdfDoc, eyebrow: string, title: string, subtitle?: string) {
-  doc.fillColor("#0f766e").font("Helvetica-Bold").fontSize(9).text(eyebrow.toUpperCase(), { characterSpacing: 1.4 });
+function drawHeader(
+  doc: PdfDoc,
+  eyebrow: string,
+  title: string,
+  subtitle?: string,
+) {
+  doc
+    .fillColor("#2440A7")
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .text(eyebrow.toUpperCase(), { characterSpacing: 1.4 });
   doc.moveDown(0.5);
   doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(22).text(title);
   if (subtitle) {
@@ -145,13 +181,26 @@ function drawHeader(doc: PdfDoc, eyebrow: string, title: string, subtitle?: stri
   }
   doc.moveDown(0.8);
   const y = doc.y;
-  doc.moveTo(doc.page.margins.left, y).lineTo(doc.page.width - doc.page.margins.right, y).strokeColor("#0f766e").lineWidth(2).stroke();
+  doc
+    .moveTo(doc.page.margins.left, y)
+    .lineTo(doc.page.width - doc.page.margins.right, y)
+    .strokeColor("#2440A7")
+    .lineWidth(2)
+    .stroke();
   doc.moveDown(1.2);
 }
 
-function drawMetaGrid(doc: PdfDoc, entries: Array<{ label: string; value: string }>) {
+function drawMetaGrid(
+  doc: PdfDoc,
+  entries: Array<{ label: string; value: string }>,
+) {
   const columnGap = 16;
-  const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - columnGap) / 2;
+  const columnWidth =
+    (doc.page.width -
+      doc.page.margins.left -
+      doc.page.margins.right -
+      columnGap) /
+    2;
 
   for (let index = 0; index < entries.length; index += 2) {
     ensureSpace(doc, 58);
@@ -160,9 +209,21 @@ function drawMetaGrid(doc: PdfDoc, entries: Array<{ label: string; value: string
 
     pair.forEach((entry, pairIndex) => {
       const x = doc.page.margins.left + pairIndex * (columnWidth + columnGap);
-      doc.roundedRect(x, rowTop, columnWidth, 48, 10).fillAndStroke("#f8fafc", "#cbd5e1");
-      doc.fillColor("#475569").font("Helvetica-Bold").fontSize(8).text(entry.label.toUpperCase(), x + 10, rowTop + 8, { width: columnWidth - 20 });
-      doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11).text(entry.value, x + 10, rowTop + 22, { width: columnWidth - 20 });
+      doc
+        .roundedRect(x, rowTop, columnWidth, 48, 10)
+        .fillAndStroke("#f8fafc", "#2440A7");
+      doc
+        .fillColor("#2440A7")
+        .font("Helvetica-Bold")
+        .fontSize(8)
+        .text(entry.label.toUpperCase(), x + 10, rowTop + 8, {
+          width: columnWidth - 20,
+        });
+      doc
+        .fillColor("#0f172a")
+        .font("Helvetica-Bold")
+        .fontSize(11)
+        .text(entry.value, x + 10, rowTop + 22, { width: columnWidth - 20 });
     });
 
     doc.y = rowTop + 60;
@@ -171,32 +232,58 @@ function drawMetaGrid(doc: PdfDoc, entries: Array<{ label: string; value: string
 
 function drawSectionTitle(doc: PdfDoc, title: string) {
   ensureSpace(doc, 28);
-  doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(11).text(title.toUpperCase(), { characterSpacing: 1.2 });
+  doc
+    .fillColor("#0f172a")
+    .font("Helvetica-Bold")
+    .fontSize(11)
+    .text(title.toUpperCase(), { characterSpacing: 1.2 });
   doc.moveDown(0.5);
 }
 
 function drawParagraphs(doc: PdfDoc, text: string | null | undefined) {
   for (const line of linesFromText(text)) {
     ensureSpace(doc, 18);
-    doc.fillColor("#1e293b").font("Helvetica").fontSize(10).text(line, { align: "justify" });
+    doc
+      .fillColor("#1e293b")
+      .font("Helvetica")
+      .fontSize(10)
+      .text(line, { align: "justify" });
     doc.moveDown(0.45);
   }
 }
 
-function drawItemTable(doc: PdfDoc, rows: Array<Array<string>>, headers: string[]) {
+function drawItemTable(
+  doc: PdfDoc,
+  rows: Array<Array<string>>,
+  headers: string[],
+) {
   const widths = [42, 186, 66, 54, 78, 78];
   const drawRow = (cells: string[], header = false) => {
     const font = header ? "Helvetica-Bold" : "Helvetica";
     const fontSize = header ? 8.5 : 8.8;
     const lineHeight = header ? 12 : 11.5;
-    const heights = cells.map((cell, index) => doc.font(font).fontSize(fontSize).heightOfString(cell, { width: widths[index] - 8, lineGap: 1 }));
+    const heights = cells.map((cell, index) =>
+      doc
+        .font(font)
+        .fontSize(fontSize)
+        .heightOfString(cell, { width: widths[index] - 8, lineGap: 1 }),
+    );
     const rowHeight = Math.max(...heights, lineHeight) + 10;
     ensureSpace(doc, rowHeight + 4);
     let x = doc.page.margins.left;
     const y = doc.y;
     cells.forEach((cell, index) => {
-      doc.rect(x, y, widths[index], rowHeight).fillAndStroke(header ? "#e2e8f0" : "#ffffff", "#cbd5e1");
-      doc.fillColor("#0f172a").font(font).fontSize(fontSize).text(cell, x + 4, y + 5, { width: widths[index] - 8, align: index >= 2 ? "right" : "left" });
+      doc
+        .rect(x, y, widths[index], rowHeight)
+        .fillAndStroke(header ? "#eef2ff" : "#ffffff", "#2440A7");
+      doc
+        .fillColor("#0f172a")
+        .font(font)
+        .fontSize(fontSize)
+        .text(cell, x + 4, y + 5, {
+          width: widths[index] - 8,
+          align: index >= 2 ? "right" : "left",
+        });
       x += widths[index];
     });
     doc.y = y + rowHeight;
@@ -212,7 +299,10 @@ function drawMapCards(doc: PdfDoc, detail: any, metodologiaLabel: string) {
     { label: "Processo", value: String(detail.processo.numeroSirel ?? "-") },
     { label: "Secretaria", value: String(detail.processo.secretaria ?? "-") },
     { label: "Metodologia", value: metodologiaLabel },
-    { label: "Valor estimado", value: formatCurrencyBRL(detail.processo.valorEstimado) },
+    {
+      label: "Valor estimado",
+      value: formatCurrencyBRL(detail.processo.valorEstimado),
+    },
   ]);
 
   const mapa = detail.mapaComparativo ?? [];
@@ -226,11 +316,20 @@ function drawMapCards(doc: PdfDoc, detail: any, metodologiaLabel: string) {
     drawSectionTitle(doc, `Item ${item.numeroItem}`);
     drawParagraphs(doc, item.descricao);
     drawMetaGrid(doc, [
-      { label: "Quantidade", value: `${formatNumberBR(item.quantidade, 3)} ${item.unidade}` },
-      { label: "Menor preço", value: formatCurrencyBRL(item.menorValorUnitario) },
+      {
+        label: "Quantidade",
+        value: `${formatNumberBR(item.quantidade, 3)} ${item.unidade}`,
+      },
+      {
+        label: "Menor preço",
+        value: formatCurrencyBRL(item.menorValorUnitario),
+      },
       { label: "Média", value: formatCurrencyBRL(item.valorMedioUnitario) },
       { label: "Mediana", value: formatCurrencyBRL(item.valorMedianoUnitario) },
-      { label: "Selecionado", value: formatCurrencyBRL(item.valorSelecionadoUnitario) },
+      {
+        label: "Selecionado",
+        value: formatCurrencyBRL(item.valorSelecionadoUnitario),
+      },
       { label: "Total", value: formatCurrencyBRL(item.valorReferenciaTotal) },
     ]);
   });
@@ -238,24 +337,60 @@ function drawMapCards(doc: PdfDoc, detail: any, metodologiaLabel: string) {
 
 async function buildDfdPdf(detail: any) {
   return createPdfBuffer((doc) => {
-    drawHeader(doc, "Planejamento · Documento de Formalização da Demanda", `DFD ${detail.processo.numeroSirel}`, `Processo administrativo ${detail.processo.numeroAdministrativo ?? "-"}`);
+    drawHeader(
+      doc,
+      "Planejamento · Documento de Formalização da Demanda",
+      `DFD ${detail.processo.numeroSirel}`,
+      `Processo administrativo ${detail.processo.numeroAdministrativo ?? "-"}`,
+    );
     drawMetaGrid(doc, [
       { label: "Atendente", value: String(detail.dfd?.atendente?.name ?? "-") },
-      { label: "Solicitante", value: String(detail.dfd?.solicitante?.nome ?? "-") },
-      { label: "Secretaria demandante", value: String(detail.dfd?.secretariaDemandante?.nome ?? detail.processo.secretaria ?? "-") },
-      { label: "Secretaria responsável", value: String(detail.dfd?.secretariaResponsavel?.nome ?? "-") },
+      {
+        label: "Solicitante",
+        value: String(detail.dfd?.solicitante?.nome ?? "-"),
+      },
+      {
+        label: "Secretaria demandante",
+        value: String(
+          detail.dfd?.secretariaDemandante?.nome ??
+            detail.processo.secretaria ??
+            "-",
+        ),
+      },
+      {
+        label: "Secretaria responsável",
+        value: String(detail.dfd?.secretariaResponsavel?.nome ?? "-"),
+      },
       { label: "Prioridade", value: String(detail.dfd?.grauPrioridade ?? "-") },
-      { label: "Data da necessidade", value: String(detail.dfd?.dataNecessidade ?? "-") },
-      { label: "Previsão de conclusão", value: String(detail.dfd?.dataPrevistaConclusao ?? "-") },
+      {
+        label: "Data da necessidade",
+        value: String(detail.dfd?.dataNecessidade ?? "-"),
+      },
+      {
+        label: "Previsão de conclusão",
+        value: String(detail.dfd?.dataPrevistaConclusao ?? "-"),
+      },
     ]);
     drawSectionTitle(doc, "Objeto");
     drawParagraphs(doc, detail.processo.objeto);
     drawSectionTitle(doc, "Justificativa");
     drawParagraphs(doc, detail.dfd?.justificativa);
     drawSectionTitle(doc, "Responsáveis");
-    drawParagraphs(doc, (detail.dfd?.responsaveis ?? []).map((item: any) => `${item.nome}${item.cargo ? ` - ${item.cargo}` : ""}`).join("\n"));
+    drawParagraphs(
+      doc,
+      (detail.dfd?.responsaveis ?? [])
+        .map(
+          (item: any) => `${item.nome}${item.cargo ? ` - ${item.cargo}` : ""}`,
+        )
+        .join("\n"),
+    );
     drawSectionTitle(doc, "Secretarias participantes");
-    drawParagraphs(doc, (detail.dfd?.secretariasParticipantes ?? []).map((item: any) => item.nome).join("\n") || "Não se aplica.");
+    drawParagraphs(
+      doc,
+      (detail.dfd?.secretariasParticipantes ?? [])
+        .map((item: any) => item.nome)
+        .join("\n") || "Não se aplica.",
+    );
     drawSectionTitle(doc, "Itens da DFD");
     drawItemTable(
       doc,
@@ -287,7 +422,12 @@ async function buildDfdPdf(detail: any) {
 
 async function buildMapaPdf(detail: any, metodologiaLabel: string) {
   return createPdfBuffer((doc) => {
-    drawHeader(doc, "Planejamento · Mapa comparativo", `Mapa comparativo ${detail.processo.numeroSirel}`, `Metodologia adotada: ${metodologiaLabel}`);
+    drawHeader(
+      doc,
+      "Planejamento · Mapa comparativo",
+      `Mapa comparativo ${detail.processo.numeroSirel}`,
+      `Metodologia adotada: ${metodologiaLabel}`,
+    );
     drawMapCards(doc, detail, metodologiaLabel);
   });
 }
@@ -295,12 +435,29 @@ async function buildMapaPdf(detail: any, metodologiaLabel: string) {
 async function buildTrPdf(detail: any) {
   return createPdfBuffer((doc) => {
     const orcamentoSigiloso = Boolean(detail.tr?.orcamentoSigiloso);
-    drawHeader(doc, "Planejamento · Termo de Referência", `TR ${detail.processo.numeroSirel}`, `Processo administrativo ${detail.processo.numeroAdministrativo ?? "-"}`);
+    drawHeader(
+      doc,
+      "Planejamento · Termo de Referência",
+      `TR ${detail.processo.numeroSirel}`,
+      `Processo administrativo ${detail.processo.numeroAdministrativo ?? "-"}`,
+    );
     drawMetaGrid(doc, [
       { label: "Processo", value: String(detail.processo.numeroSirel ?? "-") },
       { label: "Secretaria", value: String(detail.processo.secretaria ?? "-") },
-      { label: "Valor estimado", value: orcamentoSigiloso ? "Sigiloso" : formatCurrencyBRL(detail.processo.valorEstimado) },
-      { label: "Metodologia", value: metodologiaCotacaoLabels[(detail.etp?.metodologiaCotacao ?? "MEDIA") as keyof typeof metodologiaCotacaoLabels] ?? String(detail.etp?.metodologiaCotacao ?? "-") },
+      {
+        label: "Valor estimado",
+        value: orcamentoSigiloso
+          ? "Sigiloso"
+          : formatCurrencyBRL(detail.processo.valorEstimado),
+      },
+      {
+        label: "Metodologia",
+        value:
+          metodologiaCotacaoLabels[
+            (detail.etp?.metodologiaCotacao ??
+              "MEDIA") as keyof typeof metodologiaCotacaoLabels
+          ] ?? String(detail.etp?.metodologiaCotacao ?? "-"),
+      },
     ]);
     drawSectionTitle(doc, "Objeto");
     drawParagraphs(doc, detail.tr?.objetoTermo || detail.processo.objeto);
@@ -329,8 +486,12 @@ async function buildTrPdf(detail: any) {
             textValue(item.descricao),
             formatNumberBR(item.quantidade, 3),
             textValue(item.unidade),
-            orcamentoSigiloso ? "Sigiloso" : formatCurrencyBRL(item.valorUnitarioEstimado),
-            orcamentoSigiloso ? "Sigiloso" : formatCurrencyBRL(item.valorTotalEstimado),
+            orcamentoSigiloso
+              ? "Sigiloso"
+              : formatCurrencyBRL(item.valorUnitarioEstimado),
+            orcamentoSigiloso
+              ? "Sigiloso"
+              : formatCurrencyBRL(item.valorTotalEstimado),
           ])
         : [["-", "Nenhum item consolidado.", "-", "-", "-", "-"]],
       ["Item", "Descrição", "Qtd.", "Un.", "Vlr. unit.", "Total"],
@@ -354,11 +515,18 @@ export async function saveGeneratedPlanejamentoDocumento({
   ensureUploadsRoot();
   const db = requireDb();
   const baseUrl = `${ctx.req.protocol}://${ctx.req.get("host")}`;
-  const printableBranding = await resolvePrintableBranding(baseUrl);
+  const printableBranding = {
+    ...(await resolvePrintableBranding(baseUrl)),
+    secondaryLine: resolveDemandanteHeaderLine(detail),
+  };
   const processoDir = join(uploadsRoot, `processo-${processoId}`, "gerados");
   mkdirSync(processoDir, { recursive: true });
 
-  const metodologiaLabel = metodologiaCotacaoLabels[(detail.etp?.metodologiaCotacao ?? "MEDIA") as keyof typeof metodologiaCotacaoLabels] ?? "Média";
+  const metodologiaLabel =
+    metodologiaCotacaoLabels[
+      (detail.etp?.metodologiaCotacao ??
+        "MEDIA") as keyof typeof metodologiaCotacaoLabels
+    ] ?? "Média";
 
   let bodyHtml = "";
   let fileBuffer: Uint8Array = new Uint8Array();
@@ -366,41 +534,53 @@ export async function saveGeneratedPlanejamentoDocumento({
   let mimeType = "text/html; charset=utf-8";
   let titulo = "";
   let categoria = "";
-  let tipo: "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO" = "OUTRO";
+  let tipo:
+    | "DFD"
+    | "ETP"
+    | "TR"
+    | "EDITAL"
+    | "COMUNICACAO_INTERNA"
+    | "RESULTADO"
+    | "CONTRATO"
+    | "OUTRO" = "OUTRO";
 
   if (documento === "DFD") {
     titulo = `DFD ${detail.processo.numeroSirel}`;
     categoria = formato === "HTML" ? "DFD_GERADO_HTML" : "DFD_GERADO_PDF";
     tipo = "DFD";
     bodyHtml = buildDfdHtml(detail);
-    fileBuffer = formato === "HTML"
-      ? Buffer.from(
-          buildPrintableShell(titulo, bodyHtml, printableBranding),
-          "utf8",
-        )
-      : await buildDfdPdf(detail);
+    fileBuffer =
+      formato === "HTML"
+        ? Buffer.from(
+            buildPrintableShell(titulo, bodyHtml, printableBranding),
+            "utf8",
+          )
+        : await buildDfdPdf(detail);
   } else if (documento === "MAPA_COMPARATIVO") {
     titulo = `Mapa comparativo ${detail.processo.numeroSirel}`;
-    categoria = formato === "HTML" ? "MAPA_COMPARATIVO_HTML" : "MAPA_COMPARATIVO_PDF";
+    categoria =
+      formato === "HTML" ? "MAPA_COMPARATIVO_HTML" : "MAPA_COMPARATIVO_PDF";
     tipo = "OUTRO";
     bodyHtml = buildMapaComparativoHtml(detail, metodologiaLabel);
-    fileBuffer = formato === "HTML"
-      ? Buffer.from(
-          buildPrintableShell(titulo, bodyHtml, printableBranding),
-          "utf8",
-        )
-      : await buildMapaPdf(detail, metodologiaLabel);
+    fileBuffer =
+      formato === "HTML"
+        ? Buffer.from(
+            buildPrintableShell(titulo, bodyHtml, printableBranding),
+            "utf8",
+          )
+        : await buildMapaPdf(detail, metodologiaLabel);
   } else {
     titulo = `TR ${detail.processo.numeroSirel}`;
     categoria = formato === "HTML" ? "TR_GERADO_HTML" : "TR_GERADO_PDF";
     tipo = "TR";
     bodyHtml = buildTrHtml(detail);
-    fileBuffer = formato === "HTML"
-      ? Buffer.from(
-          buildPrintableShell(titulo, bodyHtml, printableBranding),
-          "utf8",
-        )
-      : await buildTrPdf(detail);
+    fileBuffer =
+      formato === "HTML"
+        ? Buffer.from(
+            buildPrintableShell(titulo, bodyHtml, printableBranding),
+            "utf8",
+          )
+        : await buildTrPdf(detail);
   }
 
   if (formato === "PDF") {
@@ -421,24 +601,30 @@ export async function saveGeneratedPlanejamentoDocumento({
     .limit(1);
   const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
 
-  const [created] = await db.insert(documentos).values({
-    processoId,
-    titulo,
-    descricao: `Documento ${formato} gerado automaticamente pela etapa de Planejamento.`,
-    tipo,
-    categoria,
-    versao: nextVersion,
-    arquivoUrl: "",
-    arquivoChave: relativePath,
-    tamanhoBytes: fileBuffer.byteLength,
-    mimeType,
-    criadoPor: ctx.user?.id ?? null,
-    criadoEm: new Date(),
-    atualizadoEm: new Date(),
-  }).returning();
+  const [created] = await db
+    .insert(documentos)
+    .values({
+      processoId,
+      titulo,
+      descricao: `Documento ${formato} gerado automaticamente pela etapa de Planejamento.`,
+      tipo,
+      categoria,
+      versao: nextVersion,
+      arquivoUrl: "",
+      arquivoChave: relativePath,
+      tamanhoBytes: fileBuffer.byteLength,
+      mimeType,
+      criadoPor: ctx.user?.id ?? null,
+      criadoEm: new Date(),
+      atualizadoEm: new Date(),
+    })
+    .returning();
 
   const arquivoUrl = `/api/planejamento/documentos/${created.id}/download`;
-  await db.update(documentos).set({ arquivoUrl, atualizadoEm: new Date() }).where(eq(documentos.id, created.id));
+  await db
+    .update(documentos)
+    .set({ arquivoUrl, atualizadoEm: new Date() })
+    .where(eq(documentos.id, created.id));
 
   return {
     ...created,

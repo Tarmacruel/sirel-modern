@@ -1,4 +1,6 @@
-﻿import {
+import {
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useRef,
@@ -66,6 +68,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { ToastStack, type ToastStackItem } from "@/components/ui/toast-stack";
 import {
   deleteProcessoDocumento,
   resolveServerAssetUrl,
@@ -233,6 +236,24 @@ const licitacaoLinearPhaseOrder: LicitacaoLinearPhaseKey[] = [
 ];
 
 const LICITACAO_TABLE_PAGE_SIZE = 8;
+
+const LicitacaoProcessoAuditoriaContent = lazy(
+  () => import("@/components/licitacao/licitacao-processo-auditoria-content"),
+);
+const LicitacaoProcessoHistoryContent = lazy(
+  () => import("@/components/licitacao/licitacao-processo-history-content"),
+);
+const LicitacaoProcessoDocumentosModalContent = lazy(
+  () =>
+    import("@/components/licitacao/licitacao-processo-documentos-modal-content"),
+);
+const CIReservaOrcamentariaModal = lazy(
+  () => import("@/components/licitacao/ci-reserva-orcamentaria-modal"),
+);
+
+type LicitacaoToastTone = ToastStackItem["tone"];
+const CI_RESERVA_ORCAMENTARIA_CATEGORY =
+  "LICITACAO_COMUNICACAO_RESERVA_ORCAMENTARIA";
 
 const DEFAULT_SD_ITEM_DRAFT: SdItemDraft = {
   numero: "",
@@ -577,10 +598,12 @@ export function LicitacaoProcessoPage({
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [toastItems, setToastItems] = useState<ToastStackItem[]>([]);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
     null,
   );
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
+  const [showCIReservaModal, setShowCIReservaModal] = useState(false);
   const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
   const [operationModal, setOperationModal] =
     useState<LicitacaoOperationModalKey | null>(null);
@@ -694,6 +717,71 @@ export function LicitacaoProcessoPage({
   const homologacaoRef = useRef<HTMLElement | null>(null);
   const auditoriaRef = useRef<HTMLElement | null>(null);
   const historyRef = useRef<HTMLElement | null>(null);
+  const toastIdRef = useRef(1);
+  const toastTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>(
+    {},
+  );
+
+  function dismissToast(id: number) {
+    const timer = toastTimersRef.current[id];
+    if (timer) {
+      clearTimeout(timer);
+      delete toastTimersRef.current[id];
+    }
+
+    setToastItems((current) => current.filter((item) => item.id !== id));
+  }
+
+  function queueToast(
+    tone: LicitacaoToastTone,
+    title: string,
+    message: string,
+  ) {
+    const id = toastIdRef.current;
+    toastIdRef.current += 1;
+
+    setToastItems((current) => {
+      const next = [...current, { id, tone, title, message }];
+      if (next.length <= 4) return next;
+
+      const removed = next.slice(0, next.length - 4);
+      removed.forEach((item) => {
+        const timer = toastTimersRef.current[item.id];
+        if (timer) {
+          clearTimeout(timer);
+          delete toastTimersRef.current[item.id];
+        }
+      });
+      return next.slice(-4);
+    });
+
+    toastTimersRef.current[id] = setTimeout(
+      () => dismissToast(id),
+      tone === "error" ? 7200 : 4800,
+    );
+  }
+
+  useEffect(() => {
+    if (!feedback) return;
+    queueToast("success", "Atualizacao registrada", feedback);
+    setFeedback(null);
+  }, [feedback]);
+
+  useEffect(() => {
+    if (!errorMessage) return;
+    queueToast("error", "Operacao com atencao", errorMessage);
+    setErrorMessage(null);
+  }, [errorMessage]);
+
+  useEffect(
+    () => () => {
+      Object.values(toastTimersRef.current).forEach((timer) =>
+        clearTimeout(timer),
+      );
+      toastTimersRef.current = {};
+    },
+    [],
+  );
 
   useEffect(() => {
     const detail = detailQuery.data;
@@ -1205,6 +1293,9 @@ export function LicitacaoProcessoPage({
   const selectedInternalUploadState = selectedInternalChecklistItem
     ? getUploadState(uploadForms, selectedInternalChecklistItem.category)
     : null;
+  const selectedInternalChecklistUsesCIModal =
+    selectedInternalChecklistItem?.category ===
+    CI_RESERVA_ORCAMENTARIA_CATEGORY;
   const selectedInternalChecklistFlexState = selectedInternalChecklistItem
     ? (checklistNaoAplicavelForm[selectedInternalChecklistItem.category] ?? {
         statusFlexivel:
@@ -1479,7 +1570,7 @@ export function LicitacaoProcessoPage({
 
     const descricao = sdItemDraft.descricao.trim();
     if (!descricao) {
-      setManualSdItemError("Informe ao menos a descriÃ§Ã£o do item manual.");
+      setManualSdItemError("Informe ao menos a descrição do item manual.");
       return;
     }
 
@@ -1727,6 +1818,16 @@ export function LicitacaoProcessoPage({
     } finally {
       setDeletingDocumentoId(null);
     }
+  }
+
+  async function handleCIReservaDocumentoSalvo(message: string) {
+    await refreshAll();
+    setFeedback(message);
+  }
+
+  function handleCIReservaOperacaoErro(message: string) {
+    setFeedback(null);
+    setErrorMessage(message);
   }
 
   async function persistConfiguracao() {
@@ -2459,23 +2560,24 @@ export function LicitacaoProcessoPage({
   const SelectedPhaseIcon = selectedPhaseInfo.icon;
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
   const selectedPhaseLeadSection = getDefaultSectionForPhase(currentPhase);
-  const statusBanner = errorMessage
-    ? {
-        tone: "error" as const,
-        title: "Operacao com atencao",
-        message: errorMessage,
-      }
-    : feedback
-      ? {
-          tone: "success" as const,
-          title: "Atualizacao registrada",
-          message: feedback,
-        }
-      : null;
   const stickyColumnHeaderClass =
     "sticky left-0 z-10 bg-[var(--surface-soft)] shadow-[inset_-1px_0_0_var(--border-subtle)]";
   const stickyColumnCellClass =
     "sticky left-0 z-[1] bg-[var(--surface-card)] shadow-[inset_-1px_0_0_var(--border-subtle)]";
+  const deferredSectionFallback = (
+    <div className="mt-4 grid gap-3">
+      {[0, 1].map((item) => (
+        <Skeleton key={item} className="h-24 rounded-[28px]" />
+      ))}
+    </div>
+  );
+  const deferredModalFallback = (
+    <div className="grid gap-3">
+      {[0, 1, 2].map((item) => (
+        <Skeleton key={item} className="h-16 rounded-[24px]" />
+      ))}
+    </div>
+  );
   const propostasPagination = paginateItems(
     detalhe?.propostas ?? [],
     propostasPage,
@@ -2754,6 +2856,8 @@ export function LicitacaoProcessoPage({
 
   return (
     <div className="space-y-6">
+      <ToastStack items={toastItems} onDismiss={dismissToast} />
+
       <Breadcrumb
         items={[
           { label: "Licitacao", href: "/licitacao" },
@@ -2772,7 +2876,7 @@ export function LicitacaoProcessoPage({
               onClick={() => setLocation(`/dossie/${processoId}`)}
             >
               <FileCheck2 className="h-4 w-4" />
-              DossiÃª do processo
+              Dossiê do processo
             </Button>
             <Button
               type="button"
@@ -3054,41 +3158,6 @@ export function LicitacaoProcessoPage({
           </aside>
 
           <div className="space-y-6 xl:order-1">
-            {statusBanner ? (
-              <div
-                aria-live={
-                  statusBanner.tone === "error" ? "assertive" : "polite"
-                }
-                className={[
-                  "sticky top-[148px] z-30 rounded-[24px] border px-4 py-4 shadow-[var(--shadow-card)]",
-                  statusBanner.tone === "error"
-                    ? "border-rose-200 bg-rose-50 text-rose-900"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-900",
-                ].join(" ")}
-              >
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em]">
-                      {statusBanner.title}
-                    </div>
-                    <div className="mt-1 text-sm leading-6">
-                      {statusBanner.message}
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setFeedback(null);
-                      setErrorMessage(null);
-                    }}
-                  >
-                    Dispensar
-                  </Button>
-                </div>
-              </div>
-            ) : null}
             <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-5 py-5 shadow-[var(--shadow-card)]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-3xl">
@@ -3429,13 +3498,12 @@ export function LicitacaoProcessoPage({
                           Parser da SD
                         </div>
                         <h4 className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          Vincular itens da SolicitaÃ§Ã£o de Despesa ao processo
+                          Vincular itens da Solicitação de Despesa ao processo
                         </h4>
                         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
-                          FaÃ§a o upload do PDF da SD, revise os itens
-                          extraÃ­dos, complemente o que faltar e vincule o
-                          resultado aos itens do processo sem depender da tela
-                          de relatÃ³rios.
+                          Faça o upload do PDF da SD, revise os itens extraídos,
+                          complemente o que faltar e vincule o resultado aos
+                          itens do processo sem depender da tela de relatórios.
                         </p>
                       </div>
                       <div className="rounded-2xl bg-[var(--color-primary-50)] px-4 py-3 text-right">
@@ -3470,7 +3538,7 @@ export function LicitacaoProcessoPage({
                       </article>
                       <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
                         <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          PrÃ©via da SD
+                          Prévia da SD
                         </div>
                         <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                           {mergedSdItems.length}
@@ -3508,10 +3576,10 @@ export function LicitacaoProcessoPage({
                     </div>
 
                     <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
-                      Itens com o mesmo nÃºmero atualizam o processo; itens sem
-                      correspondÃªncia sÃ£o adicionados. A vinculaÃ§Ã£o Ã©
-                      bloqueada quando jÃ¡ existem propostas cadastradas para
-                      evitar inconsistÃªncias na fase externa.
+                      Itens com o mesmo número atualizam o processo; itens sem
+                      correspondência são adicionados. A vinculação é bloqueada
+                      quando já existem propostas cadastradas para evitar
+                      inconsistências na fase externa.
                     </p>
 
                     {sdError ? (
@@ -3525,7 +3593,7 @@ export function LicitacaoProcessoPage({
                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                           <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                             <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              NÃºmero da SD
+                              Número da SD
                             </div>
                             <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                               {sdResult.metadata.numero_sd ?? "-"}
@@ -3533,7 +3601,7 @@ export function LicitacaoProcessoPage({
                           </article>
                           <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
                             <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Itens na prÃ©via
+                              Itens na prévia
                             </div>
                             <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
                               {mergedSdItems.length}
@@ -3579,7 +3647,7 @@ export function LicitacaoProcessoPage({
                                 placeholder="Ex.: 22"
                               />
                             </FormField>
-                            <FormField label="DescriÃ§Ã£o *">
+                            <FormField label="Descrição *">
                               <Input
                                 value={sdItemDraft.descricao}
                                 onChange={(event) =>
@@ -3588,7 +3656,7 @@ export function LicitacaoProcessoPage({
                                     descricao: event.target.value,
                                   }))
                                 }
-                                placeholder="DescriÃ§Ã£o do item"
+                                placeholder="Descrição do item"
                               />
                             </FormField>
                             <FormField label="Unid">
@@ -3690,12 +3758,12 @@ export function LicitacaoProcessoPage({
                             <TableHead>
                               <tr>
                                 <TableHeaderCell>Item</TableHeaderCell>
-                                <TableHeaderCell>DescriÃ§Ã£o</TableHeaderCell>
+                                <TableHeaderCell>Descrição</TableHeaderCell>
                                 <TableHeaderCell>Unid</TableHeaderCell>
                                 <TableHeaderCell>Qtd</TableHeaderCell>
                                 <TableHeaderCell>Vlr. unit.</TableHeaderCell>
                                 <TableHeaderCell>Total</TableHeaderCell>
-                                <TableHeaderCell>AÃ§Ãµes</TableHeaderCell>
+                                <TableHeaderCell>Ações</TableHeaderCell>
                               </tr>
                             </TableHead>
                             <TableBody>
@@ -3763,8 +3831,8 @@ export function LicitacaoProcessoPage({
                                     colSpan={7}
                                     className="py-8 text-center text-[var(--color-neutral-500)]"
                                   >
-                                    FaÃ§a o processamento da SD para visualizar
-                                    a prÃ©via dos itens.
+                                    Faça o processamento da SD para visualizar a
+                                    prévia dos itens.
                                   </TableCell>
                                 </TableRow>
                               )}
@@ -3787,8 +3855,8 @@ export function LicitacaoProcessoPage({
                         Itens do processo
                       </div>
                       <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                        ConferÃªncia do que jÃ¡ estÃ¡ efetivamente vinculado
-                        apÃ³s o import da SD.
+                        Conferência do que já está efetivamente vinculado após o
+                        import da SD.
                       </div>
                     </div>
                     <div className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
@@ -3801,9 +3869,9 @@ export function LicitacaoProcessoPage({
                       <TableHead>
                         <tr>
                           <TableHeaderCell>Item</TableHeaderCell>
-                          <TableHeaderCell>DescriÃ§Ã£o</TableHeaderCell>
+                          <TableHeaderCell>Descrição</TableHeaderCell>
                           <TableHeaderCell>Quantidade</TableHeaderCell>
-                          <TableHeaderCell>Valor unitÃ¡rio</TableHeaderCell>
+                          <TableHeaderCell>Valor unitário</TableHeaderCell>
                           <TableHeaderCell>Total</TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -3835,7 +3903,7 @@ export function LicitacaoProcessoPage({
                               colSpan={5}
                               className="py-8 text-center text-[var(--color-neutral-500)]"
                             >
-                              Este processo ainda nÃ£o possui itens vinculados.
+                              Este processo ainda não possui itens vinculados.
                             </TableCell>
                           </TableRow>
                         )}
@@ -3891,7 +3959,7 @@ export function LicitacaoProcessoPage({
                           }))
                         }
                       />
-                      Exigir declaracao de nao fracionamento
+                      Exigir declaração de não fracionamento
                     </label>
                     <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
                       <Checkbox
@@ -4496,6 +4564,30 @@ export function LicitacaoProcessoPage({
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
                             Nova evidencia
                           </div>
+                          {selectedInternalChecklistUsesCIModal ? (
+                            <div className="mt-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="max-w-2xl">
+                                  <div className="text-sm font-semibold text-[var(--text-primary)]">
+                                    Gere a CI pelo próprio processo
+                                  </div>
+                                  <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                                    Monte a comunicação interna com os dados
+                                    atuais do processo, revise no editor e salve
+                                    direto neste ato do checklist.
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() => setShowCIReservaModal(true)}
+                                  icon={<FileStack className="h-4 w-4" />}
+                                >
+                                  Gerar CI de reserva
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
                           <div className="mt-3 grid gap-3 2xl:grid-cols-2">
                             <FormField label="Titulo">
                               <Input
@@ -6722,129 +6814,24 @@ export function LicitacaoProcessoPage({
                     )
                   }
                 >
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Acao">
-                      <Select
-                        value={auditActionFilter}
-                        onChange={(event) =>
-                          setAuditActionFilter(event.target.value)
-                        }
-                      >
-                        <option value="">Todas</option>
-                        <option value="CREATE">CREATE</option>
-                        <option value="UPDATE">UPDATE</option>
-                        <option value="DELETE">DELETE</option>
-                      </Select>
-                    </FormField>
-                    <FormField label="Usuario">
-                      <Select
-                        value={auditUserFilter}
-                        onChange={(event) =>
-                          setAuditUserFilter(event.target.value)
-                        }
-                      >
-                        <option value="">Todos</option>
-                        {auditoriaUserOptions.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.nome}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                  </div>
-
-                  {auditoriaQuery.isLoading ? (
-                    <div className="mt-4 grid gap-3">
-                      {[0, 1].map((item) => (
-                        <Skeleton key={item} className="h-24 rounded-[28px]" />
-                      ))}
-                    </div>
-                  ) : auditoriaItems.length ? (
-                    <>
-                      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="text-sm text-[var(--text-secondary)]">
-                          {auditoriaPagination.totalItems} registro(s) de
-                          auditoria.
-                        </div>
-                        {auditoriaPagination.totalPages > 1 ? (
-                          <Pagination
-                            page={auditoriaPagination.page}
-                            totalPages={auditoriaPagination.totalPages}
-                            onPageChange={setAuditoriaPage}
-                          />
-                        ) : null}
-                      </div>
-                      <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                        <Table className="min-w-[1080px]">
-                          <TableHead>
-                            <tr>
-                              <TableHeaderCell
-                                className={stickyColumnHeaderClass}
-                              >
-                                Data
-                              </TableHeaderCell>
-                              <TableHeaderCell>Usuario</TableHeaderCell>
-                              <TableHeaderCell>Acao</TableHeaderCell>
-                              <TableHeaderCell>Tabela</TableHeaderCell>
-                              <TableHeaderCell>Campo</TableHeaderCell>
-                              <TableHeaderCell>Valor anterior</TableHeaderCell>
-                              <TableHeaderCell>Valor novo</TableHeaderCell>
-                              <TableHeaderCell>Descricao</TableHeaderCell>
-                            </tr>
-                          </TableHead>
-                          <TableBody>
-                            {auditoriaPagination.items.map((item) => {
-                              const campo =
-                                (item.dadosNovos as { campo?: string } | null)
-                                  ?.campo ??
-                                (
-                                  item.dadosAnteriores as {
-                                    campo?: string;
-                                  } | null
-                                )?.campo ??
-                                "-";
-                              const valorAnterior =
-                                (
-                                  item.dadosAnteriores as {
-                                    valor?: unknown;
-                                  } | null
-                                )?.valor ?? item.dadosAnteriores;
-                              const valorNovo =
-                                (item.dadosNovos as { valor?: unknown } | null)
-                                  ?.valor ?? item.dadosNovos;
-
-                              return (
-                                <TableRow key={item.id}>
-                                  <TableCell className={stickyColumnCellClass}>
-                                    {formatShortDateTimeBR(item.criadoEm)}
-                                  </TableCell>
-                                  <TableCell>
-                                    {item.usuarioNome ?? "Sistema"}
-                                  </TableCell>
-                                  <TableCell>{item.acao}</TableCell>
-                                  <TableCell>{item.tabela}</TableCell>
-                                  <TableCell>{campo}</TableCell>
-                                  <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                    {formatAuditValue(valorAnterior)}
-                                  </TableCell>
-                                  <TableCell className="max-w-[220px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                    {formatAuditValue(valorNovo)}
-                                  </TableCell>
-                                  <TableCell className="max-w-[260px] whitespace-pre-wrap text-[var(--color-neutral-600)]">
-                                    {cleanDisplayText(item.descricao)}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </>
-                  ) : (
-                    <Alert variant="info" className="mt-4">
-                      Nenhuma auditoria registrada para este processo.
-                    </Alert>
-                  )}
+                  <Suspense fallback={deferredSectionFallback}>
+                    <LicitacaoProcessoAuditoriaContent
+                      actionFilter={auditActionFilter}
+                      userFilter={auditUserFilter}
+                      onActionFilterChange={setAuditActionFilter}
+                      onUserFilterChange={setAuditUserFilter}
+                      userOptions={auditoriaUserOptions}
+                      isLoading={auditoriaQuery.isLoading}
+                      items={auditoriaItems}
+                      pagination={auditoriaPagination}
+                      onPageChange={setAuditoriaPage}
+                      stickyColumnHeaderClass={stickyColumnHeaderClass}
+                      stickyColumnCellClass={stickyColumnCellClass}
+                      formatShortDateTimeBR={formatShortDateTimeBR}
+                      formatAuditValue={formatAuditValue}
+                      cleanDisplayText={cleanDisplayText}
+                    />
+                  </Suspense>
                 </CollapsibleSectionCard>
               </section>
             ) : null}
@@ -6880,40 +6867,13 @@ export function LicitacaoProcessoPage({
                   )
                 }
               >
-                <div className="space-y-3">
-                  {detalhe.historico.length ? (
-                    detalhe.historico.map((item) => (
-                      <article
-                        key={item.id}
-                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-semibold text-[var(--color-primary-900)]">
-                              {cleanDisplayText(item.descricao)}
-                            </div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                              Registro operacional da Licitacao
-                            </div>
-                          </div>
-                          <span className="text-xs text-[var(--color-neutral-500)]">
-                            {formatShortDateTimeBR(item.criadoEm)}
-                          </span>
-                        </div>
-                        {item.observacao ? (
-                          <p className="mt-3 text-sm leading-6 text-[var(--color-neutral-600)]">
-                            {cleanDisplayText(item.observacao)}
-                          </p>
-                        ) : null}
-                      </article>
-                    ))
-                  ) : (
-                    <Alert variant="info">
-                      Ainda nao ha movimentacoes registradas para esta etapa da
-                      Licitacao.
-                    </Alert>
-                  )}
-                </div>
+                <Suspense fallback={deferredSectionFallback}>
+                  <LicitacaoProcessoHistoryContent
+                    items={detalhe.historico}
+                    cleanDisplayText={cleanDisplayText}
+                    formatShortDateTimeBR={formatShortDateTimeBR}
+                  />
+                </Suspense>
               </CollapsibleSectionCard>
             </section>
           </div>
@@ -7471,62 +7431,41 @@ export function LicitacaoProcessoPage({
         description="Conferencia integral do acervo do processo, em ordem de inclusao."
         size="xl"
       >
-        {!documentos.length ? (
-          <Alert variant="info">
-            Este processo ainda nao possui documentos vinculados.
-          </Alert>
-        ) : (
-          <div className="overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-            <Table className="min-w-[1080px]">
-              <TableHead>
-                <tr>
-                  <TableHeaderCell>#</TableHeaderCell>
-                  <TableHeaderCell>Titulo</TableHeaderCell>
-                  <TableHeaderCell>Tipo</TableHeaderCell>
-                  <TableHeaderCell>Categoria</TableHeaderCell>
-                  <TableHeaderCell>Data de referencia</TableHeaderCell>
-                  <TableHeaderCell>Adicionado em</TableHeaderCell>
-                  <TableHeaderCell className="text-right">
-                    Arquivo
-                  </TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {documentos.map((item, index) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell>{item.titulo}</TableCell>
-                    <TableCell>{item.tipo}</TableCell>
-                    <TableCell>{item.categoria ?? "-"}</TableCell>
-                    <TableCell>
-                      {formatShortDateBR(item.dataReferencia)}
-                    </TableCell>
-                    <TableCell>
-                      {formatShortDateTimeBR(item.criadoEm)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <a
-                        href={resolveServerAssetUrl(item.arquivoUrl) ?? "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!item.arquivoUrl}
-                        >
-                          Abrir
-                        </Button>
-                      </a>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <Suspense fallback={deferredModalFallback}>
+          <LicitacaoProcessoDocumentosModalContent
+            documentos={documentos}
+            formatShortDateBR={formatShortDateBR}
+            formatShortDateTimeBR={formatShortDateTimeBR}
+            resolveServerAssetUrl={resolveServerAssetUrl}
+          />
+        </Suspense>
       </Modal>
+
+      {showCIReservaModal ? (
+        <Suspense
+          fallback={
+            <Modal
+              open={showCIReservaModal}
+              onClose={() => setShowCIReservaModal(false)}
+              title="CI de Reserva Orçamentária"
+              description="Carregando o editor da comunicação interna."
+              size="xl"
+            >
+              {deferredModalFallback}
+            </Modal>
+          }
+        >
+          <CIReservaOrcamentariaModal
+            open={showCIReservaModal}
+            onClose={() => setShowCIReservaModal(false)}
+            processo={detalhe.processo}
+            processoId={processoId}
+            categoria={CI_RESERVA_ORCAMENTARIA_CATEGORY}
+            onDocumentoSalvo={handleCIReservaDocumentoSalvo}
+            onOperacaoErro={handleCIReservaOperacaoErro}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

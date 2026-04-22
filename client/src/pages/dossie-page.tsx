@@ -1,5 +1,11 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileText, Printer, RefreshCcw, Search } from "lucide-react";
+import {
+  ExternalLink,
+  FileText,
+  Printer,
+  RefreshCcw,
+  Search,
+} from "lucide-react";
 import { Link } from "wouter";
 
 import type { DossieDetail } from "@sirel/shared/schemas/dossie";
@@ -207,12 +213,15 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
       title: `Dossiê ${detailQuery.data.processo.numeroSirel}`,
       bodyHtml: buildDossieHtml(detailQuery.data),
       autoPrint,
+      branding: {
+        secondaryLine: detailQuery.data.processo.secretaria.nome,
+      },
     });
   }
 
   const externalLinks = [
     (detailQuery.data?.importacoes.bll.processo?.linkExterno ??
-      detailQuery.data?.licitacao.cabecalho?.linkBllPublico)
+    detailQuery.data?.licitacao.cabecalho?.linkBllPublico)
       ? {
           label: "Abrir BLL",
           href:
@@ -222,7 +231,7 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
         }
       : null,
     (detailQuery.data?.importacoes.bll.processo?.urlPncp ??
-      detailQuery.data?.licitacao.cabecalho?.linkPncpPublico)
+    detailQuery.data?.licitacao.cabecalho?.linkPncpPublico)
       ? {
           label: "Abrir PNCP",
           href:
@@ -304,7 +313,9 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
         ) : (
           <div className="space-y-6">
             {feedback ? <Alert variant="success">{feedback}</Alert> : null}
-            {errorMessage ? <Alert variant="error">{errorMessage}</Alert> : null}
+            {errorMessage ? (
+              <Alert variant="error">{errorMessage}</Alert>
+            ) : null}
             <article className="rounded-[32px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(230,240,255,0.78))] px-5 py-5 shadow-[0_12px_24px_-24px_rgba(15,26,109,0.2)]">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="space-y-2">
@@ -538,7 +549,8 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                             {formatCurrencyBRL(item.valorTotalEstimado)}
                           </div>
                           <div className="text-xs text-[var(--text-muted)]">
-                            Unit. {formatCurrencyBRL(item.valorUnitarioEstimado)}
+                            Unit.{" "}
+                            {formatCurrencyBRL(item.valorUnitarioEstimado)}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -893,36 +905,35 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
 
             <SectionCard title="Workflow e trilha completa">
               <div className="space-y-3">
-                {detailQuery.data.workflow.movimentacoes
-                  .map((row) => (
-                    <article
-                      key={row.id}
-                      className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="font-semibold text-[var(--text-primary)]">
-                            {cleanDisplayText(row.descricao)}
-                          </div>
-                          <div className="text-xs text-[var(--text-muted)]">
-                            {cleanDisplayText(
-                              row.moduloOrigem || "Origem inicial",
-                            )}{" "}
-                            → {cleanDisplayText(row.moduloDestino)}
-                            {row.usuario ? ` • ${row.usuario}` : ""}
-                          </div>
+                {detailQuery.data.workflow.movimentacoes.map((row) => (
+                  <article
+                    key={row.id}
+                    className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-[var(--text-primary)]">
+                          {cleanDisplayText(row.descricao)}
                         </div>
                         <div className="text-xs text-[var(--text-muted)]">
-                          {formatShortDateTimeBR(row.criadoEm)}
+                          {cleanDisplayText(
+                            row.moduloOrigem || "Origem inicial",
+                          )}{" "}
+                          → {cleanDisplayText(row.moduloDestino)}
+                          {row.usuario ? ` • ${row.usuario}` : ""}
                         </div>
                       </div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        {formatShortDateTimeBR(row.criadoEm)}
+                      </div>
+                    </div>
                     {row.observacao ? (
                       <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
                         {cleanDisplayText(row.observacao)}
                       </p>
                     ) : null}
-                    </article>
-                  ))}
+                  </article>
+                ))}
                 {!detailQuery.data.workflow.movimentacoes.length ? (
                   <Alert variant="info">
                     Ainda não há movimentações registradas.
@@ -936,4 +947,3 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
     </div>
   );
 }
-
