@@ -696,6 +696,10 @@ export const lotes = pgTable(
     descricao: text("descricao").notNull(),
     valorEstimado: numeric("valor_estimado", { precision: 14, scale: 2 }),
     valorHomologado: numeric("valor_homologado", { precision: 14, scale: 2 }),
+    origemAtualizacao: varchar("origem_atualizacao", { length: 32 })
+      .notNull()
+      .default("MANUAL"),
+    origemReferencia: varchar("origem_referencia", { length: 64 }),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1071,6 +1075,10 @@ export const licitantes = pgTable(
       .default("PENDENTE"),
     observacaoHabilitacao: text("observacao_habilitacao"),
     ativo: boolean("ativo").notNull().default(true),
+    origemAtualizacao: varchar("origem_atualizacao", { length: 32 })
+      .notNull()
+      .default("MANUAL"),
+    origemReferencia: varchar("origem_referencia", { length: 64 }),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1112,6 +1120,10 @@ export const propostasLicitacao = pgTable(
     classificacao: integer("classificacao"),
     situacao: propostaSituacaoEnum("situacao").notNull().default("VALIDA"),
     justificativa: text("justificativa"),
+    origemAtualizacao: varchar("origem_atualizacao", { length: 32 })
+      .notNull()
+      .default("MANUAL"),
+    origemReferencia: varchar("origem_referencia", { length: 64 }),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1144,6 +1156,10 @@ export const lancesLicitacao = pgTable(
       .defaultNow(),
     usuarioId: integer("usuario_id").references(() => users.id),
     observacao: text("observacao"),
+    origemAtualizacao: varchar("origem_atualizacao", { length: 32 })
+      .notNull()
+      .default("MANUAL"),
+    origemReferencia: varchar("origem_referencia", { length: 64 }),
   },
   (table) => ({
     idxProposta: index("lances_licitacao_proposta_idx").on(table.propostaId),
@@ -1167,6 +1183,10 @@ export const recursosLicitacao = pgTable(
     descricao: text("descricao").notNull(),
     decisao: text("decisao"),
     criadoPor: integer("criado_por").references(() => users.id),
+    origemAtualizacao: varchar("origem_atualizacao", { length: 32 })
+      .notNull()
+      .default("MANUAL"),
+    origemReferencia: varchar("origem_referencia", { length: 64 }),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1181,6 +1201,54 @@ export const recursosLicitacao = pgTable(
     idxLicitante: index("recursos_licitacao_licitante_idx").on(
       table.licitanteId,
     ),
+  }),
+);
+
+export const licitacaoAtaSyncRuns = pgTable(
+  "licitacao_ata_sync_runs",
+  {
+    id: serial("id").primaryKey(),
+    processoId: integer("processo_id").references(() => processos.id, {
+      onDelete: "set null",
+    }),
+    documentoId: integer("documento_id").references(() => documentos.id, {
+      onDelete: "set null",
+    }),
+    status: varchar("status", { length: 32 }).notNull().default("DISCOVERED"),
+    modoDescoberta: varchar("modo_descoberta", { length: 64 }),
+    arquivoOriginal: varchar("arquivo_original", { length: 320 }),
+    arquivoFontePath: varchar("arquivo_fonte_path", { length: 500 }),
+    parsedJsonPath: varchar("parsed_json_path", { length: 500 }),
+    previewJsonPath: varchar("preview_json_path", { length: 500 }),
+    outputDir: varchar("output_dir", { length: 500 }),
+    editalExtraido: varchar("edital_extraido", { length: 240 }),
+    processoAdministrativoExtraido: varchar(
+      "processo_administrativo_extraido",
+      { length: 240 },
+    ),
+    summary: jsonb("summary"),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    aplicadoPor: integer("aplicado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    aplicadoEm: timestamp("aplicado_em", { withTimezone: true }),
+  },
+  (table) => ({
+    idxProcesso: index("licitacao_ata_sync_runs_processo_idx").on(
+      table.processoId,
+    ),
+    idxDocumento: index("licitacao_ata_sync_runs_documento_idx").on(
+      table.documentoId,
+    ),
+    idxStatus: index("licitacao_ata_sync_runs_status_idx").on(table.status),
   }),
 );
 

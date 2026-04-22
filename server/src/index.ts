@@ -9,6 +9,11 @@ import express from "express";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { asc, desc, eq, inArray } from "drizzle-orm";
+import {
+  ataSessaoApplyInputSchema,
+  ataSessaoCreatePreviewFromDiscoveryInputSchema,
+  ataSessaoPreviewProcessInputSchema,
+} from "@sirel/shared/schemas/ata-sessao";
 
 import { createContext } from "./_core/context.js";
 import { logAuditoria } from "./db/auditoria.js";
@@ -24,6 +29,12 @@ import {
 } from "./db/schema.js";
 import { verifySessionToken } from "./lib/auth-session.js";
 import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
+import {
+  applyAtaSessaoPreview,
+  createAtaSessaoPreviewFromDiscovery,
+  createAtaSessaoPreviewFromDocumento,
+  discoverAtaSessaoProcess,
+} from "./lib/ata-sessao-sync.js";
 import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
 import { parseSdReport } from "./lib/sd-reports.js";
@@ -823,6 +834,111 @@ app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Falha ao processar a ata de sessão enviada." });
+  }
+});
+
+app.post("/api/ata-sessao/discover-process", ataSessaoUpload.single("arquivo"), async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    if (!req.file) {
+      res.status(400).json({ message: "Selecione um arquivo PDF da ata para identificar o processo." });
+      return;
+    }
+
+    const extension = extname(req.file.originalname).toLowerCase();
+    if (extension !== ".pdf") {
+      res.status(400).json({ message: "Somente arquivos PDF de ata de sessão são aceitos." });
+      return;
+    }
+
+    const providedProcessoId = Number(req.body.providedProcessoId ?? 0) || null;
+    const result = await discoverAtaSessaoProcess({
+      sourcePath: req.file.path,
+      originalFileName: req.file.originalname,
+      providedProcessoId,
+      userId: user.id,
+    });
+
+    await logAuditoria({ user } as any, {
+      tabela: "licitacao_ata_sync_runs",
+      registroId: result.discoveryId,
+      acao: "CREATE",
+      dadosNovos: {
+        discoveryId: result.discoveryId,
+        originalFileName: result.originalFileName,
+        metadata: result.metadata,
+        summary: result.summary,
+      },
+      descricao: `Descoberta de processo a partir de ata de sessão: ${req.file.originalname}`,
+    });
+
+    res.status(201).json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao identificar o processo pela ata de sessão.",
+    });
+  }
+});
+
+app.post("/api/ata-sessao/create-preview-from-discovery", async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    const input = ataSessaoCreatePreviewFromDiscoveryInputSchema.parse(req.body);
+    const preview = await createAtaSessaoPreviewFromDiscovery(input, user.id);
+    res.status(201).json(preview);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao criar a prévia da sincronização da ata.",
+    });
+  }
+});
+
+app.post("/api/licitacao/ata-sessao/processar", async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    const input = ataSessaoPreviewProcessInputSchema.parse(req.body);
+    const preview = await createAtaSessaoPreviewFromDocumento(input);
+    res.status(201).json(preview);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao processar a ata vinculada ao processo.",
+    });
+  }
+});
+
+app.post("/api/licitacao/ata-sessao/aplicar", async (req, res) => {
+  try {
+    const user = requireUploadUser(req, res);
+    if (!user) return;
+    const input = ataSessaoApplyInputSchema.parse(req.body);
+    const result = await applyAtaSessaoPreview({
+      runId: input.runId,
+      userId: user.id,
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao aplicar a sincronização da ata no processo.",
+    });
   }
 });
 

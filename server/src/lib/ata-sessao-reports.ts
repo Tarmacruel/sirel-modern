@@ -19,16 +19,23 @@ const uploadsRoot = resolve(repoRoot, "storage/uploads");
 const pythonScriptPath = resolve(repoRoot, "scripts/process_ata_sessao_reports.py");
 const defaultLogoPath = resolve(repoRoot, "client/public/logo-prefeitura.png");
 
-type ParsedPayload = {
+export type AtaSessaoParsedPayload = {
   source_path: string;
   generated_at: string;
+  edital?: string | null;
+  processo_administrativo?: string | null;
   summary: {
     total_lotes: number;
+    em_andamento: number;
     adjudicados: number;
+    fase_recursal: number;
     malsucedidos: number;
     warnings: number;
     parsing_errors: number;
   };
+  warnings?: string[];
+  parsing_errors?: Array<Record<string, string>>;
+  lotes?: Array<Record<string, unknown>>;
   artifacts?: Record<string, string>;
 };
 
@@ -38,7 +45,7 @@ function ensureDirectory(path: string) {
   }
 }
 
-function slugifyFileName(value: string) {
+export function slugifyAtaSessaoFileName(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -155,7 +162,12 @@ async function runPythonPipeline(input: AtaSessaoProcessInput, sourceFile: strin
   return jsonOutput;
 }
 
-export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Promise<AtaSessaoProcessResult> {
+export async function runAtaSessaoPipeline(input: AtaSessaoProcessInput): Promise<{
+  sourceFile: string;
+  outputDir: string;
+  jsonPath: string;
+  payload: AtaSessaoParsedPayload;
+}> {
   ensureDirectory(reportsRoot);
   const sourceFile = await resolveSourcePath(input);
   if (!existsSync(sourceFile)) {
@@ -164,16 +176,32 @@ export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Pr
 
   const outputDir = input.outputDir
     ? resolve(repoRoot, input.outputDir)
-    : join(reportsRoot, `${Date.now()}-${slugifyFileName(basename(sourceFile, ".pdf"))}`);
+    : join(reportsRoot, `${Date.now()}-${slugifyAtaSessaoFileName(basename(sourceFile, ".pdf"))}`);
   ensureDirectory(outputDir);
 
   const jsonPath = await runPythonPipeline(input, sourceFile, outputDir);
-  const parsed = JSON.parse(readFileSync(jsonPath, "utf-8")) as ParsedPayload;
+  const payload = JSON.parse(readFileSync(jsonPath, "utf-8")) as AtaSessaoParsedPayload;
+
+  return {
+    sourceFile,
+    outputDir,
+    jsonPath,
+    payload,
+  };
+}
+
+export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Promise<AtaSessaoProcessResult> {
+  const { sourceFile, outputDir, jsonPath, payload: parsed } =
+    await runAtaSessaoPipeline(input);
 
   const artifacts = [
     { label: "JSON consolidado", path: jsonPath, type: "json" as const },
+    { label: "Relatório Em Andamento (PDF)", path: String(parsed.artifacts?.em_andamento_pdf ?? join(outputDir, "Relatorio_EmAndamento.pdf")), type: "pdf" as const },
+    { label: "Relatório Em Andamento (XLSX)", path: String(parsed.artifacts?.em_andamento_xlsx ?? join(outputDir, "Relatorio_EmAndamento.xlsx")), type: "xlsx" as const },
     { label: "Relatório Adjudicados (PDF)", path: String(parsed.artifacts?.adjudicados_pdf ?? join(outputDir, "Relatorio_Adjudicados.pdf")), type: "pdf" as const },
     { label: "Relatório Adjudicados (XLSX)", path: String(parsed.artifacts?.adjudicados_xlsx ?? join(outputDir, "Relatorio_Adjudicados.xlsx")), type: "xlsx" as const },
+    { label: "Relatório Fase Recursal (PDF)", path: String(parsed.artifacts?.fase_recursal_pdf ?? join(outputDir, "Relatorio_FaseRecursal.pdf")), type: "pdf" as const },
+    { label: "Relatório Fase Recursal (XLSX)", path: String(parsed.artifacts?.fase_recursal_xlsx ?? join(outputDir, "Relatorio_FaseRecursal.xlsx")), type: "xlsx" as const },
     { label: "Relatório Malsucedidos (PDF)", path: String(parsed.artifacts?.malsucedidos_pdf ?? join(outputDir, "Relatorio_MalSucedidos.pdf")), type: "pdf" as const },
     { label: "Relatório Malsucedidos (XLSX)", path: String(parsed.artifacts?.malsucedidos_xlsx ?? join(outputDir, "Relatorio_MalSucedidos.xlsx")), type: "xlsx" as const },
     { label: "Warnings", path: join(outputDir, "warnings.log"), type: "log" as const },
@@ -187,7 +215,9 @@ export async function generateAtaSessaoReports(input: AtaSessaoProcessInput): Pr
     generatedAt: parsed.generated_at,
     summary: {
       totalLotes: parsed.summary.total_lotes,
+      emAndamento: parsed.summary.em_andamento,
       adjudicados: parsed.summary.adjudicados,
+      faseRecursal: parsed.summary.fase_recursal,
       malsucedidos: parsed.summary.malsucedidos,
       warnings: parsed.summary.warnings,
       parsingErrors: parsed.summary.parsing_errors,

@@ -23,6 +23,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import type { AtaSessaoPreview } from "@sirel/shared/schemas/ata-sessao";
 
 import {
   habilitacaoStatusLabels,
@@ -42,6 +43,7 @@ import {
 } from "@sirel/shared/const";
 import { calcularPrazoLegalMinimo } from "@sirel/shared/prazos-legais";
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
+import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal";
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { Modal } from "@/components/shared/modal";
@@ -70,6 +72,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ToastStack, type ToastStackItem } from "@/components/ui/toast-stack";
 import {
+  applyAtaSessaoSyncPreview,
+  createAtaSessaoPreviewFromDocumento,
   deleteProcessoDocumento,
   resolveServerAssetUrl,
   uploadProcessoDocumento,
@@ -598,6 +602,9 @@ export function LicitacaoProcessoPage({
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [ataSyncPreview, setAtaSyncPreview] =
+    useState<AtaSessaoPreview | null>(null);
+  const [ataSyncApplyLoading, setAtaSyncApplyLoading] = useState(false);
   const [toastItems, setToastItems] = useState<ToastStackItem[]>([]);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
     null,
@@ -1762,7 +1769,7 @@ export function LicitacaoProcessoPage({
     try {
       setFeedback(null);
       setErrorMessage(null);
-      await uploadProcessoDocumento({
+      const createdDocumento = await uploadProcessoDocumento({
         processoId,
         tipo:
           (item.tipo as
@@ -1780,18 +1787,53 @@ export function LicitacaoProcessoPage({
         descricao: current.descricao.trim() || item.description,
         arquivo: current.arquivo,
       });
+      const isAtaSyncCategory = [
+        "LICITACAO_ATAS_SESSAO_ADJUDICACAO",
+        "LICITACAO_ATA_RELATORIO_FINAL",
+      ].includes(item.category);
+
+      if (isAtaSyncCategory) {
+        const preview = await createAtaSessaoPreviewFromDocumento({
+          processoId,
+          documentoId: createdDocumento.id,
+        });
+        setAtaSyncPreview(preview);
+        setFeedback(`${item.label} anexado com sucesso. Revise a prévia da sincronização da ata.`);
+      } else {
+        setFeedback(`${item.label} anexado com sucesso.`);
+      }
       setUploadForms((currentState) => {
         const nextState = { ...currentState };
         delete nextState[item.category];
         return nextState;
       });
       await refreshAll();
-      setFeedback(`${item.label} anexado com sucesso.`);
     } catch (error) {
       setFeedback(null);
       setErrorMessage(
         error instanceof Error ? error.message : "Falha ao anexar o documento.",
       );
+    }
+  }
+
+  async function handleApplyAtaSyncPreview() {
+    if (!ataSyncPreview) return;
+    try {
+      setAtaSyncApplyLoading(true);
+      await applyAtaSessaoSyncPreview(ataSyncPreview.runId);
+      await refreshAll();
+      setAtaSyncPreview(null);
+      setFeedback("Ata aplicada com sucesso e processo atualizado na tela de licitação.");
+      setErrorMessage(null);
+    } catch (error) {
+      setFeedback(null);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Falha ao aplicar a atualização da ata na licitação.",
+      );
+    } finally {
+      setAtaSyncApplyLoading(false);
     }
   }
 
@@ -7440,6 +7482,14 @@ export function LicitacaoProcessoPage({
           />
         </Suspense>
       </Modal>
+
+      <AtaSessaoSyncModal
+        open={ataSyncPreview !== null}
+        preview={ataSyncPreview}
+        applyLoading={ataSyncApplyLoading}
+        onClose={() => setAtaSyncPreview(null)}
+        onApply={() => void handleApplyAtaSyncPreview()}
+      />
 
       {showCIReservaModal ? (
         <Suspense

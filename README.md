@@ -32,7 +32,7 @@ Entraram nesta revisao:
 - deduplicacao de itens no modulo de cadastros;
 - revisao da experiencia de entrada com login, dashboard operacional, command palette e tour guiado;
 - nova funcionalidade em `Documentos` para processar `Ata de Sessao` de forma avulsa;
-- geracao automatica de relatorios PDF/XLSX de lotes adjudicados, em habilitacao e malsucedidos;
+- geracao automatica de relatorios PDF/XLSX de lotes em andamento, adjudicados, fase recursal e malsucedidos;
 - parser e renderer de relatorios de ata com melhor normalizacao, logging e paginacao.
 
 ## Publicacao atual

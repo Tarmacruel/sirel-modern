@@ -214,7 +214,7 @@ def _make_table(
     return table
 
 
-def _summary_rows_adjudicados(lots: list[NormalizedLot], styles: dict[str, ParagraphStyle]) -> list[list[Any]]:
+def _summary_rows_operacionais(lots: list[NormalizedLot], styles: dict[str, ParagraphStyle]) -> list[list[Any]]:
     rows: list[list[Any]] = []
     for lot in lots:
         rows.append([
@@ -515,10 +515,31 @@ def write_report_pdfs(
     config = _branding_from_config(branding, generated_by)
     subtitle = f"{normalized.header.arquivo_origem} · {normalized.header.data_geracao[:19].replace('T', ' ')}"
 
+    em_andamento_pdf = output_dir / "Relatorio_EmAndamento.pdf"
+    _build_pdf(
+        em_andamento_pdf,
+        "Relatório de lotes em andamento",
+        subtitle,
+        [
+            ("Lotes no relatório", str(len(normalized.em_andamento))),
+            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
+            ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
+        ],
+        ["Lote", "Descrição", "Itens", "Qtd. Total", "Valor Total", "Marca", "Modelo", "Status", "Vencedor", "CNPJ", "Melhor oferta"],
+        _summary_rows_operacionais(normalized.em_andamento, _styles()),
+        [28, 152, 30, 52, 54, 42, 42, 52, 114, 80, 52],
+        normalized.em_andamento,
+        normalized.header,
+        config,
+        include_reason=False,
+        logger=logger,
+    )
+
     adjudicados_pdf = output_dir / "Relatorio_Adjudicados.pdf"
     _build_pdf(
         adjudicados_pdf,
-        "Relatório de lotes adjudicados / em habilitação",
+        "Relatório de lotes adjudicados",
         subtitle,
         [
             ("Lotes no relatório", str(len(normalized.adjudicados))),
@@ -527,9 +548,30 @@ def write_report_pdfs(
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
         ["Lote", "Descrição", "Itens", "Qtd. Total", "Valor Total", "Marca", "Modelo", "Status", "Vencedor", "CNPJ", "Melhor oferta"],
-        _summary_rows_adjudicados(normalized.adjudicados, _styles()),
+        _summary_rows_operacionais(normalized.adjudicados, _styles()),
         [28, 152, 30, 52, 54, 42, 42, 52, 114, 80, 52],
         normalized.adjudicados,
+        normalized.header,
+        config,
+        include_reason=False,
+        logger=logger,
+    )
+
+    fase_recursal_pdf = output_dir / "Relatorio_FaseRecursal.pdf"
+    _build_pdf(
+        fase_recursal_pdf,
+        "Relatório de lotes em fase recursal",
+        subtitle,
+        [
+            ("Lotes no relatório", str(len(normalized.fase_recursal))),
+            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
+            ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
+        ],
+        ["Lote", "Descrição", "Itens", "Qtd. Total", "Valor Total", "Marca", "Modelo", "Status", "Vencedor", "CNPJ", "Melhor oferta"],
+        _summary_rows_operacionais(normalized.fase_recursal, _styles()),
+        [28, 152, 30, 52, 54, 42, 42, 52, 114, 80, 52],
+        normalized.fase_recursal,
         normalized.header,
         config,
         include_reason=False,
@@ -558,6 +600,8 @@ def write_report_pdfs(
     )
 
     return {
+        "em_andamento_pdf": str(em_andamento_pdf),
         "adjudicados_pdf": str(adjudicados_pdf),
+        "fase_recursal_pdf": str(fase_recursal_pdf),
         "malsucedidos_pdf": str(malsucedidos_pdf),
     }

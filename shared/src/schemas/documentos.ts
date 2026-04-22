@@ -40,5 +40,12 @@ export const documentoMetadataInputSchema = z.object({
   restritoA: z.array(z.enum(documentoAccessRoleOptions)).default([]),
 });
 
+export const documentoProcessOptionsInputSchema = z.object({
+  search: z.string().trim().max(160).optional(),
+});
+
 export type DocumentoListInput = z.infer<typeof documentoListInputSchema>;
 export type DocumentoMetadataInput = z.infer<typeof documentoMetadataInputSchema>;
+export type DocumentoProcessOptionsInput = z.infer<
+  typeof documentoProcessOptionsInputSchema
+>;

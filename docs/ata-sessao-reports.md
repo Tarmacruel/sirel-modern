@@ -3,8 +3,12 @@
 ## Objetivo
 Processar atas de sessão de Pregão Eletrônico ou Dispensa em PDF textual e gerar:
 
+- `Relatorio_EmAndamento.pdf`
+- `Relatorio_EmAndamento.xlsx`
 - `Relatorio_Adjudicados.pdf`
 - `Relatorio_Adjudicados.xlsx`
+- `Relatorio_FaseRecursal.pdf`
+- `Relatorio_FaseRecursal.xlsx`
 - `Relatorio_MalSucedidos.pdf`
 - `Relatorio_MalSucedidos.xlsx`
 
@@ -54,7 +58,7 @@ Regras:
 A mutation e o script retornam:
 - arquivo de origem;
 - diretório de saída;
-- sumário de lotes adjudicados e malsucedidos;
+- sumário de lotes em andamento, adjudicados, fase recursal e malsucedidos;
 - lista de artefatos gerados.
 
 ## Logs e tolerância a falhas
