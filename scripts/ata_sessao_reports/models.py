@@ -1,20 +1,55 @@
 ﻿from __future__ import annotations
 
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ADJUDICAVEL_STATUSES = {"ADJUDICADO", "HABILITACAO", "HABILITAÇÃO", "HABILITA"}
+EM_ANDAMENTO_STATUSES = {
+    "JULGAMENTO",
+    "EM JULGAMENTO",
+    "HABILITACAO",
+    "EM HABILITACAO",
+    "HABILITA",
+}
+ADJUDICADOS_STATUSES = {
+    "ADJUDICADO",
+    "ADJUDICACAO",
+    "EM ADJUDICACAO",
+}
+FASE_RECURSAL_STATUSES = {
+    "INTERPOSICAO DE RECURSOS",
+    "INTERPOSICAO DE RECURSO",
+    "RECEPCAO DE CONTRARRAZOES",
+    "RECEPCAO DE CONTRARRAZAO",
+    "JULGAMENTO DE RECURSOS",
+    "JULGAMENTO DE RECURSO",
+}
 MALSUCEDIDO_STATUSES = {"FRACASSADO", "DESERTO", "CANCELADO"}
 
 
+def normalize_status_key(status: str | None) -> str:
+    normalized = unicodedata.normalize("NFD", str(status or "").strip().upper())
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def is_em_andamento_status(status: str | None) -> bool:
+    return normalize_status_key(status) in EM_ANDAMENTO_STATUSES
+
+
 def is_adjudicavel_status(status: str | None) -> bool:
-    return str(status or "").strip().upper() in ADJUDICAVEL_STATUSES
+    return normalize_status_key(status) in ADJUDICADOS_STATUSES
+
+
+def is_fase_recursal_status(status: str | None) -> bool:
+    return normalize_status_key(status) in FASE_RECURSAL_STATUSES
 
 
 def is_malsucedido_status(status: str | None) -> bool:
-    return str(status or "").strip().upper() in MALSUCEDIDO_STATUSES
+    return normalize_status_key(status) in MALSUCEDIDO_STATUSES
 
 
 @dataclass(slots=True)
@@ -94,8 +129,16 @@ class AtaSessaoParseResult:
     parsing_errors: list[dict[str, str]] = field(default_factory=list)
 
     @property
+    def em_andamento(self) -> list[LotRecord]:
+        return [lot for lot in self.lotes if is_em_andamento_status(lot.status)]
+
+    @property
     def adjudicados(self) -> list[LotRecord]:
         return [lot for lot in self.lotes if is_adjudicavel_status(lot.status)]
+
+    @property
+    def fase_recursal(self) -> list[LotRecord]:
+        return [lot for lot in self.lotes if is_fase_recursal_status(lot.status)]
 
     @property
     def malsucedidos(self) -> list[LotRecord]:
@@ -104,7 +147,9 @@ class AtaSessaoParseResult:
     def build_summary(self) -> dict[str, Any]:
         return {
             "total_lotes": len(self.lotes),
+            "em_andamento": len(self.em_andamento),
             "adjudicados": len(self.adjudicados),
+            "fase_recursal": len(self.fase_recursal),
             "malsucedidos": len(self.malsucedidos),
             "warnings": len(self.warnings),
             "parsing_errors": len(self.parsing_errors),

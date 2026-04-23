@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal
 
-from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord
+from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord, is_malsucedido_status
 
 DisplaySection = Literal["CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS"]
 
@@ -15,9 +15,6 @@ SECTION_LABELS: dict[str, str] = {
     "INABILITADOS": "Inabilitados",
     "MOVIMENTOS": "Participantes detectados nos movimentos",
 }
-
-MALSUCEDIDO_STATUSES = {"FRACASSADO", "DESERTO", "CANCELADO"}
-
 
 @dataclass(slots=True)
 class ReportHeaderMetadata:
@@ -85,7 +82,9 @@ class NormalizedReportData:
     generated_at: str
     header: ReportHeaderMetadata
     summary: dict[str, int]
+    em_andamento: list[NormalizedLot]
     adjudicados: list[NormalizedLot]
+    fase_recursal: list[NormalizedLot]
     malsucedidos: list[NormalizedLot]
 
 
@@ -204,7 +203,7 @@ def prepare_lote_data(lot: LotRecord, logger: logging.Logger | None = None) -> N
 
     reason = _normalize_reason(lot.motivo_falha)
 
-    if lot.status.strip().upper() in MALSUCEDIDO_STATUSES and not reason:
+    if is_malsucedido_status(lot.status) and not reason:
         _warn(logger, f"Lote {lot.numero_lote}: motivo consolidado não identificado para status {lot.status}.")
     if not best_offer:
         _warn(logger, f"Lote {lot.numero_lote}: melhor oferta não identificada no bloco renderizável.")
@@ -256,6 +255,8 @@ def normalize_report_data(
         generated_at=result.generated_at,
         header=_build_header_metadata(result, metadata),
         summary=result.build_summary(),
+        em_andamento=[prepare_lote_data(lot, logger) for lot in result.em_andamento],
         adjudicados=[prepare_lote_data(lot, logger) for lot in result.adjudicados],
+        fase_recursal=[prepare_lote_data(lot, logger) for lot in result.fase_recursal],
         malsucedidos=[prepare_lote_data(lot, logger) for lot in result.malsucedidos],
     )

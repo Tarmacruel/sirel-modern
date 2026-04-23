@@ -3,7 +3,15 @@
 import unittest
 
 from scripts.ata_sessao_reports.data_normalizer import prepare_lote_data
-from scripts.ata_sessao_reports.models import LotItemData, LotParticipant, LotRecord
+from scripts.ata_sessao_reports.models import (
+    AtaSessaoParseResult,
+    LotItemData,
+    LotParticipant,
+    LotRecord,
+    is_adjudicavel_status,
+    is_em_andamento_status,
+    is_fase_recursal_status,
+)
 from scripts.ata_sessao_reports.parser import (
     extract_header_metadata,
     parse_brazilian_number,
@@ -30,6 +38,30 @@ class AtaSessaoParserTests(unittest.TestCase):
         self.assertEqual(numero, 2)
         self.assertEqual(status, 'HABILITAÇÃO')
         self.assertEqual(titulo, 'Item em análise')
+
+    def test_parse_status_em_adjudicacao(self) -> None:
+        numero, status, titulo = parse_status(
+            'LOTE 2 - EM ADJUDICAÇÃO\nItem adjudicável\nVALORES UNITÁRIOS FINAIS\n'
+        )
+        self.assertEqual(numero, 2)
+        self.assertEqual(status, 'EM ADJUDICAÇÃO')
+        self.assertEqual(titulo, 'Item adjudicável')
+
+    def test_parse_status_julgamento(self) -> None:
+        numero, status, titulo = parse_status(
+            'LOTE 9 - JULGAMENTO\nItem em análise\nVALORES UNITÁRIOS FINAIS\n'
+        )
+        self.assertEqual(numero, 9)
+        self.assertEqual(status, 'JULGAMENTO')
+        self.assertEqual(titulo, 'Item em análise')
+
+    def test_parse_status_fase_recursal(self) -> None:
+        numero, status, titulo = parse_status(
+            'LOTE 15 - INTERPOSIÇÃO DE RECURSOS\nItem em recurso\nVALORES UNITÁRIOS FINAIS\n'
+        )
+        self.assertEqual(numero, 15)
+        self.assertEqual(status, 'INTERPOSIÇÃO DE RECURSOS')
+        self.assertEqual(titulo, 'Item em recurso')
 
     def test_parse_status_uses_secondary_lot_line_as_title(self) -> None:
         numero, status, titulo = parse_status(
@@ -58,10 +90,81 @@ class AtaSessaoParserTests(unittest.TestCase):
         self.assertTrue(blocks[1].startswith('LOTE 2 - FRACASSADO'))
         self.assertIn('LOTE 02 - ARMARINHO', blocks[1])
 
+    def test_split_lot_blocks_recognizes_em_adjudicacao_headers(self) -> None:
+        blocks = split_lot_blocks(
+            '\n'.join([
+                'LOTE 1 - EM ADJUDICAÇÃO',
+                'Item adjudicado',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+                'LOTE 2 - FRACASSADO',
+                'Item malsucedido',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+            ])
+        )
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].startswith('LOTE 1 - EM ADJUDICAÇÃO'))
+        self.assertTrue(blocks[1].startswith('LOTE 2 - FRACASSADO'))
+
+    def test_split_lot_blocks_recognizes_fase_recursal_headers(self) -> None:
+        blocks = split_lot_blocks(
+            '\n'.join([
+                'LOTE 10 - JULGAMENTO DE RECURSOS',
+                'Item recursal',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+                'LOTE 11 - FRACASSADO',
+                'Item malsucedido',
+                'VALORES UNITÁRIOS FINAIS',
+                'Item: 1',
+            ])
+        )
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].startswith('LOTE 10 - JULGAMENTO DE RECURSOS'))
+        self.assertTrue(blocks[1].startswith('LOTE 11 - FRACASSADO'))
+
     def test_parse_brazilian_number(self) -> None:
         self.assertEqual(parse_brazilian_number('2.091,72'), 2091.72)
         self.assertEqual(parse_brazilian_number('69,05'), 69.05)
         self.assertIsNone(parse_brazilian_number(''))
+
+    def test_status_groups(self) -> None:
+        self.assertTrue(is_em_andamento_status('JULGAMENTO'))
+        self.assertTrue(is_em_andamento_status('EM HABILITAÇÃO'))
+        self.assertTrue(is_adjudicavel_status('EM ADJUDICAÇÃO'))
+        self.assertTrue(is_adjudicavel_status('ADJUDICADO'))
+        self.assertTrue(is_fase_recursal_status('INTERPOSIÇÃO DE RECURSOS'))
+        self.assertTrue(is_fase_recursal_status('RECEPÇÃO DE CONTRARRAZÕES'))
+        self.assertFalse(is_adjudicavel_status('FRACASSADO'))
+
+    def test_build_summary_separates_all_groups(self) -> None:
+        result = AtaSessaoParseResult(
+            source_path='teste.pdf',
+            generated_at='2026-04-22T12:00:00',
+            lotes=[
+                LotRecord(numero_lote=1, status='JULGAMENTO', titulo='A'),
+                LotRecord(numero_lote=2, status='HABILITAÇÃO', titulo='B'),
+                LotRecord(numero_lote=3, status='EM ADJUDICAÇÃO', titulo='C'),
+                LotRecord(numero_lote=4, status='ADJUDICADO', titulo='D'),
+                LotRecord(numero_lote=5, status='INTERPOSIÇÃO DE RECURSOS', titulo='E'),
+                LotRecord(numero_lote=6, status='RECEPÇÃO DE CONTRARRAZÕES', titulo='F'),
+                LotRecord(numero_lote=7, status='JULGAMENTO DE RECURSOS', titulo='G'),
+                LotRecord(numero_lote=8, status='FRACASSADO', titulo='H'),
+            ],
+        )
+        self.assertEqual(
+            result.build_summary(),
+            {
+                'total_lotes': 8,
+                'em_andamento': 2,
+                'adjudicados': 2,
+                'fase_recursal': 3,
+                'malsucedidos': 1,
+                'warnings': 0,
+                'parsing_errors': 0,
+            },
+        )
 
     def test_extract_header_metadata(self) -> None:
         edital, processo = extract_header_metadata(

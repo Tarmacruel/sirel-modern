@@ -57,7 +57,7 @@ def _participant_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
     return rows
 
 
-def _adjudicados_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
+def _operacionais_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for lot in lots:
         item = _first_item(lot)
@@ -203,14 +203,39 @@ def write_reports_workbooks(result: AtaSessaoParseResult, output_dir: str | Path
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    andamento_path = output_dir / 'Relatorio_EmAndamento.xlsx'
     adj_path = output_dir / 'Relatorio_Adjudicados.xlsx'
+    recursal_path = output_dir / 'Relatorio_FaseRecursal.xlsx'
     mal_path = output_dir / 'Relatorio_MalSucedidos.xlsx'
+
+    with pd.ExcelWriter(andamento_path, engine='openpyxl') as writer:
+        _write_sheet(
+            writer,
+            sheet_name='Em andamento',
+            rows=_operacionais_rows(result.em_andamento),
+            currency_columns={'Valor Total do Lote', 'Melhor Lance (R$)'},
+            empty_message='Nenhum registro encontrado para este relatório.',
+        )
+        _write_sheet(
+            writer,
+            sheet_name='Itens',
+            rows=_item_rows(result.em_andamento),
+            currency_columns={'Valor Unitário', 'Valor Total', 'Valor Unitário Estimado'},
+            empty_message='Nenhum item registrado.',
+        )
+        _write_sheet(
+            writer,
+            sheet_name='Participantes',
+            rows=_participant_rows(result.em_andamento),
+            currency_columns={'Oferta Inicial', 'Oferta Final'},
+            empty_message='Nenhum participante registrado.',
+        )
 
     with pd.ExcelWriter(adj_path, engine='openpyxl') as writer:
         _write_sheet(
             writer,
             sheet_name='Adjudicados',
-            rows=_adjudicados_rows(result.adjudicados),
+            rows=_operacionais_rows(result.adjudicados),
             currency_columns={'Valor Total do Lote', 'Melhor Lance (R$)'},
             empty_message='Nenhum registro encontrado para este relatório.',
         )
@@ -225,6 +250,29 @@ def write_reports_workbooks(result: AtaSessaoParseResult, output_dir: str | Path
             writer,
             sheet_name='Participantes',
             rows=_participant_rows(result.adjudicados),
+            currency_columns={'Oferta Inicial', 'Oferta Final'},
+            empty_message='Nenhum participante registrado.',
+        )
+
+    with pd.ExcelWriter(recursal_path, engine='openpyxl') as writer:
+        _write_sheet(
+            writer,
+            sheet_name='Fase recursal',
+            rows=_operacionais_rows(result.fase_recursal),
+            currency_columns={'Valor Total do Lote', 'Melhor Lance (R$)'},
+            empty_message='Nenhum registro encontrado para este relatório.',
+        )
+        _write_sheet(
+            writer,
+            sheet_name='Itens',
+            rows=_item_rows(result.fase_recursal),
+            currency_columns={'Valor Unitário', 'Valor Total', 'Valor Unitário Estimado'},
+            empty_message='Nenhum item registrado.',
+        )
+        _write_sheet(
+            writer,
+            sheet_name='Participantes',
+            rows=_participant_rows(result.fase_recursal),
             currency_columns={'Oferta Inicial', 'Oferta Final'},
             empty_message='Nenhum participante registrado.',
         )
@@ -253,6 +301,8 @@ def write_reports_workbooks(result: AtaSessaoParseResult, output_dir: str | Path
         )
 
     return {
+        'em_andamento_xlsx': str(andamento_path),
         'adjudicados_xlsx': str(adj_path),
+        'fase_recursal_xlsx': str(recursal_path),
         'malsucedidos_xlsx': str(mal_path),
     }

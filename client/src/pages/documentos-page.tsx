@@ -1,8 +1,11 @@
 ﻿import { Download, FileCog, FileStack, Search, ShieldCheck, Stamp, Upload } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState, type FormEvent } from "react";
 
+import type { AtaSessaoDiscoveryResult, AtaSessaoPreview } from "@sirel/shared/schemas/ata-sessao";
 import { documentoAccessRoleOptions } from "@sirel/shared/schemas/documentos";
 
+import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal";
+import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,12 +18,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import {
+  applyAtaSessaoSyncPreview,
+  createAtaSessaoPreviewFromDiscovery,
   deleteProcessoDocumento,
+  discoverAtaSessaoProcess,
   processAtaSessaoDocumento,
   resolveServerAssetUrl,
   uploadProcessoDocumento,
   type AtaSessaoStandaloneProcessResult,
   type DocumentoTipo,
+  type UploadProcessoDocumentoResult,
 } from "@/lib/document-upload";
 import { formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
 import { trpc } from "@/lib/trpc";
@@ -76,6 +83,13 @@ export function DocumentosPage() {
   const [metadataForm, setMetadataForm] = useState(initialMetadataForm);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ataSyncEnabled, setAtaSyncEnabled] = useState(false);
+  const [ataDiscovery, setAtaDiscovery] = useState<AtaSessaoDiscoveryResult | null>(null);
+  const [ataDiscoveryLoading, setAtaDiscoveryLoading] = useState(false);
+  const [ataDiscoverySearch, setAtaDiscoverySearch] = useState("");
+  const [ataDiscoverySelectedProcessId, setAtaDiscoverySelectedProcessId] = useState<number | null>(null);
+  const [ataSyncPreview, setAtaSyncPreview] = useState<AtaSessaoPreview | null>(null);
+  const [ataSyncApplyLoading, setAtaSyncApplyLoading] = useState(false);
   const [ataFile, setAtaFile] = useState<File | null>(null);
   const [ataFeedback, setAtaFeedback] = useState<string | null>(null);
   const [ataError, setAtaError] = useState<string | null>(null);
@@ -83,9 +97,14 @@ export function DocumentosPage() {
   const [ataResult, setAtaResult] = useState<AtaSessaoStandaloneProcessResult | null>(null);
   const deferredSearch = useDeferredValue(search.trim());
   const deferredCategory = useDeferredValue(categoria.trim());
+  const deferredAtaDiscoverySearch = useDeferredValue(ataDiscoverySearch.trim());
 
   const summaryQuery = trpc.documentos.summary.useQuery(undefined, { retry: false });
   const processOptionsQuery = trpc.documentos.processOptions.useQuery(undefined, { retry: false });
+  const ataDiscoveryProcessOptionsQuery = trpc.documentos.processOptions.useQuery(
+    { search: deferredAtaDiscoverySearch || undefined },
+    { retry: false, enabled: ataDiscovery !== null },
+  );
   const filters = useMemo(
     () => ({
       page,
@@ -143,12 +162,37 @@ export function DocumentosPage() {
     setFeedback(null);
     setError(null);
 
-    if (!uploadForm.processoId || !uploadForm.titulo.trim() || !uploadForm.arquivo) {
-      setError("Informe processo, título e arquivo para anexar o documento.");
+    if (!uploadForm.titulo.trim() || !uploadForm.arquivo) {
+      setError("Informe título e arquivo para anexar o documento.");
       return;
     }
 
     try {
+      if (ataSyncEnabled) {
+        if (!uploadForm.arquivo.name.toLowerCase().endsWith(".pdf")) {
+          setError("Envie um PDF de ata de sessão para iniciar a atualização da licitação.");
+          return;
+        }
+        setAtaDiscoveryLoading(true);
+        const discovery = await discoverAtaSessaoProcess({
+          arquivo: uploadForm.arquivo,
+          providedProcessoId: uploadForm.processoId ? Number(uploadForm.processoId) : undefined,
+        });
+        setAtaDiscovery(discovery);
+        setAtaDiscoverySelectedProcessId(
+          discovery.suggestedProcesses[0]?.processId ??
+            (uploadForm.processoId ? Number(uploadForm.processoId) : null),
+        );
+        setAtaDiscoverySearch("");
+        setFeedback("Ata lida com sucesso. Confirme o processo sugerido para continuar.");
+        return;
+      }
+
+      if (!uploadForm.processoId) {
+        setError("Selecione um processo para anexar o documento.");
+        return;
+      }
+
       await uploadProcessoDocumento({
         processoId: Number(uploadForm.processoId),
         tipo: uploadForm.tipo,
@@ -166,6 +210,80 @@ export function DocumentosPage() {
       setFeedback("Documento anexado ao acervo com sucesso.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Falha ao enviar o documento.");
+    } finally {
+      setAtaDiscoveryLoading(false);
+    }
+  }
+
+  async function handleCreatePreviewFromDiscovery() {
+    if (!ataDiscovery || !ataDiscoverySelectedProcessId) {
+      setError("Selecione o processo que deve receber a ata antes de continuar.");
+      return;
+    }
+
+    try {
+      setAtaDiscoveryLoading(true);
+      const preview = await createAtaSessaoPreviewFromDiscovery({
+        discoveryId: ataDiscovery.discoveryId,
+        processoId: ataDiscoverySelectedProcessId,
+        selectionMode: ataDiscovery.suggestedProcesses.some(
+          (item) => item.processId === ataDiscoverySelectedProcessId,
+        )
+          ? "SUGERIDO"
+          : "MANUAL",
+        document: {
+          tipo: uploadForm.tipo,
+          categoria: uploadForm.categoria || undefined,
+          titulo: uploadForm.titulo,
+          descricao: uploadForm.descricao || undefined,
+          dataReferencia: uploadForm.dataReferencia || undefined,
+          publico: uploadForm.publico,
+          palavrasChave: parseKeywords(uploadForm.palavrasChave),
+          restritoA: uploadForm.restritoA,
+        },
+      });
+      await Promise.all([
+        utils.documentos.list.invalidate(),
+        utils.documentos.summary.invalidate(),
+        utils.documentos.processOptions.invalidate(),
+      ]);
+      setAtaDiscovery(null);
+      setAtaSyncPreview(preview);
+      setUploadForm(initialUploadForm);
+      setFeedback("Documento criado no processo. Revise a prévia antes de aplicar a sincronização.");
+    } catch (previewError) {
+      setError(
+        previewError instanceof Error
+          ? previewError.message
+          : "Falha ao montar a prévia da sincronização da ata.",
+      );
+    } finally {
+      setAtaDiscoveryLoading(false);
+    }
+  }
+
+  async function handleApplyAtaSync() {
+    if (!ataSyncPreview) return;
+    try {
+      setAtaSyncApplyLoading(true);
+      await applyAtaSessaoSyncPreview(ataSyncPreview.runId);
+      await Promise.all([
+        utils.documentos.list.invalidate(),
+        utils.documentos.summary.invalidate(),
+        utils.documentos.detail.invalidate(),
+      ]);
+      setAtaSyncPreview(null);
+      setAtaSyncEnabled(false);
+      setFeedback("Ata aplicada com sucesso. As informações do processo foram atualizadas.");
+      setError(null);
+    } catch (applyError) {
+      setError(
+        applyError instanceof Error
+          ? applyError.message
+          : "Falha ao aplicar a sincronização da ata.",
+      );
+    } finally {
+      setAtaSyncApplyLoading(false);
     }
   }
 
@@ -298,8 +416,10 @@ export function DocumentosPage() {
                       </FormField>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
                         <p className="font-semibold text-slate-900">Regras desta leitura</p>
-                        <p className="mt-2">Lotes com status <span className="font-semibold text-slate-900">ADJUDICADO</span> e <span className="font-semibold text-slate-900">HABILITAÇÃO</span> entram juntos no relatório principal.</p>
-                        <p>Lotes <span className="font-semibold text-slate-900">FRACASSADO</span>, <span className="font-semibold text-slate-900">DESERTO</span> e <span className="font-semibold text-slate-900">CANCELADO</span> seguem para o relatório de malsucedidos.</p>
+                        <p className="mt-2"><span className="font-semibold text-slate-900">Em andamento:</span> lotes em <span className="font-semibold text-slate-900">JULGAMENTO</span>, <span className="font-semibold text-slate-900">HABILITAÇÃO</span> e <span className="font-semibold text-slate-900">EM HABILITAÇÃO</span>.</p>
+                        <p><span className="font-semibold text-slate-900">Adjudicados:</span> lotes em <span className="font-semibold text-slate-900">EM ADJUDICAÇÃO</span> e <span className="font-semibold text-slate-900">ADJUDICADO</span>.</p>
+                        <p><span className="font-semibold text-slate-900">Fase recursal:</span> lotes em <span className="font-semibold text-slate-900">INTERPOSIÇÃO DE RECURSOS</span>, <span className="font-semibold text-slate-900">RECEPÇÃO DE CONTRARRAZÕES</span> e <span className="font-semibold text-slate-900">JULGAMENTO DE RECURSOS</span>.</p>
+                        <p><span className="font-semibold text-slate-900">Malsucedidos:</span> lotes <span className="font-semibold text-slate-900">FRACASSADO</span>, <span className="font-semibold text-slate-900">DESERTO</span> e <span className="font-semibold text-slate-900">CANCELADO</span>.</p>
                       </div>
                       <Button type="submit" loading={ataProcessing} icon={<FileCog className="h-4 w-4" />}>
                         {ataProcessing ? "Processando ata..." : "Gerar relatórios da ata"}
@@ -320,7 +440,9 @@ export function DocumentosPage() {
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                           {[
                             { label: "Lotes totais", value: ataResult.summary.totalLotes },
-                            { label: "Adjudicados / habilitação", value: ataResult.summary.adjudicados },
+                            { label: "Em andamento", value: ataResult.summary.emAndamento },
+                            { label: "Adjudicados", value: ataResult.summary.adjudicados },
+                            { label: "Fase recursal", value: ataResult.summary.faseRecursal },
                             { label: "Malsucedidos", value: ataResult.summary.malsucedidos },
                             { label: "Warnings", value: ataResult.summary.warnings },
                             { label: "Erros de parsing", value: ataResult.summary.parsingErrors },
@@ -441,11 +563,24 @@ export function DocumentosPage() {
 
                   <SectionCard title="Upload no acervo" description="Anexe documentos novos com metadados operacionais já na entrada do sistema.">
                     <form className="space-y-4" onSubmit={handleUpload}>
-                      <FormField label="Processo">
+                      <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                        <Checkbox checked={ataSyncEnabled} onChange={(event) => setAtaSyncEnabled(event.target.checked)} />
+                        Ata de sessão com atualização da licitação
+                      </label>
+                      {ataSyncEnabled ? (
+                        <Alert variant="info" title="Fluxo com identificação do processo">
+                          O arquivo será lido primeiro para extrair edital e processo administrativo. Depois você confirma o processo interno e aprova a prévia antes de aplicar a atualização.
+                        </Alert>
+                      ) : null}
+                      <FormField label={ataSyncEnabled ? "Processo pré-selecionado (opcional)" : "Processo"}>
                         <Select value={uploadForm.processoId} onChange={(event) => setUploadForm((current) => ({ ...current, processoId: event.target.value }))}>
-                          <option value="">Selecione um processo</option>
+                          <option value="">{ataSyncEnabled ? "Deixar para identificar pela ata" : "Selecione um processo"}</option>
                           {processOptionsQuery.data?.map((item) => (
-                            <option key={item.id} value={item.id}>{item.numeroSirel} - {item.objeto.slice(0, 64)}</option>
+                            <option key={item.id} value={item.id}>
+                              {item.numeroSirel}
+                              {item.numeroEdital ? ` | Edital ${item.numeroEdital}` : ""}
+                              {item.numeroAdministrativo ? ` | PA ${item.numeroAdministrativo}` : ""}
+                            </option>
                           ))}
                         </Select>
                       </FormField>
@@ -498,7 +633,7 @@ export function DocumentosPage() {
                       </div>
                       <Button type="submit">
                         <Upload className="mr-2 h-4 w-4" />
-                        Anexar documento
+                        {ataSyncEnabled ? "Identificar processo pela ata" : "Anexar documento"}
                       </Button>
                     </form>
                   </SectionCard>
@@ -569,6 +704,134 @@ export function DocumentosPage() {
             ),
           },
         ]}
+      />
+      <Modal
+        open={ataDiscovery !== null}
+        onClose={() => setAtaDiscovery(null)}
+        title="Identificação do processo pela ata"
+        description="Confira os identificadores extraídos, escolha o processo correto e siga para a prévia obrigatória."
+        size="xl"
+        actions={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAtaDiscovery(null)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCreatePreviewFromDiscovery()}
+              disabled={!ataDiscoverySelectedProcessId || ataDiscoveryLoading}
+            >
+              {ataDiscoveryLoading ? "Criando prévia..." : "Confirmar processo e gerar prévia"}
+            </Button>
+          </div>
+        }
+      >
+        {!ataDiscovery ? null : (
+          <div className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Arquivo</p>
+                <p className="mt-3 text-sm font-semibold text-slate-950">{ataDiscovery.originalFileName}</p>
+              </article>
+              <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Edital</p>
+                <p className="mt-3 text-sm font-semibold text-slate-950">{ataDiscovery.metadata.edital ?? "Não identificado"}</p>
+              </article>
+              <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Processo administrativo</p>
+                <p className="mt-3 text-sm font-semibold text-slate-950">{ataDiscovery.metadata.processoAdministrativo ?? "Não identificado"}</p>
+              </article>
+            </div>
+
+            {ataDiscovery.metadata.providedProcessoId &&
+            ataDiscovery.suggestedProcesses[0] &&
+            ataDiscovery.metadata.providedProcessoId !== ataDiscovery.suggestedProcesses[0].processId ? (
+              <Alert variant="error" title="Divergência com o processo pré-selecionado">
+                A ata sugere o processo {ataDiscovery.suggestedProcesses[0].numeroSirel}, mas o formulário estava com {ataDiscovery.metadata.providedProcessoNumeroSirel}. Confirme a escolha antes de continuar.
+              </Alert>
+            ) : null}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-black uppercase tracking-[0.18em] text-slate-500">Processos sugeridos</h4>
+                <span className="text-sm text-slate-500">{ataDiscovery.suggestedProcesses.length} sugestão(ões)</span>
+              </div>
+              {ataDiscovery.suggestedProcesses.length ? (
+                <div className="space-y-3">
+                  {ataDiscovery.suggestedProcesses.map((item) => (
+                    <button
+                      key={item.processId}
+                      type="button"
+                      onClick={() => setAtaDiscoverySelectedProcessId(item.processId)}
+                      className={[
+                        "w-full rounded-3xl border px-4 py-4 text-left transition",
+                        ataDiscoverySelectedProcessId === item.processId
+                          ? "border-sky-500 bg-sky-50"
+                          : "border-slate-200 bg-white hover:border-slate-300",
+                      ].join(" ")}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-black text-slate-950">{item.numeroSirel}</p>
+                          <p className="mt-1 text-sm text-slate-600">{item.objeto}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {item.numeroEdital ? `Edital ${item.numeroEdital}` : "Sem edital"}{" "}
+                            {item.numeroAdministrativo ? `| PA ${item.numeroAdministrativo}` : ""}
+                            {item.moduloAtual ? ` | ${item.moduloAtual}` : ""}
+                          </p>
+                        </div>
+                        <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                          {item.level} • {Math.round(item.score)}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <Alert variant="info">Nenhum processo foi sugerido automaticamente. Faça a busca manual abaixo.</Alert>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+                <FormField label="Buscar processo manualmente">
+                  <Input
+                    value={ataDiscoverySearch}
+                    onChange={(event) => setAtaDiscoverySearch(event.target.value)}
+                    placeholder="Número SIREL, edital, administrativo ou objeto"
+                  />
+                </FormField>
+                <FormField label="Processo escolhido">
+                  <Select
+                    value={ataDiscoverySelectedProcessId ? String(ataDiscoverySelectedProcessId) : ""}
+                    onChange={(event) =>
+                      setAtaDiscoverySelectedProcessId(
+                        event.target.value ? Number(event.target.value) : null,
+                      )
+                    }
+                  >
+                    <option value="">Selecione um processo</option>
+                    {ataDiscoveryProcessOptionsQuery.data?.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.numeroSirel}
+                        {item.numeroEdital ? ` | Edital ${item.numeroEdital}` : ""}
+                        {item.numeroAdministrativo ? ` | PA ${item.numeroAdministrativo}` : ""}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <AtaSessaoSyncModal
+        open={ataSyncPreview !== null}
+        preview={ataSyncPreview}
+        applyLoading={ataSyncApplyLoading}
+        onClose={() => setAtaSyncPreview(null)}
+        onApply={() => void handleApplyAtaSync()}
       />
     </SectionCard>
   );

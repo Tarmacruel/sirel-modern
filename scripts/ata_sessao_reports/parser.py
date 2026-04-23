@@ -10,11 +10,37 @@ from typing import Iterable
 
 import pdfplumber
 
-from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord, MovimentoLote, is_malsucedido_status
+from .models import (
+    AtaSessaoParseResult,
+    LotItemData,
+    LotParticipant,
+    LotRecord,
+    MovimentoLote,
+    is_malsucedido_status,
+    normalize_status_key,
+)
 
 # Regex corrigidas (removidos espaços antes das aspas)
 KNOWN_LOT_STATUSES = (
+    "RECEPÇÃO DE CONTRARRAZÕES",
+    "RECEPCAO DE CONTRARRAZOES",
+    "RECEPÇÃO DE CONTRARRAZÃO",
+    "RECEPCAO DE CONTRARRAZAO",
+    "INTERPOSIÇÃO DE RECURSOS",
+    "INTERPOSICAO DE RECURSOS",
+    "INTERPOSIÇÃO DE RECURSO",
+    "INTERPOSICAO DE RECURSO",
+    "JULGAMENTO DE RECURSOS",
+    "JULGAMENTO DE RECURSO",
+    "EM ADJUDICAÇÃO",
+    "EM ADJUDICACAO",
     "ADJUDICADO",
+    "ADJUDICAÇÃO",
+    "ADJUDICACAO",
+    "EM JULGAMENTO",
+    "JULGAMENTO",
+    "EM HABILITAÇÃO",
+    "EM HABILITACAO",
     "FRACASSADO",
     "DESERTO",
     "CANCELADO",
@@ -60,10 +86,27 @@ def normalize_whitespace(value: str) -> str:
 
 
 def normalize_status(value: str | None) -> str:
-    status = normalize_whitespace(value).upper()
+    raw_status = normalize_whitespace(value)
+    status = normalize_status_key(raw_status)
+    if status == "ADJUDICADO":
+        return "ADJUDICADO"
+    if status.startswith("EM ADJUDICA") or status == "ADJUDICACAO":
+        return "EM ADJUDICAÇÃO"
+    if status.startswith("JULGAMENTO DE RECUR"):
+        return "JULGAMENTO DE RECURSOS"
+    if status.startswith("INTERPOSI") and "RECUR" in status:
+        return "INTERPOSIÇÃO DE RECURSOS"
+    if status.startswith("RECEP") and "CONTRARRAZ" in status:
+        return "RECEPÇÃO DE CONTRARRAZÕES"
+    if status.startswith("EM JULGAM"):
+        return "JULGAMENTO"
+    if status.startswith("JULGAM"):
+        return "JULGAMENTO"
+    if status.startswith("EM HABILITA"):
+        return "EM HABILITAÇÃO"
     if status.startswith("HABILITA"):
         return "HABILITAÇÃO"
-    return status
+    return raw_status.upper()
 
 
 def parse_brazilian_number(value: str | None) -> float | None:

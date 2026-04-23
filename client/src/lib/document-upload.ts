@@ -1,4 +1,11 @@
 import { getStoredAuthToken, loadStoredSession } from "@/lib/auth-session";
+import type {
+  AtaSessaoApplyResult,
+  AtaSessaoCreatePreviewFromDiscoveryInput,
+  AtaSessaoDiscoveryResult,
+  AtaSessaoPreview,
+  AtaSessaoPreviewProcessInput,
+} from "@sirel/shared/schemas/ata-sessao";
 
 export type DocumentoTipo = "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO";
 
@@ -13,6 +20,15 @@ export interface UploadProcessoDocumentoInput {
   palavrasChave?: string[];
   restritoA?: string[];
   arquivo: File;
+}
+
+export interface UploadProcessoDocumentoResult {
+  id: number;
+  processoId: number;
+  titulo: string;
+  categoria?: string | null;
+  tipo: DocumentoTipo;
+  arquivoUrl: string | null;
 }
 
 export interface AtaSessaoStandaloneArtifact {
@@ -30,7 +46,9 @@ export interface AtaSessaoStandaloneProcessResult {
   originalFileName?: string;
   summary: {
     totalLotes: number;
+    emAndamento: number;
     adjudicados: number;
+    faseRecursal: number;
     malsucedidos: number;
     warnings: number;
     parsingErrors: number;
@@ -43,6 +61,11 @@ export interface ProcessAtaSessaoDocumentoOptions {
   processoAdministrativo?: string;
   arquivoOrigem?: string;
   dataGeracao?: string;
+}
+
+export interface DiscoverAtaSessaoProcessInput {
+  arquivo: File;
+  providedProcessoId?: number;
 }
 
 export function resolveServerBaseUrl() {
@@ -94,7 +117,9 @@ async function parseError(response: Response) {
   }
 }
 
-export async function uploadProcessoDocumento(input: UploadProcessoDocumentoInput) {
+export async function uploadProcessoDocumento(
+  input: UploadProcessoDocumentoInput,
+): Promise<UploadProcessoDocumentoResult> {
   const formData = new FormData();
   formData.append("processoId", String(input.processoId));
   formData.append("tipo", input.tipo);
@@ -130,7 +155,7 @@ export async function deleteProcessoDocumento(documentoId: number) {
     throw new Error(await parseError(response));
   }
 
-  return response.json();
+  return response.json() as Promise<UploadProcessoDocumentoResult>;
 }
 
 export async function processAtaSessaoDocumento(
@@ -155,6 +180,97 @@ export async function processAtaSessaoDocumento(
   }
 
   return response.json() as Promise<AtaSessaoStandaloneProcessResult>;
+}
+
+export async function discoverAtaSessaoProcess(
+  input: DiscoverAtaSessaoProcessInput,
+): Promise<AtaSessaoDiscoveryResult> {
+  const formData = new FormData();
+  formData.append("arquivo", input.arquivo);
+  if (input.providedProcessoId) {
+    formData.append("providedProcessoId", String(input.providedProcessoId));
+  }
+
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/ata-sessao/discover-process`,
+    {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<AtaSessaoDiscoveryResult>;
+}
+
+export async function createAtaSessaoPreviewFromDiscovery(
+  input: AtaSessaoCreatePreviewFromDiscoveryInput,
+): Promise<AtaSessaoPreview> {
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/ata-sessao/create-preview-from-discovery`,
+    {
+      method: "POST",
+      headers: {
+        ...buildAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<AtaSessaoPreview>;
+}
+
+export async function createAtaSessaoPreviewFromDocumento(
+  input: AtaSessaoPreviewProcessInput,
+): Promise<AtaSessaoPreview> {
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/licitacao/ata-sessao/processar`,
+    {
+      method: "POST",
+      headers: {
+        ...buildAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<AtaSessaoPreview>;
+}
+
+export async function applyAtaSessaoSyncPreview(
+  runId: number,
+): Promise<AtaSessaoApplyResult> {
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/licitacao/ata-sessao/aplicar`,
+    {
+      method: "POST",
+      headers: {
+        ...buildAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ runId }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<AtaSessaoApplyResult>;
 }
 
 export const uploadPlanejamentoDocumento = uploadProcessoDocumento;

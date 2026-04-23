@@ -1924,7 +1924,12 @@ export const licitacaoRouter = router({
       if (existing) {
         await db
           .update(licitantes)
-          .set({ ativo: true, atualizadoEm: new Date() })
+          .set({
+            ativo: true,
+            origemAtualizacao: "MANUAL",
+            origemReferencia: null,
+            atualizadoEm: new Date(),
+          })
           .where(eq(licitantes.id, existing.id));
         return { success: true, licitanteId: existing.id };
       }
@@ -1935,6 +1940,8 @@ export const licitacaoRouter = router({
           licitacaoId: licitacao.id,
           fornecedorId: input.fornecedorId,
           dataCadastro: new Date(),
+          origemAtualizacao: "MANUAL",
+          origemReferencia: null,
           criadoEm: new Date(),
           atualizadoEm: new Date(),
         })
@@ -2071,6 +2078,8 @@ export const licitacaoRouter = router({
         .update(licitantes)
         .set({
           ativo: false,
+          origemAtualizacao: "MANUAL",
+          origemReferencia: null,
           atualizadoEm: new Date(),
         })
         .where(eq(licitantes.id, input.licitanteId));
@@ -2133,6 +2142,8 @@ export const licitacaoRouter = router({
         classificacao: input.classificacao ?? null,
         situacao: input.situacao,
         justificativa: toNullableText(input.justificativa),
+        origemAtualizacao: "MANUAL" as const,
+        origemReferencia: null,
         atualizadoEm: new Date(),
       };
 
@@ -2234,6 +2245,8 @@ export const licitacaoRouter = router({
           dataLance: parseOptionalTimestamp(input.dataLance) ?? new Date(),
           usuarioId: ctx.user?.id ?? null,
           observacao: toNullableText(input.observacao),
+          origemAtualizacao: "MANUAL",
+          origemReferencia: null,
         })
         .returning();
 
@@ -2299,6 +2312,8 @@ export const licitacaoRouter = router({
         .set({
           statusHabilitacao: input.statusHabilitacao,
           observacaoHabilitacao: toNullableText(input.observacaoHabilitacao),
+          origemAtualizacao: "MANUAL",
+          origemReferencia: null,
           atualizadoEm: new Date(),
         })
         .where(eq(licitantes.id, input.licitanteId));
@@ -2350,6 +2365,8 @@ export const licitacaoRouter = router({
         resultado: input.resultado,
         descricao: input.descricao.trim(),
         decisao: toNullableText(input.decisao),
+        origemAtualizacao: "MANUAL" as const,
+        origemReferencia: null,
         atualizadoEm: new Date(),
       };
 

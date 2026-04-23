@@ -5,12 +5,14 @@ import {
   documentoDetailInputSchema,
   documentoListInputSchema,
   documentoMetadataInputSchema,
+  documentoProcessOptionsInputSchema,
   documentoTipoOptions,
 } from "@sirel/shared/schemas/documentos";
 
 import { documentos, processos } from "../db/schema.js";
 import { logAuditoria } from "../db/auditoria.js";
 import { requireDb } from "../db/client.js";
+import { searchAtaSessaoProcessOptions } from "../lib/ata-sessao-sync.js";
 import { operadorProcedure, publicProcedure, router } from "../trpc.js";
 
 const processoInput = z.object({ processoId: z.number().int().positive() });
@@ -111,14 +113,11 @@ export const documentosRouter = router({
     };
   }),
 
-  processOptions: publicProcedure.query(async () => {
-    const db = requireDb();
-    return db
-      .select({ id: processos.id, numeroSirel: processos.numeroSirel, objeto: processos.objeto })
-      .from(processos)
-      .orderBy(desc(processos.criadoEm), desc(processos.id))
-      .limit(300);
-  }),
+  processOptions: publicProcedure
+    .input(documentoProcessOptionsInputSchema.optional())
+    .query(async ({ input }) => {
+      return searchAtaSessaoProcessOptions({ search: input?.search });
+    }),
 
   detail: publicProcedure.input(documentoDetailInputSchema).query(async ({ input }) => {
     const db = requireDb();
