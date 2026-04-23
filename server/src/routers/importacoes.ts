@@ -1222,6 +1222,7 @@ export const importacoesRouter = router({
           db
             .select({
               id: processos.id,
+              numeroSirel: processos.numeroSirel,
               numeroAdministrativo: processos.numeroAdministrativo,
               numeroEdital: processos.numeroEdital,
             })
@@ -1230,11 +1231,16 @@ export const importacoesRouter = router({
 
       const existingByAdministrativo = new Map<string, number>();
       const existingByEdital = new Map<string, number>();
+      const existingProcessById = new Map<
+        number,
+        { id: number; numeroSirel: string; numeroAdministrativo: string | null; numeroEdital: string | null }
+      >();
       for (const row of existingProcesses) {
         const administrativo = normalizeLookupText(row.numeroAdministrativo);
         const edital = normalizeLookupText(row.numeroEdital);
         if (administrativo) existingByAdministrativo.set(administrativo, row.id);
         if (edital) existingByEdital.set(edital, row.id);
+        existingProcessById.set(row.id, row);
       }
 
       const successes: Array<{
@@ -1288,16 +1294,6 @@ export const importacoesRouter = router({
             (normalizedEdital && existingByEdital.get(normalizedEdital)) ||
             null;
 
-          if (duplicateInternalId) {
-            failures.push({
-              rowId: row.id,
-              linha: row.linha,
-              motivo:
-                "Já existe um processo interno com o mesmo administrativo ou edital. Vincule manualmente em vez de importar.",
-            });
-            continue;
-          }
-
           const matchedModalidade = findBestNamedMatch(
             modalidadeRows,
             raw.modalidade ?? row.modalidade ?? null,
@@ -1333,6 +1329,139 @@ export const importacoesRouter = router({
           const homologated =
             normalizeLookupText(raw.status).includes("homolog") ||
             Boolean(raw.dataHomologacao);
+
+          if (duplicateInternalId) {
+            const existingProcess = existingProcessById.get(duplicateInternalId) ?? null;
+            if (!existingProcess) {
+              failures.push({
+                rowId: row.id,
+                linha: row.linha,
+                motivo:
+                  "Processo interno encontrado por chave duplicada, mas não foi possível carregar os dados para atualização.",
+              });
+              continue;
+            }
+
+            const processPatch: Partial<typeof processos.$inferInsert> = {
+              protocolo: raw.protocolo ?? row.protocolo ?? null,
+              numeroAdministrativo:
+                raw.processoAdministrativo ??
+                row.processoAdministrativo ??
+                existingProcess.numeroAdministrativo,
+              numeroEdital: raw.numeroEdital ?? row.numeroEdital ?? existingProcess.numeroEdital,
+              secretariaId: matchedSecretaria.id,
+              modalidadeId: matchedModalidade?.id ?? null,
+              statusId: matchedStatus?.id ?? null,
+              condutorProcessoId: matchedCondutor?.id ?? null,
+              objeto,
+              valorEstimado:
+                row.valorEstimado !== null && row.valorEstimado !== undefined
+                  ? toNumber(row.valorEstimado).toFixed(2)
+                  : null,
+              valorHomologado:
+                row.valorContratado !== null && row.valorContratado !== undefined
+                  ? toNumber(row.valorContratado).toFixed(2)
+                  : null,
+              tipoObjeto: inferLegacyTipoObjeto(
+                raw.modalidade ?? row.modalidade,
+                objeto,
+              ),
+              dataEntradaLicitacao: dataEntradaLicitacao ?? null,
+              dataAbertura: dataAbertura ?? null,
+              dataPublicacao: dataPublicacao ? new Date(dataPublicacao) : null,
+              dataDisputaSessao: dataDisputaSessao
+                ? new Date(dataDisputaSessao)
+                : null,
+              dataEncerramento: dataEncerramento ?? null,
+              publicado: published,
+              homologado: homologated,
+              finalizado: finalized,
+              atualizadoEm: new Date(),
+            };
+
+            await tx
+              .update(processos)
+              .set(processPatch)
+              .where(eq(processos.id, duplicateInternalId));
+
+            const situacao = mapWorkflowSituacaoFromExternal(raw.status);
+            const [existingWorkflow] = await tx
+              .select({ id: workflowProcesso.id })
+              .from(workflowProcesso)
+              .where(eq(workflowProcesso.processoId, duplicateInternalId))
+              .limit(1);
+
+            if (existingWorkflow) {
+              await tx
+                .update(workflowProcesso)
+                .set({
+                  moduloAtual: "LICITACAO",
+                  situacao,
+                  etapaAtual: finalized
+                    ? "Atualização concluída por importação do legado"
+                    : "Atualização em andamento por importação do legado",
+                  dataInicio: dataPublicacao?.slice(0, 10) ?? null,
+                  dataConclusao:
+                    situacao === "CONCLUIDO"
+                      ? dataEncerramento ?? new Date().toISOString().slice(0, 10)
+                      : null,
+                })
+                .where(eq(workflowProcesso.processoId, duplicateInternalId));
+            } else {
+              await tx.insert(workflowProcesso).values({
+                processoId: duplicateInternalId,
+                moduloAtual: "LICITACAO",
+                situacao,
+                etapaAtual: finalized
+                  ? "Atualização concluída por importação do legado"
+                  : "Atualização inicial por importação do legado",
+                dataInicio: dataPublicacao?.slice(0, 10) ?? null,
+                dataConclusao:
+                  situacao === "CONCLUIDO"
+                    ? dataEncerramento ?? new Date().toISOString().slice(0, 10)
+                    : null,
+              });
+            }
+
+            await tx.insert(movimentacoesWorkflow).values({
+              processoId: duplicateInternalId,
+              moduloOrigem: "SISTEMA",
+              moduloDestino: "LICITACAO",
+              descricao: "Processo atualizado pelo lote legado",
+              observacao: `Linha ${row.linha} do lote legado #${input.loteId} aplicada sobre processo existente (${existingProcess.numeroSirel}).`,
+              usuarioId: ctx.user?.id ?? null,
+            });
+
+            const reviewNoteBase = [
+              row.reviewNotes?.trim(),
+              `Processo ${existingProcess.numeroSirel} atualizado pela importação do lote legado.`,
+            ]
+              .filter(Boolean)
+              .join(" ");
+
+            await tx
+              .update(importacaoLegadoRegistros)
+              .set({
+                reviewStatus: "VINCULAR_INTERNO",
+                selectedInternalProcessId: duplicateInternalId,
+                selectedImportedProcessId: null,
+                reviewNotes: reviewNoteBase,
+                reviewedBy: ctx.user?.id ?? null,
+                reviewedAt: new Date(),
+                atualizadoEm: new Date(),
+              })
+              .where(eq(importacaoLegadoRegistros.id, row.id));
+
+            successes.push({
+              rowId: row.id,
+              linha: row.linha,
+              processoId: duplicateInternalId,
+              numeroSirel: existingProcess.numeroSirel,
+              processSnapshot: processPatch as Record<string, unknown>,
+            });
+            continue;
+          }
+
           const processInsert: typeof processos.$inferInsert = {
             numeroSirel,
             protocolo: raw.protocolo ?? row.protocolo ?? null,
