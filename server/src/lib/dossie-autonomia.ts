@@ -70,6 +70,14 @@ function digitsOnly(value: unknown) {
   return digits || null;
 }
 
+function normalizeLotKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\D+/g, "");
+  if (digits) return String(Number(digits));
+  return raw.toLowerCase();
+}
+
 function firstNumber(...values: unknown[]) {
   for (const value of values) {
     const parsed = toNumber(value);
@@ -297,17 +305,21 @@ async function buildItemValuesFromStoredImports(
   const suppliersByName = new Map(
     supplierRows.map((row) => [normalizeCompareText(row.razaoSocial), row] as const),
   );
-  const lotsByNumber = new Map(
-    importedLots.map((row) => [String(row.numero).trim(), row] as const),
-  );
+  const lotsByNumber = new Map<string, (typeof importedLots)[number]>();
+  for (const row of importedLots) {
+    const lotKey = normalizeLotKey(row.numero);
+    if (!lotKey) continue;
+    lotsByNumber.set(lotKey, row);
+  }
   const specifiedByLotNumber = new Map<
     string,
     Array<(typeof importedSpecifiedItems)[number]>
   >();
 
   for (const row of importedSpecifiedItems) {
-    const lotNumber =
+    const lotNumberRaw =
       importedLots.find((item) => item.id === row.loteImportadoId)?.numero ?? null;
+    const lotNumber = normalizeLotKey(lotNumberRaw);
     if (!lotNumber) continue;
     const bucket = specifiedByLotNumber.get(lotNumber) ?? [];
     bucket.push(row);
@@ -344,7 +356,7 @@ async function buildItemValuesFromStoredImports(
     (processoRow.homologado ? toDateOnly(processoRow.dataPublicacao) : null);
 
   return internalItems.map((item) => {
-    const explicitLote = item.loteNumero ? String(item.loteNumero) : null;
+    const explicitLote = normalizeLotKey(item.loteNumero);
     const candidates = [explicitLote].filter(Boolean) as string[];
 
     let matchedLot =
@@ -364,10 +376,10 @@ async function buildItemValuesFromStoredImports(
     }
 
     const specifiedCandidates = matchedLot
-      ? specifiedByLotNumber.get(String(matchedLot.numero)) ?? []
+      ? specifiedByLotNumber.get(normalizeLotKey(matchedLot.numero) ?? "") ?? []
       : [];
     const lotAllocation = matchedLot
-      ? lotAllocationByNumber.get(String(matchedLot.numero)) ?? null
+      ? lotAllocationByNumber.get(normalizeLotKey(matchedLot.numero) ?? "") ?? null
       : null;
     const matchedSpecified =
       specifiedCandidates
