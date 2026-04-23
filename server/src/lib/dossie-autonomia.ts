@@ -984,10 +984,11 @@ async function buildItemValuesFromStoredImports(
 
   return internalItems.map((item) => {
     const explicitLote = normalizeLotKey(item.loteNumero);
-    const candidates = [
-      explicitLote,
-      normalizeLotKey(item.numeroItem),
-    ].filter(Boolean) as string[];
+    const candidates = [explicitLote].filter(Boolean) as string[];
+    const itemNumberCandidate = normalizeLotKey(item.numeroItem);
+    if (!explicitLote && itemNumberCandidate) {
+      candidates.push(itemNumberCandidate);
+    }
 
     let matchedLot =
       candidates
