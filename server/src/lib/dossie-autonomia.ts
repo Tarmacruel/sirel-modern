@@ -345,22 +345,21 @@ async function buildItemValuesFromStoredImports(
 
   return internalItems.map((item) => {
     const explicitLote = item.loteNumero ? String(item.loteNumero) : null;
-    const candidates = [explicitLote, String(item.numeroItem)].filter(
-      Boolean,
-    ) as string[];
+    const candidates = [explicitLote].filter(Boolean) as string[];
 
     let matchedLot =
       candidates
         .map((candidate) => lotsByNumber.get(candidate))
         .find(Boolean) ?? null;
 
-    if (!matchedLot) {
+    if (!matchedLot && !explicitLote) {
       matchedLot =
         importedLots
           .map((lot) => ({
             lot,
             score: textSimilarity(item.descricao, lot.titulo),
           }))
+          .filter((row) => row.score >= 0.72)
           .sort((left, right) => right.score - left.score)[0]?.lot ?? null;
     }
 
