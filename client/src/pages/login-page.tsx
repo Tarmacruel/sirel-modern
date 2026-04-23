@@ -102,7 +102,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <div className="mt-10 max-w-3xl">
                 <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-200/70">Registro e gestão de licitações</p>
                 <h2 className="mt-3 font-[var(--font-heading)] text-4xl font-black leading-[0.98] tracking-[-0.05em] text-white sm:text-[3.3rem]">
-                  Entrada mais clara para uma operação pública mais segura.
+                  Sistema feito por servidores para servidores.
                 </h2>
                 <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-[15px]">
                   O SIREL organiza a rotina do município com leitura imediata de prioridades, continuidade entre módulos e rastreabilidade de ponta a ponta.
@@ -152,8 +152,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             <div className="px-5 py-5 sm:px-7 sm:py-6">
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <FormField
-                  label="Usuário ou e-mail"
-                  description="Use o login institucional ou o e-mail cadastrado no sistema."
+                  label="Usuário"
+                  description="Use o login institucional."
                   className="text-slate-100"
                 >
                   <Input

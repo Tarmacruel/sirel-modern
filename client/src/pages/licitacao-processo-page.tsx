@@ -709,6 +709,7 @@ export function LicitacaoProcessoPage({
   const [sdVinculacaoError, setSdVinculacaoError] = useState<string | null>(
     null,
   );
+  const auditJustificationStorageKey = `sirel:licitacao-audit-justification:${processoId}`;
 
   const overviewRef = useRef<HTMLElement | null>(null);
   const internalRef = useRef<HTMLElement | null>(null);
@@ -905,8 +906,6 @@ export function LicitacaoProcessoPage({
       });
       return next;
     });
-
-    setAuditJustification("");
   }, [catalogsQuery.data, detailQuery.data]);
 
   useEffect(() => {
@@ -1129,6 +1128,33 @@ export function LicitacaoProcessoPage({
     [detalhe?.itens],
   );
   const isForaDoFluxo = detalhe?.processo.foraDoFluxo ?? false;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedValue = window.localStorage.getItem(
+      auditJustificationStorageKey,
+    );
+    setAuditJustification(storedValue ?? "");
+  }, [auditJustificationStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isForaDoFluxo) {
+      window.localStorage.removeItem(auditJustificationStorageKey);
+      return;
+    }
+
+    const trimmedValue = auditJustification.trim();
+    if (trimmedValue) {
+      window.localStorage.setItem(
+        auditJustificationStorageKey,
+        auditJustification,
+      );
+      return;
+    }
+
+    window.localStorage.removeItem(auditJustificationStorageKey);
+  }, [auditJustification, auditJustificationStorageKey, isForaDoFluxo]);
   const inversaoFasesAtiva = configForm.inversaoFasesHabilitada;
   const flowConfig = getLicitacaoFlowConfig({
     modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
@@ -1219,20 +1245,52 @@ export function LicitacaoProcessoPage({
     });
     return map;
   }, [detalhe?.checklistInterno.itens]);
+  const internalBlueprintMap = useMemo(() => {
+    const map = new Map<string, LicitacaoDocumentRequirement>();
+    blueprint.internal.forEach((item) => {
+      map.set(item.category, item);
+    });
+    return map;
+  }, [blueprint.internal]);
 
   const checklistItems = useMemo<ChecklistCardItem[]>(
-    () =>
-      blueprint.internal.map((item) => {
+    () => {
+      const serverItems = detalhe?.checklistInterno.itens ?? [];
+      const sourceItems =
+        serverItems.length > 0
+          ? serverItems.map((serverItem) => {
+              const blueprintItem = internalBlueprintMap.get(
+                serverItem.category,
+              );
+              return {
+                category: serverItem.category,
+                label: blueprintItem?.label ?? serverItem.label,
+                description:
+                  blueprintItem?.description ?? serverItem.description,
+                obrigatorio: blueprintItem?.obrigatorio ?? serverItem.obrigatorio,
+                baseLegal: blueprintItem?.baseLegal,
+                condicional: blueprintItem?.condicional,
+                completionHint: blueprintItem?.completionHint,
+              };
+            })
+          : blueprint.internal;
+
+      return sourceItems.map((item) => {
         const serverItem = serverChecklistMap.get(item.category);
         const documentosCategoria =
           docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
+        const statusFlexivel =
+          serverItem?.statusFlexivel ??
+          (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO");
+        const concluido =
+          (serverItem?.concluido ?? false) ||
+          documentosCategoria.length > 0 ||
+          statusFlexivel !== "PADRAO";
         return {
           ...item,
-          concluido: serverItem?.concluido ?? documentosCategoria.length > 0,
+          concluido,
           naoAplicavel: serverItem?.naoAplicavel ?? false,
-          statusFlexivel:
-            serverItem?.statusFlexivel ??
-            (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
+          statusFlexivel,
           justificativaNaoAplicavel:
             serverItem?.justificativaNaoAplicavel ?? null,
           departamentoResponsavel: serverItem?.departamentoResponsavel ?? null,
@@ -1242,14 +1300,21 @@ export function LicitacaoProcessoPage({
           digitalizarDepois: serverItem?.digitalizarDepois ?? false,
           documentos: documentosCategoria,
         };
-      }),
-    [blueprint.internal, docsByCategory, serverChecklistMap],
+      });
+    },
+    [
+      blueprint.internal,
+      detalhe?.checklistInterno.itens,
+      docsByCategory,
+      internalBlueprintMap,
+      serverChecklistMap,
+    ],
   );
 
   const pendingRequired = checklistItems.filter(
-    (item) => item.obrigatorio && !item.concluido,
+    (item) => item.obrigatorio && !isChecklistItemAddressed(item),
   );
-  const progressCount = checklistItems.filter((item) => item.concluido).length;
+  const progressCount = checklistItems.filter(isChecklistItemAddressed).length;
   const addressedChecklistItems = checklistItems.filter(
     isChecklistItemAddressed,
   );

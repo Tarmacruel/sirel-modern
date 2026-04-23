@@ -34,7 +34,9 @@ export const ataSessaoProcessInputSchema = z
 export const ataSessaoReportArtifactSchema = z.object({
   label: z.string(),
   path: z.string(),
+  relativePath: z.string(),
   type: z.enum(["pdf", "xlsx", "json", "log"]),
+  downloadUrl: z.string(),
 });
 
 export const ataSessaoProcessResultSchema = z.object({
@@ -62,6 +64,7 @@ export const ataSessaoDiscoveryResultSchema = z.object({
   generatedAt: z.string(),
   originalFileName: z.string(),
   summary: ataSessaoSummarySchema,
+  artifacts: z.array(ataSessaoReportArtifactSchema),
   metadata: z.object({
     edital: z.string().nullable(),
     processoAdministrativo: z.string().nullable(),
@@ -108,6 +111,7 @@ export const ataSessaoPreviewSchema = z.object({
   generatedAt: z.string(),
   processId: z.number().int().positive(),
   documentId: z.number().int().positive().nullable(),
+  artifacts: z.array(ataSessaoReportArtifactSchema),
   discoveryMode: z
     .enum([
       "PROCESSO_EXPLICITO",
@@ -188,7 +192,9 @@ export const ataSessaoCreatePreviewFromDiscoveryInputSchema = z.object({
 });
 
 export type AtaSessaoProcessInput = z.infer<typeof ataSessaoProcessInputSchema>;
-export type AtaSessaoProcessResult = z.infer<typeof ataSessaoProcessResultSchema>;
+export type AtaSessaoProcessResult = z.infer<
+  typeof ataSessaoProcessResultSchema
+>;
 export type AtaSessaoSuggestedProcess = z.infer<
   typeof ataSessaoSuggestedProcessSchema
 >;

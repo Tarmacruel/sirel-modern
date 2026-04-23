@@ -39,6 +39,10 @@ import {
   users,
   workflowProcesso,
 } from "../db/schema.js";
+import {
+  buildResultadoItemStatus,
+  hasAwardedResult,
+} from "./dossie-autonomia.js";
 
 function toNumber(value: unknown) {
   const parsed = Number(value);
@@ -281,6 +285,9 @@ function buildStatusLabel(row: {
   itemHomologado?: boolean | null;
   itemDeserto?: boolean | null;
   itemFracassado?: boolean | null;
+  fornecedorVencedorId?: number | null;
+  fornecedorVencedorNome?: string | null;
+  fornecedorVencedorCnpj?: string | null;
   licitacaoStatus?: string | null;
 }) {
   if (row.itemHomologado) return "Homologado";
@@ -288,6 +295,34 @@ function buildStatusLabel(row: {
   if (row.itemDeserto) return "Deserto";
   if (row.licitacaoStatus) return row.licitacaoStatus;
   return "Em análise";
+}
+
+function buildStatusLabelEnhanced(row: {
+  itemHomologado?: boolean | null;
+  itemDeserto?: boolean | null;
+  itemFracassado?: boolean | null;
+  fornecedorVencedorId?: number | null;
+  fornecedorVencedorNome?: string | null;
+  fornecedorVencedorCnpj?: string | null;
+  licitacaoStatus?: string | null;
+}) {
+  const status = buildResultadoItemStatus(
+    {
+      itemHomologado: row.itemHomologado,
+      itemDeserto: row.itemDeserto,
+      itemFracassado: row.itemFracassado,
+      fornecedorVencedorId: row.fornecedorVencedorId,
+      fornecedorVencedorNome: row.fornecedorVencedorNome,
+      fornecedorVencedorCnpj: row.fornecedorVencedorCnpj,
+    },
+    "EM ANALISE",
+  );
+
+  if (status !== "EM ANALISE") {
+    return status[0] + status.slice(1).toLowerCase();
+  }
+  if (row.licitacaoStatus) return row.licitacaoStatus;
+  return "Em analise";
 }
 
 function statusMatches(
@@ -692,7 +727,7 @@ export async function buildItemDossieDetail(
         row.statusProcesso,
         row.etapaAtual,
         row.licitacaoStatus,
-        buildStatusLabel(row),
+        buildStatusLabelEnhanced(row),
       ])
     ) {
       return false;
@@ -747,7 +782,9 @@ export async function buildItemDossieDetail(
     const estimatedUnit =
       toNumberOrNull(row.valorEstimadoUnitario) ??
       toNumberOrNull(row.valorUnitarioEstimadoBase);
-    const winnerUnit = toNumberOrNull(row.valorLanceVencedorUnitario);
+    const winnerUnit = hasAwardedResult(row)
+      ? toNumberOrNull(row.valorLanceVencedorUnitario)
+      : null;
     const economyAbsolute =
       estimatedUnit !== null && winnerUnit !== null ? estimatedUnit - winnerUnit : null;
     const economyPercentual =
@@ -777,7 +814,7 @@ export async function buildItemDossieDetail(
         economyAbsolute === null ? null : Number(economyAbsolute.toFixed(2)),
       economiaPercentual:
         economyPercentual === null ? null : Number(economyPercentual.toFixed(2)),
-      statusItem: buildStatusLabel(row),
+      statusItem: buildStatusLabelEnhanced(row),
       dataResultado:
         toDateValue(row.dataHomologacaoItem) ??
         toDateValue(row.dataHomologacaoLicitacao) ??
@@ -1804,7 +1841,7 @@ export async function buildFornecedorDossieDetail(
     if (filters.processoId && row.processoId !== filters.processoId) return false;
     if (filters.itemId && row.itemCatalogoId !== filters.itemId) return false;
     if (contractScopedProcessIds && !contractScopedProcessIds.has(row.processoId)) return false;
-    if (!statusMatches(filters.status, [buildStatusLabel(row), row.licitacaoStatus])) return false;
+    if (!statusMatches(filters.status, [buildStatusLabelEnhanced(row), row.licitacaoStatus])) return false;
     return true;
   });
 
@@ -1953,7 +1990,7 @@ export async function buildFornecedorDossieDetail(
       referenceDate: toDateValue(row.dataResultado),
     });
     entry.hasWinner = true;
-    entry.statuses.push(buildStatusLabel(row));
+    entry.statuses.push(buildStatusLabelEnhanced(row));
   }
 
   const participacoes = Array.from(participationMap.values())
@@ -2043,7 +2080,7 @@ export async function buildFornecedorDossieDetail(
       valorVencedorUnitario: toNumberOrNull(row.valorVencedorUnitario),
       valorTotalVencido: toNumberOrNull(row.valorVencedorTotal),
       dataResultado: toDateValue(row.dataResultado),
-      statusPosterior: buildStatusLabel(row),
+      statusPosterior: buildStatusLabelEnhanced(row),
     }))
     .sort((left, right) => compareNullableDatesDesc(left.dataResultado, right.dataResultado));
 

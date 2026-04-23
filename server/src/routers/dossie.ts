@@ -58,7 +58,11 @@ import {
   users,
   workflowProcesso,
 } from "../db/schema.js";
-import { refreshDossieAutonomoProcesso } from "../lib/dossie-autonomia.js";
+import {
+  buildResultadoItemStatus,
+  hasAwardedResult,
+  refreshDossieAutonomoProcesso,
+} from "../lib/dossie-autonomia.js";
 import {
   buildFornecedorDossieDetail,
   buildItemDossieDetail,
@@ -103,6 +107,17 @@ function normalizeName(value: string | null | undefined) {
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .trim();
+}
+
+function isAwardedItemResult(row: {
+  itemHomologado?: boolean | null;
+  itemDeserto?: boolean | null;
+  itemFracassado?: boolean | null;
+  fornecedorVencedorId?: number | null;
+  fornecedorVencedorNome?: string | null;
+  fornecedorVencedorCnpj?: string | null;
+}) {
+  return hasAwardedResult(row);
 }
 
 type PersonLike = {
@@ -1190,8 +1205,10 @@ export const dossieRouter = router({
           origem: "Resultado BLL",
         });
         if (!entry) continue;
-        entry.itensVencidos += row.itemHomologado ? 1 : 0;
-        entry.valorVencedor += toNumber(row.valorLanceVencedorTotal);
+        entry.itensVencidos += isAwardedItemResult(row) ? 1 : 0;
+        entry.valorVencedor += isAwardedItemResult(row)
+          ? toNumber(row.valorLanceVencedorTotal)
+          : 0;
       }
 
       if (bllRow?.fornecedorNome) {
@@ -1317,7 +1334,7 @@ export const dossieRouter = router({
       >();
       for (const row of itemValuesResolvedRows) {
         const nome = String(row.fornecedorVencedorNome ?? "").trim();
-        if (!nome || !row.itemHomologado) continue;
+        if (!nome || !isAwardedItemResult(row)) continue;
         const key = row.fornecedorVencedorId
           ? `id:${row.fornecedorVencedorId}`
           : `name:${normalizeName(nome)}|${row.fornecedorVencedorCnpj ?? ""}`;
@@ -1343,20 +1360,30 @@ export const dossieRouter = router({
       const totalItensDesertos = itemValuesResolvedRows.filter(
         (row) => row.itemDeserto,
       ).length;
+      const itemValuesAwardedRows = itemValuesResolvedRows.filter((row) =>
+        isAwardedItemResult(row),
+      );
       const valorEstimadoFinanceiro =
         sumValues(
           itemValuesResolvedRows.map((row) => toNumberOrNull(row.valorEstimadoTotal)),
         ) || toNumber(baseRow.valorEstimado);
+      const valorEstimadoEconomiaBase =
+        sumValues(
+          itemValuesAwardedRows.map((row) =>
+            toNumberOrNull(row.valorEstimadoTotal),
+          ),
+        ) ||
+        (itemValuesAwardedRows.length ? 0 : toNumber(baseRow.valorEstimado));
       const valorVencedorFinanceiro =
         sumValues(
-          itemValuesResolvedRows.map((row) =>
+          itemValuesAwardedRows.map((row) =>
             toNumberOrNull(row.valorLanceVencedorTotal),
           ),
-        ) || toNumber(baseRow.valorHomologado);
-      const economiaFinanceira = valorEstimadoFinanceiro - valorVencedorFinanceiro;
+        ) || (itemValuesAwardedRows.length ? 0 : toNumber(baseRow.valorHomologado));
+      const economiaFinanceira = valorEstimadoEconomiaBase - valorVencedorFinanceiro;
       const percentualEconomia =
-        valorEstimadoFinanceiro > 0
-          ? (economiaFinanceira / valorEstimadoFinanceiro) * 100
+        valorEstimadoEconomiaBase > 0
+          ? (economiaFinanceira / valorEstimadoEconomiaBase) * 100
           : null;
       const percentualHomologacao =
         itemsRows.length > 0
@@ -1593,13 +1620,14 @@ export const dossieRouter = router({
             itemFracassado: itemValues?.itemFracassado ?? false,
             motivoFracasso: itemValues?.motivoFracasso ?? null,
             dataHomologacao: toDateValue(itemValues?.dataHomologacao),
-            statusResumo: itemValues?.itemHomologado
-              ? "HOMOLOGADO"
-              : itemValues?.itemFracassado
-                ? "FRACASSADO"
-                : itemValues?.itemDeserto
-                  ? "DESERTO"
-                  : "SEM RESULTADO",
+            statusResumo: buildResultadoItemStatus({
+              itemHomologado: itemValues?.itemHomologado ?? false,
+              itemDeserto: itemValues?.itemDeserto ?? false,
+              itemFracassado: itemValues?.itemFracassado ?? false,
+              fornecedorVencedorId: itemValues?.fornecedorVencedorId ?? null,
+              fornecedorVencedorNome: itemValues?.fornecedorVencedorNome ?? null,
+              fornecedorVencedorCnpj: itemValues?.fornecedorVencedorCnpj ?? null,
+            }),
             origemValores: itemValues?.origemAlteracao ?? null,
             cotacoesPreliminares: preliminaresPorItem.get(row.id) ?? 0,
             cotacoesMercado: cotacoesPorItem.get(row.id) ?? 0,

@@ -9,16 +9,7 @@ import {
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  ilike,
-  inArray,
-  like,
-  or,
-} from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, like, or } from "drizzle-orm";
 
 import {
   ataSessaoApplyResultSchema,
@@ -51,6 +42,7 @@ import {
   workflowProcesso,
 } from "../db/schema.js";
 import {
+  buildAtaSessaoArtifacts,
   runAtaSessaoPipeline,
   slugifyAtaSessaoFileName,
   type AtaSessaoParsedPayload,
@@ -135,7 +127,7 @@ type ProcessItemRow = {
   quantidade: string;
   unidade: string;
   loteId: number | null;
-  loteNumero: number | null;
+  loteNumero: string | number | null;
 };
 
 type ProcessLotRow = {
@@ -184,6 +176,7 @@ type ItemValorRow = {
   itemDeserto: boolean;
   itemFracassado: boolean;
   motivoFracasso: string | null;
+  numeroLote: string | null;
   origemAlteracao: string | null;
 };
 
@@ -324,6 +317,17 @@ function ensureDirectory(path: string) {
   }
 }
 
+function buildAtaPreviewArtifacts(
+  outputDir: string,
+  jsonPath: string | null | undefined,
+  payload: AtaSessaoParsedPayload,
+): AtaSessaoPreview["artifacts"] {
+  if (!jsonPath) {
+    return [];
+  }
+  return buildAtaSessaoArtifacts(outputDir, jsonPath, payload);
+}
+
 export function normalizeAtaIdentifier(value: unknown) {
   return String(value ?? "")
     .normalize("NFD")
@@ -341,6 +345,20 @@ export function normalizeAtaText(value: unknown) {
     .replace(/[^a-z0-9\s]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeLotKey(value: unknown) {
+  const normalized = normalizeAtaText(value)
+    .replace(/\blote\b/g, " ")
+    .trim();
+  if (!normalized) return null;
+
+  const digits = digitsOnly(normalized);
+  if (digits) {
+    return String(Number(digits));
+  }
+
+  return normalized.replace(/\s+/g, " ");
 }
 
 function tokenizeText(value: unknown) {
@@ -437,11 +455,21 @@ function inferYearFromIdentifiers(values: Array<string | null | undefined>) {
 }
 
 function currentPhaseRank(value: string | null | undefined) {
-  return phaseRank[String(value ?? "PREPARACAO").trim().toUpperCase()] ?? 0;
+  return (
+    phaseRank[
+      String(value ?? "PREPARACAO")
+        .trim()
+        .toUpperCase()
+    ] ?? 0
+  );
 }
 
 function isAtaOrigin(value: string | null | undefined) {
-  return String(value ?? "").trim().toUpperCase() === "ATA_SESSAO";
+  return (
+    String(value ?? "")
+      .trim()
+      .toUpperCase() === "ATA_SESSAO"
+  );
 }
 
 function buildAtaOriginRef(runId: number) {
@@ -449,7 +477,10 @@ function buildAtaOriginRef(runId: number) {
 }
 
 function isAtaOriginRef(value: string | null | undefined) {
-  return String(value ?? "").trim().toUpperCase().startsWith("ATA_SESSAO:");
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .startsWith("ATA_SESSAO:");
 }
 
 function normalizeDocumentDraft(
@@ -463,7 +494,9 @@ function normalizeDocumentDraft(
     dataReferencia: draft.dataReferencia?.trim() || undefined,
     publico: Boolean(draft.publico),
     palavrasChave: Array.from(
-      new Set((draft.palavrasChave ?? []).map((item) => item.trim()).filter(Boolean)),
+      new Set(
+        (draft.palavrasChave ?? []).map((item) => item.trim()).filter(Boolean),
+      ),
     ),
     restritoA: Array.from(new Set(draft.restritoA ?? [])),
   };
@@ -471,10 +504,7 @@ function normalizeDocumentDraft(
 
 function inferSuggestedPhaseFromStatus(status: string | null | undefined) {
   const normalized = normalizeAtaText(status).toUpperCase();
-  if (
-    normalized.includes("ADJUDIC") ||
-    normalized.includes("EM ADJUDIC")
-  ) {
+  if (normalized.includes("ADJUDIC") || normalized.includes("EM ADJUDIC")) {
     return "HOMOLOGACAO";
   }
   if (normalized.includes("RECURSO") || normalized.includes("CONTRARRAZ")) {
@@ -702,7 +732,10 @@ function buildSuggestionScore(
     return null;
   }
 
-  const extractedYear = inferYearFromIdentifiers([edital, processoAdministrativo]);
+  const extractedYear = inferYearFromIdentifiers([
+    edital,
+    processoAdministrativo,
+  ]);
   const candidateYear = candidate.anoReferencia;
   const yearDistance =
     extractedYear && candidateYear
@@ -774,7 +807,11 @@ export function buildAtaSessaoSuggestedProcesses(params: {
     .map(({ _sort, ...item }) => item);
 }
 
-async function writePreviewFile(runId: number, outputDir: string, preview: AtaSessaoPreview) {
+async function writePreviewFile(
+  runId: number,
+  outputDir: string,
+  preview: AtaSessaoPreview,
+) {
   ensureDirectory(outputDir);
   const previewPath = join(outputDir, `ata-sync-preview-${runId}.json`);
   writeFileSync(previewPath, JSON.stringify(preview, null, 2), "utf-8");
@@ -870,7 +907,10 @@ async function loadProcessState(
           origemReferencia: propostasLicitacao.origemReferencia,
         })
         .from(propostasLicitacao)
-        .innerJoin(licitantes, eq(licitantes.id, propostasLicitacao.licitanteId))
+        .innerJoin(
+          licitantes,
+          eq(licitantes.id, propostasLicitacao.licitanteId),
+        )
         .where(eq(licitantes.licitacaoId, licitacao.id))
     : [];
 
@@ -885,16 +925,30 @@ async function loadProcessState(
           fornecedorVencedorCnpj: itensProcessoValores.fornecedorVencedorCnpj,
           valorLanceVencedorUnitario:
             itensProcessoValores.valorLanceVencedorUnitario,
-          valorLanceVencedorTotal:
-            itensProcessoValores.valorLanceVencedorTotal,
+          valorLanceVencedorTotal: itensProcessoValores.valorLanceVencedorTotal,
           itemDeserto: itensProcessoValores.itemDeserto,
           itemFracassado: itensProcessoValores.itemFracassado,
           motivoFracasso: itensProcessoValores.motivoFracasso,
+          numeroLote: itensProcessoValores.numeroLote,
           origemAlteracao: itensProcessoValores.origemAlteracao,
         })
         .from(itensProcessoValores)
         .where(inArray(itensProcessoValores.itemProcessoId, itemIds))
     : [];
+
+  const lotKeyByItemId = new Map<number, string>();
+  for (const itemValue of itemValues) {
+    const lotKey = normalizeLotKey(itemValue.numeroLote);
+    if (lotKey) {
+      lotKeyByItemId.set(itemValue.itemProcessoId, lotKey);
+    }
+  }
+
+  const resolvedItems = items.map((item) => ({
+    ...item,
+    loteNumero:
+      normalizeLotKey(item.loteNumero) ?? lotKeyByItemId.get(item.id) ?? null,
+  }));
 
   const resourceRows = licitacao
     ? await db
@@ -914,7 +968,7 @@ async function loadProcessState(
     process,
     currentPhase: licitacao?.statusLicitacao ?? "PREPARACAO",
     licitacaoId: licitacao?.id ?? null,
-    items,
+    items: resolvedItems,
     lots: processLots,
     suppliers,
     licitantes: licitantesRows,
@@ -931,15 +985,19 @@ export function resolveAtaLotItemMatch(
 ): LotItemMatch {
   const parsedItems = Array.isArray(lot.itens) ? lot.itens : [];
   const primaryParsedItem = parsedItems[0] ?? null;
+  const lotKey = normalizeLotKey(lot.numero_lote);
+  const referenceTexts = [primaryParsedItem?.descricao, lot.titulo].filter(
+    Boolean,
+  );
   const candidates: Array<{
     item: ProcessItemRow;
     score: number;
     reason: string;
   }> = [];
 
-  const directLotItems = items.filter(
-    (item) => item.loteNumero === Number(lot.numero_lote),
-  );
+  const directLotItems = lotKey
+    ? items.filter((item) => normalizeLotKey(item.loteNumero) === lotKey)
+    : [];
   if (directLotItems.length === 1) {
     return {
       status: "MATCHED",
@@ -957,8 +1015,23 @@ export function resolveAtaLotItemMatch(
 
   const parsedItemNumero = Number(primaryParsedItem?.item_numero ?? 0);
   if (parsedItemNumero > 0) {
-    const exactItem = items.find((item) => item.numeroItem === parsedItemNumero);
-    if (exactItem) {
+    const exactItem = items.find(
+      (item) => item.numeroItem === parsedItemNumero,
+    );
+    const exactItemTextScore = exactItem
+      ? Math.max(
+          ...referenceTexts.map((value) =>
+            ataTokenSimilarity(value, exactItem.descricao),
+          ),
+          0,
+        )
+      : 0;
+    const canTrustExactItemNumber =
+      Boolean(exactItem) &&
+      (normalizeLotKey(exactItem?.loteNumero) === lotKey ||
+        parsedItemNumero === Number(lot.numero_lote) ||
+        exactItemTextScore >= 0.75);
+    if (exactItem && canTrustExactItemNumber) {
       return {
         status: "MATCHED",
         matchedItem: exactItem,
@@ -979,19 +1052,15 @@ export function resolveAtaLotItemMatch(
       };
     }
   }
-
-  const referenceTexts = [
-    primaryParsedItem?.descricao,
-    lot.titulo,
-  ].filter(Boolean);
-
   for (const item of items) {
     const textScore = Math.max(
-      ...referenceTexts.map((value) => ataTokenSimilarity(value, item.descricao)),
+      ...referenceTexts.map((value) =>
+        ataTokenSimilarity(value, item.descricao),
+      ),
       0,
     );
     const lotBonus =
-      item.loteNumero === Number(lot.numero_lote) && item.loteNumero !== null
+      normalizeLotKey(item.loteNumero) === lotKey && item.loteNumero !== null
         ? 0.1
         : 0;
     const finalScore = Math.min(1, textScore + lotBonus);
@@ -1009,8 +1078,7 @@ export function resolveAtaLotItemMatch(
 
   candidates.sort(
     (left, right) =>
-      right.score - left.score ||
-      left.item.numeroItem - right.item.numeroItem,
+      right.score - left.score || left.item.numeroItem - right.item.numeroItem,
   );
   const best = candidates[0] ?? null;
   const second = candidates[1] ?? null;
@@ -1064,8 +1132,9 @@ function resolveSupplierPlan(
 
   if (normalizedDocument) {
     const exactByDocument =
-      suppliers.find((supplier) => digitsOnly(supplier.cnpj) === normalizedDocument) ??
-      null;
+      suppliers.find(
+        (supplier) => digitsOnly(supplier.cnpj) === normalizedDocument,
+      ) ?? null;
     if (exactByDocument) {
       return {
         key,
@@ -1123,7 +1192,7 @@ function computeUnitPrice(totalValue: number | null, quantity: string) {
 function buildLotReferenceTotal(lot: ParsedLot) {
   const bestTotal = toNumber(lot.melhor_lance);
   if (bestTotal !== null) return bestTotal;
-  const primaryItem = Array.isArray(lot.itens) ? lot.itens[0] ?? null : null;
+  const primaryItem = Array.isArray(lot.itens) ? (lot.itens[0] ?? null) : null;
   return (
     toNumber(primaryItem?.valor_total) ??
     toNumber(primaryItem?.valor_unitario_estimado) ??
@@ -1146,9 +1215,14 @@ function buildLicitanteKey(supplierKey: string) {
 }
 
 function findWinnerParticipant(lot: ParsedLot) {
-  const participants = Array.isArray(lot.participantes) ? lot.participantes : [];
+  const participants = Array.isArray(lot.participantes)
+    ? lot.participantes
+    : [];
   const classificados = participants
-    .filter((participant) => normalizeAtaText(participant.section) === "classificacao")
+    .filter(
+      (participant) =>
+        normalizeAtaText(participant.section) === "classificacao",
+    )
     .sort(
       (left, right) =>
         Number(left.ranking ?? 9999) - Number(right.ranking ?? 9999) ||
@@ -1200,6 +1274,7 @@ async function buildAtaPreviewAnalysis(params: {
   documentId: number | null;
   discoveryMode: AtaDiscoveryMode | null;
   payload: AtaSessaoParsedPayload;
+  artifacts: AtaSessaoPreview["artifacts"];
 }): Promise<AtaAnalysis> {
   const state = await loadProcessState(params.db, params.processId);
   const previewIssues: AtaSessaoPreview["blockingIssues"] = [];
@@ -1207,7 +1282,10 @@ async function buildAtaPreviewAnalysis(params: {
     ? [...params.payload.warnings]
     : [];
   const supplierPlans = new Map<string, SupplierPlan>();
-  const licitanteCreatePlans = new Map<string, { key: string; supplierKey: string }>();
+  const licitanteCreatePlans = new Map<
+    string,
+    { key: string; supplierKey: string }
+  >();
   const allLotAnalysis: LotAnalysis[] = [];
   let highestSuggestedPhase: string | null = null;
 
@@ -1215,6 +1293,7 @@ async function buildAtaPreviewAnalysis(params: {
     ? (params.payload.lotes as ParsedLot[])
     : []) {
     const lot = rawLot;
+    const lotKey = normalizeLotKey(lot.numero_lote);
     const issues: AtaSessaoPreview["blockingIssues"] = [];
     const actions: string[] = [];
     const proposalPlans: ProposalPlan[] = [];
@@ -1223,14 +1302,15 @@ async function buildAtaPreviewAnalysis(params: {
     const localSupplierPlans = new Map<string, SupplierPlan>();
     const match = resolveAtaLotItemMatch(lot, state.items);
     const lotRow = state.lots.find(
-      (item) => item.numeroLote === Number(lot.numero_lote),
+      (item) => normalizeLotKey(item.numeroLote) === lotKey,
     );
     const phaseFromLot = inferSuggestedPhaseFromStatus(lot.status);
 
     if (
       phaseFromLot &&
       (!highestSuggestedPhase ||
-        currentPhaseRank(phaseFromLot) > currentPhaseRank(highestSuggestedPhase))
+        currentPhaseRank(phaseFromLot) >
+          currentPhaseRank(highestSuggestedPhase))
     ) {
       highestSuggestedPhase = phaseFromLot;
     }
@@ -1265,13 +1345,9 @@ async function buildAtaPreviewAnalysis(params: {
 
     const winnerParticipant = findWinnerParticipant(lot);
     const winnerName =
-      lot.vencedor?.trim() ||
-      winnerParticipant?.razao_social?.trim() ||
-      null;
+      lot.vencedor?.trim() || winnerParticipant?.razao_social?.trim() || null;
     const winnerDocument =
-      lot.cnpj_vencedor?.trim() ||
-      winnerParticipant?.documento?.trim() ||
-      null;
+      lot.cnpj_vencedor?.trim() || winnerParticipant?.documento?.trim() || null;
     const winnerSupplierPlan = winnerName
       ? resolveSupplierPlan(state.suppliers, winnerName, winnerDocument)
       : null;
@@ -1280,10 +1356,14 @@ async function buildAtaPreviewAnalysis(params: {
       localSupplierPlans.set(winnerSupplierPlan.key, winnerSupplierPlan);
     }
 
-    const participants = Array.isArray(lot.participantes) ? lot.participantes : [];
+    const participants = Array.isArray(lot.participantes)
+      ? lot.participantes
+      : [];
     for (const participant of participants) {
       const section = normalizeAtaText(participant.section);
-      if (!["classificacao", "desclassificados", "movimentos"].includes(section)) {
+      if (
+        !["classificacao", "desclassificados", "movimentos"].includes(section)
+      ) {
         continue;
       }
       const supplierPlan = resolveSupplierPlan(
@@ -1300,18 +1380,20 @@ async function buildAtaPreviewAnalysis(params: {
         actions.push(`Criar fornecedor ${supplierPlan.name}`);
       }
       const licitanteKey = buildLicitanteKey(supplierPlan.key);
-      const existingLicitante =
-        supplierPlan.existing
-          ? state.licitantes.find(
-              (item) => item.fornecedorId === supplierPlan.existing?.id,
-            ) ?? null
-          : null;
+      const existingLicitante = supplierPlan.existing
+        ? (state.licitantes.find(
+            (item) => item.fornecedorId === supplierPlan.existing?.id,
+          ) ?? null)
+        : null;
       if (!existingLicitante) {
         licitanteCreatePlans.set(licitanteKey, {
           key: licitanteKey,
           supplierKey: supplierPlan.key,
         });
-      } else if (!existingLicitante.ativo && !isAtaOrigin(existingLicitante.origemAtualizacao)) {
+      } else if (
+        !existingLicitante.ativo &&
+        !isAtaOrigin(existingLicitante.origemAtualizacao)
+      ) {
         issues.push(
           buildPreviewIssue(
             "LICITANTE_INATIVO_MANUAL",
@@ -1325,7 +1407,8 @@ async function buildAtaPreviewAnalysis(params: {
       }
     }
 
-    const supportsValueSync = match.status === "MATCHED" && match.supportsValueSync;
+    const supportsValueSync =
+      match.status === "MATCHED" && match.supportsValueSync;
     if (supportsValueSync && match.matchedItem) {
       const matchedItem = match.matchedItem;
       const quantity = matchedItem.quantidade;
@@ -1347,20 +1430,18 @@ async function buildAtaPreviewAnalysis(params: {
           participant.documento,
         );
         const licitanteKey = buildLicitanteKey(supplierPlan.key);
-        const existingLicitante =
-          supplierPlan.existing
-            ? state.licitantes.find(
-                (item) => item.fornecedorId === supplierPlan.existing?.id,
-              ) ?? null
-            : null;
-        const existingProposal =
-          existingLicitante
-            ? state.proposals.find(
-                (proposal) =>
-                  proposal.licitanteId === existingLicitante.id &&
-                  proposal.itemId === matchedItem.id,
-              ) ?? null
-            : null;
+        const existingLicitante = supplierPlan.existing
+          ? (state.licitantes.find(
+              (item) => item.fornecedorId === supplierPlan.existing?.id,
+            ) ?? null)
+          : null;
+        const existingProposal = existingLicitante
+          ? (state.proposals.find(
+              (proposal) =>
+                proposal.licitanteId === existingLicitante.id &&
+                proposal.itemId === matchedItem.id,
+            ) ?? null)
+          : null;
         const totalValue =
           toNumber(participant.oferta_final) ??
           toNumber(participant.oferta_inicial);
@@ -1439,11 +1520,11 @@ async function buildAtaPreviewAnalysis(params: {
         const rawTimestamp =
           movementParticipant.raw_line?.slice(0, 19) ??
           (Array.isArray(lot.movimentos)
-            ? lot.movimentos.find((item) =>
+            ? (lot.movimentos.find((item) =>
                 String(item.raw_text ?? "").includes(
                   String(movementParticipant.razao_social ?? ""),
                 ),
-              )?.timestamp ?? null
+              )?.timestamp ?? null)
             : null);
         const parsedTimestamp =
           parseAtaTimestamp(rawTimestamp) ??
@@ -1489,12 +1570,15 @@ async function buildAtaPreviewAnalysis(params: {
         issues.push(
           buildPreviewIssue(
             "RESULTADO_MANUAL_DIVERGENTE",
-            `O resultado manual do item associado ao lote ${lot.numero_lote} diverge da ata.`,
-            "BLOCKING",
+            `O resultado manual do item associado ao lote ${lot.numero_lote} diverge da ata e serÃ¡ sobrescrito com rastreabilidade.`,
+            "WARNING",
             lot.numero_lote,
             "ITEM_RESULTADO",
             matchedItem.descricao,
           ),
+        );
+        actions.push(
+          `O resultado manual do item ${matchedItem.numeroItem} serÃ¡ sobrescrito pela ata com rastreabilidade.`,
         );
       }
 
@@ -1542,15 +1626,16 @@ async function buildAtaPreviewAnalysis(params: {
         shouldSetWinnerHabilitado,
       };
       allLotAnalysis.push(lotAnalysis);
-      previewIssues.push(...issues.filter((issue) => issue.severity === "BLOCKING"));
+      previewIssues.push(
+        ...issues.filter((issue) => issue.severity === "BLOCKING"),
+      );
       continue;
     }
 
     if (normalizeAtaText(lot.status).includes("recurso")) {
-      const firstMovementDate =
-        Array.isArray(lot.movimentos)
-          ? parseAtaTimestamp(lot.movimentos[0]?.timestamp)
-          : null;
+      const firstMovementDate = Array.isArray(lot.movimentos)
+        ? parseAtaTimestamp(lot.movimentos[0]?.timestamp)
+        : null;
       const recurringParticipant = participants.find((participant) => {
         const participantName = normalizeAtaText(participant.razao_social);
         return Array.isArray(lot.movimentos)
@@ -1567,27 +1652,29 @@ async function buildAtaPreviewAnalysis(params: {
         );
         const resourceExisting =
           supplierPlan.existing && state.licitacaoId
-            ? state.resources.find((resource) => {
+            ? (state.resources.find((resource) => {
                 const licitante = state.licitantes.find(
                   (item) => item.id === resource.licitanteId,
                 );
                 return licitante?.fornecedorId === supplierPlan.existing?.id;
-              }) ?? null
+              }) ?? null)
             : null;
         recursoPlans.push({
           licitanteKey: buildLicitanteKey(supplierPlan.key),
-          dataInterposicao:
-            (firstMovementDate ?? new Date()).toISOString().slice(0, 10),
-          dataJulgamento:
-            normalizeAtaText(lot.status).includes("julgamento")
-              ? (firstMovementDate ?? new Date()).toISOString().slice(0, 10)
-              : null,
+          dataInterposicao: (firstMovementDate ?? new Date())
+            .toISOString()
+            .slice(0, 10),
+          dataJulgamento: normalizeAtaText(lot.status).includes("julgamento")
+            ? (firstMovementDate ?? new Date()).toISOString().slice(0, 10)
+            : null,
           resultado: "PENDENTE",
           descricao: `Recurso importado automaticamente a partir do lote ${lot.numero_lote} da ata.`,
           decisao: null,
           existing: resourceExisting,
         });
-        actions.push(`1 recurso será sincronizado para o lote ${lot.numero_lote}`);
+        actions.push(
+          `1 recurso será sincronizado para o lote ${lot.numero_lote}`,
+        );
       } else {
         warnings.push(
           `Lote ${lot.numero_lote} está em fase recursal, mas a ata não identificou o licitante recorrente.`,
@@ -1610,7 +1697,9 @@ async function buildAtaPreviewAnalysis(params: {
       shouldSetWinnerHabilitado: false,
     };
     allLotAnalysis.push(lotAnalysis);
-    previewIssues.push(...issues.filter((issue) => issue.severity === "BLOCKING"));
+    previewIssues.push(
+      ...issues.filter((issue) => issue.severity === "BLOCKING"),
+    );
   }
 
   const uniqueSuppliersToCreate = Array.from(supplierPlans.values()).filter(
@@ -1623,13 +1712,16 @@ async function buildAtaPreviewAnalysis(params: {
   const results = allLotAnalysis.flatMap((lot) =>
     lot.itemValuePlan ? [lot.itemValuePlan] : [],
   );
-  const lotsToCreate = allLotAnalysis.filter((lot) => lot.lotNeedsCreate).length;
+  const lotsToCreate = allLotAnalysis.filter(
+    (lot) => lot.lotNeedsCreate,
+  ).length;
 
   const preview = ataSessaoPreviewSchema.parse({
     runId: params.runId,
     generatedAt: params.payload.generated_at,
     processId: params.processId,
     documentId: params.documentId,
+    artifacts: params.artifacts,
     discoveryMode: params.discoveryMode,
     process: state.process,
     document: params.documentId
@@ -1656,12 +1748,14 @@ async function buildAtaPreviewAnalysis(params: {
       current: state.currentPhase,
       suggested:
         highestSuggestedPhase &&
-        currentPhaseRank(highestSuggestedPhase) > currentPhaseRank(state.currentPhase)
+        currentPhaseRank(highestSuggestedPhase) >
+          currentPhaseRank(state.currentPhase)
           ? highestSuggestedPhase
           : null,
       willAdvance:
         Boolean(highestSuggestedPhase) &&
-        currentPhaseRank(highestSuggestedPhase) > currentPhaseRank(state.currentPhase),
+        currentPhaseRank(highestSuggestedPhase) >
+          currentPhaseRank(state.currentPhase),
     },
     counts: {
       fornecedoresCriar: uniqueSuppliersToCreate.length,
@@ -1713,7 +1807,8 @@ async function createDocumentoFromAtaTempFile(params: {
   const processFolder = join(uploadsRoot, `processo-${params.processoId}`);
   ensureDirectory(processFolder);
 
-  const extension = extname(params.originalFileName || params.sourceAbsolutePath) || ".pdf";
+  const extension =
+    extname(params.originalFileName || params.sourceAbsolutePath) || ".pdf";
   const baseName =
     slugifyAtaSessaoFileName(
       params.originalFileName.replace(/\.[^.]+$/, "") ||
@@ -1731,7 +1826,10 @@ async function createDocumentoFromAtaTempFile(params: {
     .orderBy(desc(documentos.versao))
     .limit(1);
   const nextVersion = Number(latest?.versao ?? 0) + 1;
-  const relativePath = relative(uploadsRoot, targetAbsolutePath).replace(/\\/g, "/");
+  const relativePath = relative(uploadsRoot, targetAbsolutePath).replace(
+    /\\/g,
+    "/",
+  );
   const normalizedDraft = normalizeDocumentDraft(params.draft);
 
   const [created] = await params.db
@@ -1778,9 +1876,13 @@ function readParsedPayload(parsedJsonPath: string | null | undefined) {
   }
   const absolutePath = resolve(parsedJsonPath);
   if (!existsSync(absolutePath)) {
-    throw new Error(`JSON consolidado da ata não encontrado em ${absolutePath}.`);
+    throw new Error(
+      `JSON consolidado da ata não encontrado em ${absolutePath}.`,
+    );
   }
-  return JSON.parse(readFileSync(absolutePath, "utf-8")) as AtaSessaoParsedPayload;
+  return JSON.parse(
+    readFileSync(absolutePath, "utf-8"),
+  ) as AtaSessaoParsedPayload;
 }
 
 async function ensureLicitacaoRecord(db: DbClient, processoId: number) {
@@ -1835,9 +1937,7 @@ async function resetPreviousAtaSyncData(
           eq(propostasLicitacao.origemAtualizacao, "ATA_SESSAO"),
         ),
       );
-    await db
-      .delete(licitantes)
-      .where(inArray(licitantes.id, licitanteIds));
+    await db.delete(licitantes).where(inArray(licitantes.id, licitanteIds));
   }
 
   const processItemIds = (
@@ -1917,8 +2017,10 @@ async function applyAtaAnalysis(params: {
       processoId: params.processId,
       numeroLote: lotAnalysis.lot.numero_lote,
       descricao: lotAnalysis.lot.titulo,
-      valorEstimado: buildLotReferenceTotal(lotAnalysis.lot)?.toFixed(2) ?? null,
-      valorHomologado: buildLotReferenceTotal(lotAnalysis.lot)?.toFixed(2) ?? null,
+      valorEstimado:
+        buildLotReferenceTotal(lotAnalysis.lot)?.toFixed(2) ?? null,
+      valorHomologado:
+        buildLotReferenceTotal(lotAnalysis.lot)?.toFixed(2) ?? null,
       origemAtualizacao: "ATA_SESSAO",
       origemReferencia: buildAtaOriginRef(params.runId),
       criadoEm: new Date(),
@@ -2000,8 +2102,7 @@ async function applyAtaAnalysis(params: {
       const licitanteId = licitanteIdByKey.get(proposal.licitanteKey);
       const item = itemById.get(proposal.itemId);
       if (!licitanteId || !item) continue;
-      const total =
-        proposal.valorUnitario * (toNumber(item.quantidade) ?? 0);
+      const total = proposal.valorUnitario * (toNumber(item.quantidade) ?? 0);
 
       const [created] = await params.db
         .insert(propostasLicitacao)
@@ -2020,13 +2121,21 @@ async function applyAtaAnalysis(params: {
           atualizadoEm: new Date(),
         })
         .returning({ id: propostasLicitacao.id });
-      proposalIdByKey.set(`${proposal.licitanteKey}|${proposal.itemId}`, created.id);
+      proposalIdByKey.set(
+        `${proposal.licitanteKey}|${proposal.itemId}`,
+        created.id,
+      );
     }
   }
 
   for (const lotAnalysis of params.analysis.lots) {
-    if (lotAnalysis.shouldSetWinnerHabilitado && lotAnalysis.winnerLicitanteKey) {
-      const winnerLicitanteId = licitanteIdByKey.get(lotAnalysis.winnerLicitanteKey);
+    if (
+      lotAnalysis.shouldSetWinnerHabilitado &&
+      lotAnalysis.winnerLicitanteKey
+    ) {
+      const winnerLicitanteId = licitanteIdByKey.get(
+        lotAnalysis.winnerLicitanteKey,
+      );
       if (winnerLicitanteId) {
         await params.db
           .update(licitantes)
@@ -2041,7 +2150,9 @@ async function applyAtaAnalysis(params: {
 
   for (const lotAnalysis of params.analysis.lots) {
     for (const lance of lotAnalysis.lancePlans) {
-      const proposalId = proposalIdByKey.get(`${lance.licitanteKey}|${lance.itemId}`);
+      const proposalId = proposalIdByKey.get(
+        `${lance.licitanteKey}|${lance.itemId}`,
+      );
       if (!proposalId) continue;
       await params.db.insert(lancesLicitacao).values({
         propostaId: proposalId,
@@ -2149,19 +2260,26 @@ async function applyAtaAnalysis(params: {
   };
   if (
     params.payload.edital?.trim() &&
-    !normalizeAtaIdentifier((await loadProcessPreviewBase(params.db, params.processId)).numeroEdital)
+    !normalizeAtaIdentifier(
+      (await loadProcessPreviewBase(params.db, params.processId)).numeroEdital,
+    )
   ) {
     processPatch.numeroEdital = params.payload.edital.trim();
   }
   if (
     params.payload.processo_administrativo?.trim() &&
     !normalizeAtaIdentifier(
-      (await loadProcessPreviewBase(params.db, params.processId)).numeroAdministrativo,
+      (await loadProcessPreviewBase(params.db, params.processId))
+        .numeroAdministrativo,
     )
   ) {
-    processPatch.numeroAdministrativo = params.payload.processo_administrativo.trim();
+    processPatch.numeroAdministrativo =
+      params.payload.processo_administrativo.trim();
   }
-  await params.db.update(processos).set(processPatch).where(eq(processos.id, params.processId));
+  await params.db
+    .update(processos)
+    .set(processPatch)
+    .where(eq(processos.id, params.processId));
 
   await appendAtaMovement(
     params.db,
@@ -2195,6 +2313,11 @@ export async function discoverAtaSessaoProcess(params: {
     edital: pipeline.payload.edital ?? null,
     processoAdministrativo: pipeline.payload.processo_administrativo ?? null,
   });
+  const artifacts = buildAtaPreviewArtifacts(
+    pipeline.outputDir,
+    pipeline.jsonPath,
+    pipeline.payload,
+  );
   const providedProcess = params.providedProcessoId
     ? await loadProcessPreviewBase(db, params.providedProcessoId)
     : null;
@@ -2233,6 +2356,7 @@ export async function discoverAtaSessaoProcess(params: {
       warnings: pipeline.payload.summary.warnings,
       parsingErrors: pipeline.payload.summary.parsing_errors,
     },
+    artifacts,
     metadata: {
       edital: pipeline.payload.edital ?? null,
       processoAdministrativo: pipeline.payload.processo_administrativo ?? null,
@@ -2275,8 +2399,17 @@ export async function createAtaSessaoPreviewFromDiscovery(
     documentId: document.id,
     discoveryMode,
     payload,
+    artifacts: buildAtaPreviewArtifacts(
+      run.outputDir ?? reportsRoot,
+      run.parsedJsonPath,
+      payload,
+    ),
   });
-  const previewJsonPath = await writePreviewFile(run.id, run.outputDir ?? reportsRoot, analysis.preview);
+  const previewJsonPath = await writePreviewFile(
+    run.id,
+    run.outputDir ?? reportsRoot,
+    analysis.preview,
+  );
 
   await db
     .update(licitacaoAtaSyncRuns)
@@ -2307,7 +2440,8 @@ export async function createAtaSessaoPreviewFromDocumento(
       documentoId: input.documentoId,
       status: "PREVIEW",
       modoDescoberta: "PROCESSO_EXPLICITO",
-      arquivoOriginal: pipeline.sourceFile.split(/[\\/]/).pop() ?? "ata-sessao.pdf",
+      arquivoOriginal:
+        pipeline.sourceFile.split(/[\\/]/).pop() ?? "ata-sessao.pdf",
       arquivoFontePath: pipeline.sourceFile,
       parsedJsonPath: pipeline.jsonPath,
       outputDir: pipeline.outputDir,
@@ -2327,8 +2461,17 @@ export async function createAtaSessaoPreviewFromDocumento(
     documentId: input.documentoId,
     discoveryMode: "PROCESSO_EXPLICITO",
     payload: pipeline.payload,
+    artifacts: buildAtaPreviewArtifacts(
+      pipeline.outputDir,
+      pipeline.jsonPath,
+      pipeline.payload,
+    ),
   });
-  const previewJsonPath = await writePreviewFile(run.id, pipeline.outputDir, analysis.preview);
+  const previewJsonPath = await writePreviewFile(
+    run.id,
+    pipeline.outputDir,
+    analysis.preview,
+  );
 
   await db
     .update(licitacaoAtaSyncRuns)
@@ -2348,7 +2491,9 @@ export async function applyAtaSessaoPreview(params: {
   const db = requireDb();
   const run = await loadRun(params.runId);
   if (!run.processoId) {
-    throw new Error("A execução da ata ainda não está vinculada a um processo.");
+    throw new Error(
+      "A execução da ata ainda não está vinculada a um processo.",
+    );
   }
   const payload = readParsedPayload(run.parsedJsonPath);
   const analysis = await buildAtaPreviewAnalysis({
@@ -2358,6 +2503,11 @@ export async function applyAtaSessaoPreview(params: {
     documentId: run.documentoId ?? null,
     discoveryMode: (run.modoDescoberta as AtaDiscoveryMode | null) ?? null,
     payload,
+    artifacts: buildAtaPreviewArtifacts(
+      run.outputDir ?? reportsRoot,
+      run.parsedJsonPath,
+      payload,
+    ),
   });
 
   if (analysis.preview.blockingIssues.length) {

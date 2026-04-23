@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+
 import {
   desc,
   eq,
@@ -10,6 +12,7 @@ import {
   contratos,
   contratosPncp,
   fornecedores,
+  licitacaoAtaSyncRuns,
   importacaoBllItensEspecificados,
   importacaoBllLotes,
   importacaoBllProcessos,
@@ -68,6 +71,14 @@ function textSimilarity(left: unknown, right: unknown) {
 function digitsOnly(value: unknown) {
   const digits = String(value ?? "").replace(/\D+/g, "");
   return digits || null;
+}
+
+function normalizeLotKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\D+/g, "");
+  if (digits) return String(Number(digits));
+  return raw.toLowerCase();
 }
 
 function firstNumber(...values: unknown[]) {
@@ -224,6 +235,602 @@ type BuiltItemValue = {
   statusResumo: string;
 };
 
+type BuiltItemValueMergeSource = Partial<BuiltItemValue>;
+
+type ResultadoItemLike = {
+  itemHomologado?: boolean | null;
+  itemDeserto?: boolean | null;
+  itemFracassado?: boolean | null;
+  fornecedorVencedorId?: number | null;
+  fornecedorVencedorNome?: string | null;
+  fornecedorVencedorCnpj?: string | null;
+  valorLanceVencedorUnitario?: unknown;
+  valorLanceVencedorTotal?: unknown;
+  statusResumo?: string | null;
+};
+
+type AtaParsedLotItem = {
+  item_numero?: string | null;
+  descricao?: string | null;
+  quantidade?: number | null;
+  valor_unitario?: number | null;
+  valor_total?: number | null;
+  valor_unitario_estimado?: number | null;
+};
+
+type AtaParsedLotParticipant = {
+  section?: string | null;
+  ranking?: number | null;
+  razao_social?: string | null;
+  documento?: string | null;
+  oferta_inicial?: number | null;
+  oferta_final?: number | null;
+};
+
+type AtaParsedLot = {
+  numero_lote: number;
+  status?: string | null;
+  titulo?: string | null;
+  itens?: AtaParsedLotItem[];
+  participantes?: AtaParsedLotParticipant[];
+  vencedor?: string | null;
+  cnpj_vencedor?: string | null;
+  melhor_lance?: number | null;
+  motivo_falha?: string | null;
+};
+
+type AtaParsedPayload = {
+  lotes?: AtaParsedLot[];
+};
+
+type AtaFallbackProcessItem = {
+  id: number;
+  numeroItem: number;
+  loteId: number | null;
+  loteNumero: string | number | null;
+  descricao: string;
+  quantidade: unknown;
+  unidade: string;
+  valorUnitarioEstimado: unknown;
+  valorTotalEstimado: unknown;
+};
+
+function computeUnitPrice(totalValue: number | null, quantity: unknown) {
+  if (totalValue === null) return null;
+  const quantityNumber = toNumber(quantity);
+  if (!quantityNumber || quantityNumber <= 0) return null;
+  return totalValue / quantityNumber;
+}
+
+function buildAwardEconomyMetrics(
+  valorEstimadoTotal: number | null,
+  valorLanceVencedorTotal: number | null,
+) {
+  const economiaObtida =
+    valorEstimadoTotal !== null && valorLanceVencedorTotal !== null
+      ? roundMoney(valorEstimadoTotal - valorLanceVencedorTotal)
+      : null;
+  const percentualDesconto =
+    valorEstimadoTotal !== null &&
+    valorEstimadoTotal > 0 &&
+    valorLanceVencedorTotal !== null
+      ? roundPercent(
+          ((valorEstimadoTotal - valorLanceVencedorTotal) / valorEstimadoTotal) *
+            100,
+        )
+      : null;
+
+  return {
+    economiaObtida,
+    percentualDesconto,
+  };
+}
+
+export function hasAwardedResult(row: ResultadoItemLike) {
+  if (row.itemFracassado || row.itemDeserto) return false;
+
+  const fornecedorNome = String(row.fornecedorVencedorNome ?? "").trim();
+  const fornecedorDocumento = String(row.fornecedorVencedorCnpj ?? "").trim();
+  if (row.itemHomologado) return true;
+  if (row.fornecedorVencedorId !== null && row.fornecedorVencedorId !== undefined) {
+    return true;
+  }
+  return Boolean(fornecedorNome || fornecedorDocumento);
+}
+
+export function buildResultadoItemStatus(
+  row: ResultadoItemLike,
+  fallback = "SEM RESULTADO",
+) {
+  if (row.itemHomologado) return "HOMOLOGADO";
+  if (row.itemFracassado) return "FRACASSADO";
+  if (row.itemDeserto) return "DESERTO";
+  if (hasAwardedResult(row)) {
+    const explicitStatus = normalizeLoteStatus(row.statusResumo);
+    return explicitStatus !== "NAO_IDENTIFICADO" ? explicitStatus : "ADJUDICADO";
+  }
+  return fallback;
+}
+
+function matchAtaLotToItem(
+  lot: AtaParsedLot,
+  items: AtaFallbackProcessItem[],
+): {
+  matchedItem: AtaFallbackProcessItem | null;
+  score: number;
+} {
+  const parsedItems = Array.isArray(lot.itens) ? lot.itens : [];
+  const primaryParsedItem = parsedItems[0] ?? null;
+  const lotKey = normalizeLotKey(lot.numero_lote);
+  const referenceTexts = [primaryParsedItem?.descricao, lot.titulo].filter(
+    Boolean,
+  );
+  const directLotItems = lotKey
+    ? items.filter((item) => normalizeLotKey(item.loteNumero) === lotKey)
+    : [];
+
+  if (directLotItems.length === 1) {
+    return {
+      matchedItem: directLotItems[0],
+      score: 1,
+    };
+  }
+
+  if (lotKey !== null) {
+    const exactLotNumberItem =
+      items.find((item) => String(item.numeroItem) === lotKey) ?? null;
+    if (exactLotNumberItem) {
+      return {
+        matchedItem: exactLotNumberItem,
+        score: 0.99,
+      };
+    }
+  }
+
+  const parsedItemNumero = Number(primaryParsedItem?.item_numero ?? 0);
+  if (parsedItemNumero > 0) {
+    const exactItem =
+      items.find((item) => item.numeroItem === parsedItemNumero) ?? null;
+    const exactItemTextScore = exactItem
+      ? Math.max(
+          ...referenceTexts.map((value) => textSimilarity(value, exactItem.descricao)),
+          0,
+        )
+      : 0;
+    const canTrustExactItemNumber =
+      Boolean(exactItem) &&
+      (normalizeLotKey(exactItem?.loteNumero) === lotKey ||
+        parsedItemNumero === Number(lot.numero_lote) ||
+        exactItemTextScore >= 0.75);
+
+    if (exactItem && canTrustExactItemNumber) {
+      return {
+        matchedItem: exactItem,
+        score: 0.98,
+      };
+    }
+  }
+
+  const candidates = items
+    .map((item) => {
+      const textScore = Math.max(
+        ...referenceTexts.map((value) => textSimilarity(value, item.descricao)),
+        0,
+      );
+      const lotBonus =
+        normalizeLotKey(item.loteNumero) === lotKey && item.loteNumero !== null
+          ? 0.1
+          : 0;
+      const score = Math.min(1, textScore + lotBonus);
+      return score > 0 ? { item, score } : null;
+    })
+    .filter((entry): entry is { item: AtaFallbackProcessItem; score: number } =>
+      Boolean(entry),
+    )
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.item.numeroItem - right.item.numeroItem,
+    );
+
+  const best = candidates[0] ?? null;
+  const second = candidates[1] ?? null;
+  const lotNumberCandidate =
+    lotKey !== null
+      ? candidates.find(
+          (candidate) =>
+            String(candidate.item.numeroItem) === lotKey && candidate.score >= 0.65,
+        ) ?? null
+      : null;
+
+  if (lotNumberCandidate) {
+    return {
+      matchedItem: lotNumberCandidate.item,
+      score: Math.max(lotNumberCandidate.score, 0.97),
+    };
+  }
+
+  if (best && best.score >= 0.65 && best.score - (second?.score ?? 0) >= 0.15) {
+    return {
+      matchedItem: best.item,
+      score: best.score,
+    };
+  }
+
+  return {
+    matchedItem: null,
+    score: best?.score ?? 0,
+  };
+}
+
+function buildBaseItemValue(params: {
+  item: {
+    id: number;
+    numeroItem: number;
+    loteNumero: string | number | null;
+    valorUnitarioEstimado: unknown;
+    valorTotalEstimado: unknown;
+  };
+  dataHomologacao: string | null;
+  origemAlteracao: string;
+}) {
+  return {
+    itemProcessoId: params.item.id,
+    numeroItem: params.item.numeroItem,
+    numeroLote: firstString(params.item.loteNumero),
+    valorEstimadoUnitario: roundMoney(firstNumber(params.item.valorUnitarioEstimado)),
+    valorEstimadoTotal: roundMoney(firstNumber(params.item.valorTotalEstimado)),
+    valorLanceVencedorUnitario: null,
+    valorLanceVencedorTotal: null,
+    percentualDesconto: null,
+    economiaObtida: null,
+    fornecedorVencedorId: null,
+    fornecedorVencedorNome: null,
+    fornecedorVencedorCnpj: null,
+    itemHomologado: false,
+    itemDeserto: false,
+    itemFracassado: false,
+    motivoFracasso: null,
+    dataHomologacao: params.dataHomologacao,
+    origemAlteracao: params.origemAlteracao,
+    statusResumo: "NAO_IDENTIFICADO",
+  } satisfies BuiltItemValue;
+}
+
+function findAtaWinnerParticipant(lot: AtaParsedLot) {
+  const participants = Array.isArray(lot.participantes) ? lot.participantes : [];
+  const classificados = participants
+    .filter(
+      (participant) =>
+        normalizeCompareText(participant.section) === "classificacao",
+    )
+    .sort(
+      (left, right) =>
+        (firstNumber(left.ranking, 9999) ?? 9999) -
+          (firstNumber(right.ranking, 9999) ?? 9999) ||
+        (firstNumber(
+          left.oferta_final,
+          left.oferta_inicial,
+          Number.MAX_SAFE_INTEGER,
+        ) ?? Number.MAX_SAFE_INTEGER) -
+          (firstNumber(
+            right.oferta_final,
+            right.oferta_inicial,
+            Number.MAX_SAFE_INTEGER,
+          ) ?? Number.MAX_SAFE_INTEGER),
+    );
+
+  return classificados[0] ?? null;
+}
+
+function buildAtaLotReferenceTotal(lot: AtaParsedLot) {
+  const primaryItem = Array.isArray(lot.itens) ? (lot.itens[0] ?? null) : null;
+  return firstNumber(
+    lot.melhor_lance,
+    primaryItem?.valor_total,
+    primaryItem?.valor_unitario_estimado,
+    primaryItem?.valor_unitario,
+  );
+}
+
+export function mergeBuiltItemValueSources(params: {
+  base: BuiltItemValue;
+  ataFallback?: BuiltItemValueMergeSource | null;
+  previous?: BuiltItemValueMergeSource | null;
+}) {
+  const merged: BuiltItemValue = { ...params.base };
+  let origin = params.base.origemAlteracao;
+
+  const mergeFrom = (candidate?: BuiltItemValueMergeSource | null) => {
+    if (!candidate) return;
+
+    let used = false;
+
+    const fillNumber = (
+      key:
+        | "valorEstimadoUnitario"
+        | "valorEstimadoTotal"
+        | "valorLanceVencedorUnitario"
+        | "valorLanceVencedorTotal"
+        | "percentualDesconto"
+        | "economiaObtida",
+    ) => {
+      const value = candidate[key];
+      if (merged[key] === null && value !== null && value !== undefined) {
+        merged[key] = value;
+        used = true;
+      }
+    };
+
+    const fillString = (
+      key:
+        | "numeroLote"
+        | "fornecedorVencedorNome"
+        | "fornecedorVencedorCnpj"
+        | "motivoFracasso"
+        | "dataHomologacao",
+    ) => {
+      const value = candidate[key];
+      if (!merged[key] && value) {
+        merged[key] = value;
+        used = true;
+      }
+    };
+
+    fillString("numeroLote");
+    fillNumber("valorEstimadoUnitario");
+    fillNumber("valorEstimadoTotal");
+    fillNumber("valorLanceVencedorUnitario");
+    fillNumber("valorLanceVencedorTotal");
+    fillNumber("percentualDesconto");
+    fillNumber("economiaObtida");
+    fillString("fornecedorVencedorNome");
+    fillString("fornecedorVencedorCnpj");
+    fillString("motivoFracasso");
+    fillString("dataHomologacao");
+
+    if (
+      (merged.fornecedorVencedorId === null ||
+        merged.fornecedorVencedorId === undefined) &&
+      candidate.fornecedorVencedorId !== null &&
+      candidate.fornecedorVencedorId !== undefined
+    ) {
+      merged.fornecedorVencedorId = candidate.fornecedorVencedorId;
+      used = true;
+    }
+
+    if (
+      !merged.itemHomologado &&
+      !merged.itemFracassado &&
+      !merged.itemDeserto &&
+      (candidate.itemHomologado || candidate.itemFracassado || candidate.itemDeserto)
+    ) {
+      merged.itemHomologado = Boolean(candidate.itemHomologado);
+      merged.itemFracassado = Boolean(candidate.itemFracassado);
+      merged.itemDeserto = Boolean(candidate.itemDeserto);
+      if (candidate.motivoFracasso) {
+        merged.motivoFracasso = candidate.motivoFracasso;
+      }
+      if (candidate.dataHomologacao) {
+        merged.dataHomologacao = candidate.dataHomologacao;
+      }
+      used = true;
+    }
+
+    if (
+      (!merged.statusResumo || merged.statusResumo === "NAO_IDENTIFICADO") &&
+      candidate.statusResumo
+    ) {
+      merged.statusResumo = candidate.statusResumo;
+      used = true;
+    }
+
+    if (used && candidate.origemAlteracao) {
+      origin = candidate.origemAlteracao;
+    }
+  };
+
+  mergeFrom(params.ataFallback ?? null);
+  mergeFrom(params.previous ?? null);
+  merged.origemAlteracao = origin;
+
+  return merged;
+}
+
+async function loadAtaFallbackItemValues(params: {
+  processoId: number;
+  internalItems: Array<{
+    id: number;
+    numeroItem: number;
+    loteId: number | null;
+    loteNumero: string | number | null;
+    descricao: string;
+    quantidade: unknown;
+    unidade: string;
+    valorUnitarioEstimado: unknown;
+    valorTotalEstimado: unknown;
+  }>;
+  supplierRows: Array<{
+    id: number;
+    razaoSocial: string;
+    cnpj: string;
+  }>;
+  dataHomologacao: string | null;
+  processoHomologado: boolean;
+  origemAlteracao: string;
+}) {
+  const db = requireDb();
+  const runs = await db
+    .select({
+      id: licitacaoAtaSyncRuns.id,
+      status: licitacaoAtaSyncRuns.status,
+      parsedJsonPath: licitacaoAtaSyncRuns.parsedJsonPath,
+    })
+    .from(licitacaoAtaSyncRuns)
+    .where(eq(licitacaoAtaSyncRuns.processoId, params.processoId))
+    .orderBy(
+      desc(licitacaoAtaSyncRuns.aplicadoEm),
+      desc(licitacaoAtaSyncRuns.atualizadoEm),
+      desc(licitacaoAtaSyncRuns.id),
+    )
+    .limit(20);
+
+  const selectedRun =
+    runs.find((row) => row.status === "APPLIED" && row.parsedJsonPath) ??
+    runs.find((row) => row.parsedJsonPath) ??
+    null;
+
+  if (!selectedRun?.parsedJsonPath || !existsSync(selectedRun.parsedJsonPath)) {
+    return new Map<number, BuiltItemValueMergeSource>();
+  }
+
+  let payload: AtaParsedPayload | null = null;
+  try {
+    payload = JSON.parse(
+      readFileSync(selectedRun.parsedJsonPath, "utf-8"),
+    ) as AtaParsedPayload;
+  } catch {
+    return new Map<number, BuiltItemValueMergeSource>();
+  }
+
+  const suppliersByCnpj = new Map(
+    params.supplierRows
+      .map((row) => [digitsOnly(row.cnpj), row] as const)
+      .filter(
+        (entry): entry is readonly [string, (typeof params.supplierRows)[number]] =>
+          Boolean(entry[0]),
+      ),
+  );
+  const suppliersByName = new Map(
+    params.supplierRows.map((row) => [
+      normalizeCompareText(row.razaoSocial),
+      row,
+    ] as const),
+  );
+  const fallbackEntries = new Map<
+    number,
+    { score: number; row: BuiltItemValueMergeSource }
+  >();
+
+  for (const lot of Array.isArray(payload?.lotes) ? payload!.lotes! : []) {
+    const match = matchAtaLotToItem(lot, params.internalItems);
+    if (!match.matchedItem) {
+      continue;
+    }
+
+    const winnerParticipant = findAtaWinnerParticipant(lot);
+    const winnerName = firstString(
+      lot.vencedor,
+      winnerParticipant?.razao_social,
+    );
+    const winnerDocument = digitsOnly(
+      firstString(lot.cnpj_vencedor, winnerParticipant?.documento),
+    );
+    const internalSupplier =
+      (winnerDocument ? suppliersByCnpj.get(winnerDocument) : null) ??
+      (winnerName
+        ? suppliersByName.get(normalizeCompareText(winnerName))
+        : null) ??
+      null;
+    const normalizedStatus = normalizeCompareText(lot.status);
+    const itemDeserto = normalizedStatus.includes("desert");
+    const itemFracassado =
+      normalizedStatus.includes("fracass") ||
+      normalizedStatus.includes("cancel");
+    const hasWinnerSupplier =
+      Boolean(internalSupplier?.id) ||
+      Boolean(String(winnerName ?? "").trim()) ||
+      Boolean(String(winnerDocument ?? "").trim());
+    const awardedResult = !itemFracassado && !itemDeserto && hasWinnerSupplier;
+    const valorLanceVencedorTotal = awardedResult
+      ? roundMoney(buildAtaLotReferenceTotal(lot))
+      : null;
+    const quantidadeReferencia = firstNumber(
+      match.matchedItem.quantidade,
+      lot.itens?.[0]?.quantidade,
+    );
+    const valorEstimadoTotal = roundMoney(
+      firstNumber(
+        match.matchedItem.valorTotalEstimado,
+        quantidadeReferencia !== null
+          ? (() => {
+              const valorUnitarioEstimado = firstNumber(
+                match.matchedItem.valorUnitarioEstimado,
+                lot.itens?.[0]?.valor_unitario_estimado,
+              );
+              return valorUnitarioEstimado !== null
+                ? valorUnitarioEstimado * quantidadeReferencia
+                : null;
+            })()
+          : null,
+      ),
+    );
+    const valorLanceVencedorUnitario = awardedResult
+      ? roundMoney(
+          computeUnitPrice(
+            valorLanceVencedorTotal,
+            quantidadeReferencia,
+          ),
+        )
+      : null;
+    const { economiaObtida, percentualDesconto } = awardedResult
+      ? buildAwardEconomyMetrics(valorEstimadoTotal, valorLanceVencedorTotal)
+      : { economiaObtida: null, percentualDesconto: null };
+    const itemHomologado =
+      params.processoHomologado &&
+      !itemDeserto &&
+      !itemFracassado &&
+      awardedResult;
+    const statusResumo = buildResultadoItemStatus(
+      {
+        itemHomologado,
+        itemDeserto,
+        itemFracassado,
+        fornecedorVencedorId: internalSupplier?.id ?? null,
+        fornecedorVencedorNome:
+          internalSupplier?.razaoSocial ?? winnerName ?? null,
+        fornecedorVencedorCnpj: internalSupplier?.cnpj ?? winnerDocument ?? null,
+        valorLanceVencedorTotal,
+        statusResumo: lot.status ?? null,
+      },
+      normalizeLoteStatus(lot.status),
+    );
+
+    const current = fallbackEntries.get(match.matchedItem.id);
+    if (current && current.score >= match.score) {
+      continue;
+    }
+
+    fallbackEntries.set(match.matchedItem.id, {
+      score: match.score,
+      row: {
+        numeroLote: String(lot.numero_lote),
+        valorLanceVencedorUnitario,
+        valorLanceVencedorTotal,
+        percentualDesconto,
+        economiaObtida,
+        fornecedorVencedorId: internalSupplier?.id ?? null,
+        fornecedorVencedorNome:
+          internalSupplier?.razaoSocial ?? winnerName ?? null,
+        fornecedorVencedorCnpj: internalSupplier?.cnpj ?? winnerDocument ?? null,
+        itemHomologado,
+        itemDeserto,
+        itemFracassado,
+        motivoFracasso:
+          itemFracassado || itemDeserto
+            ? firstString(lot.motivo_falha, lot.status)
+            : null,
+        dataHomologacao: itemHomologado ? params.dataHomologacao : null,
+        origemAlteracao: `${params.origemAlteracao}:ATA_FALLBACK`,
+        statusResumo,
+      },
+    });
+  }
+
+  return new Map(
+    [...fallbackEntries.entries()].map(([itemId, entry]) => [itemId, entry.row]),
+  );
+}
+
 async function buildItemValuesFromStoredImports(
   processoId: number,
   origemAlteracao: string,
@@ -269,8 +876,40 @@ async function buildItemValuesFromStoredImports(
       db.select().from(fornecedores),
     ]);
 
-  if (!processoRow || !internalItems.length || !importedProcess) {
+  if (!processoRow || !internalItems.length) {
     return [] as BuiltItemValue[];
+  }
+
+  const homologationDate =
+    toDateOnly(processoRow.dataEncerramento) ??
+    (processoRow.homologado ? toDateOnly(processoRow.dataPublicacao) : null);
+  const baseRows = internalItems.map((item) =>
+    buildBaseItemValue({
+      item,
+      dataHomologacao: homologationDate,
+      origemAlteracao,
+    }),
+  );
+  const ataFallbackByItemId = await loadAtaFallbackItemValues({
+    processoId,
+    internalItems,
+    supplierRows: supplierRows.map((row) => ({
+      id: row.id,
+      razaoSocial: row.razaoSocial,
+      cnpj: row.cnpj,
+    })),
+    dataHomologacao: homologationDate,
+    processoHomologado: Boolean(processoRow.homologado),
+    origemAlteracao,
+  });
+
+  if (!importedProcess) {
+    return baseRows.map((row) =>
+      mergeBuiltItemValueSources({
+        base: row,
+        ataFallback: ataFallbackByItemId.get(row.itemProcessoId) ?? null,
+      }),
+    );
   }
 
   const [importedLots, importedSpecifiedItems] = await Promise.all([
@@ -297,17 +936,21 @@ async function buildItemValuesFromStoredImports(
   const suppliersByName = new Map(
     supplierRows.map((row) => [normalizeCompareText(row.razaoSocial), row] as const),
   );
-  const lotsByNumber = new Map(
-    importedLots.map((row) => [String(row.numero).trim(), row] as const),
-  );
+  const lotsByNumber = new Map<string, (typeof importedLots)[number]>();
+  for (const row of importedLots) {
+    const lotKey = normalizeLotKey(row.numero);
+    if (!lotKey) continue;
+    lotsByNumber.set(lotKey, row);
+  }
   const specifiedByLotNumber = new Map<
     string,
     Array<(typeof importedSpecifiedItems)[number]>
   >();
 
   for (const row of importedSpecifiedItems) {
-    const lotNumber =
+    const lotNumberRaw =
       importedLots.find((item) => item.id === row.loteImportadoId)?.numero ?? null;
+    const lotNumber = normalizeLotKey(lotNumberRaw);
     if (!lotNumber) continue;
     const bucket = specifiedByLotNumber.get(lotNumber) ?? [];
     bucket.push(row);
@@ -339,36 +982,34 @@ async function buildItemValuesFromStoredImports(
     });
   }
 
-  const homologationDate =
-    toDateOnly(processoRow.dataEncerramento) ??
-    (processoRow.homologado ? toDateOnly(processoRow.dataPublicacao) : null);
-
   return internalItems.map((item) => {
-    const explicitLote = item.loteNumero ? String(item.loteNumero) : null;
-    const candidates = [explicitLote, String(item.numeroItem)].filter(
-      Boolean,
-    ) as string[];
+    const explicitLote = normalizeLotKey(item.loteNumero);
+    const candidates = [
+      explicitLote,
+      normalizeLotKey(item.numeroItem),
+    ].filter(Boolean) as string[];
 
     let matchedLot =
       candidates
         .map((candidate) => lotsByNumber.get(candidate))
         .find(Boolean) ?? null;
 
-    if (!matchedLot) {
+    if (!matchedLot && !explicitLote) {
       matchedLot =
         importedLots
           .map((lot) => ({
             lot,
             score: textSimilarity(item.descricao, lot.titulo),
           }))
+          .filter((row) => row.score >= 0.72)
           .sort((left, right) => right.score - left.score)[0]?.lot ?? null;
     }
 
     const specifiedCandidates = matchedLot
-      ? specifiedByLotNumber.get(String(matchedLot.numero)) ?? []
+      ? specifiedByLotNumber.get(normalizeLotKey(matchedLot.numero) ?? "") ?? []
       : [];
     const lotAllocation = matchedLot
-      ? lotAllocationByNumber.get(String(matchedLot.numero)) ?? null
+      ? lotAllocationByNumber.get(normalizeLotKey(matchedLot.numero) ?? "") ?? null
       : null;
     const matchedSpecified =
       specifiedCandidates
@@ -419,25 +1060,6 @@ async function buildItemValuesFromStoredImports(
         matchedLot?.valorHomologado,
       ),
     );
-    const valorLanceVencedorUnitario = roundMoney(
-      firstNumber(
-        matchedSpecified?.valorHomologadoUnitario,
-        quantidade > 0 && valorLanceVencedorTotal !== null
-          ? valorLanceVencedorTotal / quantidade
-          : null,
-      ),
-    );
-    const economiaObtida =
-      valorEstimadoTotal !== null && valorLanceVencedorTotal !== null
-        ? roundMoney(valorEstimadoTotal - valorLanceVencedorTotal)
-        : null;
-    const percentualDesconto =
-      valorEstimadoTotal && valorLanceVencedorTotal !== null
-        ? roundPercent(
-            ((valorEstimadoTotal - valorLanceVencedorTotal) / valorEstimadoTotal) *
-              100,
-          )
-        : null;
     const fornecedorVencedorNome = firstString(
       matchedSpecified?.fornecedorHomologado,
       matchedLot?.vencedor,
@@ -456,16 +1078,53 @@ async function buildItemValuesFromStoredImports(
         ? suppliersByName.get(normalizeCompareText(fornecedorVencedorNome))
         : null) ??
       null;
-    const statusResumo = normalizeLoteStatus(matchedLot?.faseAtual);
+    const sourceStatusResumo = normalizeLoteStatus(matchedLot?.faseAtual);
+    const itemHomologado = sourceStatusResumo === "HOMOLOGADO";
+    const itemDeserto = sourceStatusResumo === "DESERTO";
+    const itemFracassado = sourceStatusResumo === "FRACASSADO";
+    const hasWinnerSupplier =
+      Boolean(fornecedorInterno?.id) ||
+      Boolean(String(fornecedorVencedorNome ?? "").trim()) ||
+      Boolean(String(fornecedorVencedorCnpj ?? "").trim());
+    const awardedResult = !itemFracassado && !itemDeserto && hasWinnerSupplier;
+    const valorLanceVencedorUnitario = awardedResult
+      ? roundMoney(
+          firstNumber(
+            matchedSpecified?.valorHomologadoUnitario,
+            quantidade > 0 && valorLanceVencedorTotal !== null
+              ? valorLanceVencedorTotal / quantidade
+              : null,
+          ),
+        )
+      : null;
+    const { economiaObtida, percentualDesconto } = awardedResult
+      ? buildAwardEconomyMetrics(valorEstimadoTotal, valorLanceVencedorTotal)
+      : { economiaObtida: null, percentualDesconto: null };
+    const statusResumo = buildResultadoItemStatus(
+      {
+        itemHomologado,
+        itemDeserto,
+        itemFracassado,
+        fornecedorVencedorId: fornecedorInterno?.id ?? null,
+        fornecedorVencedorNome:
+          fornecedorInterno?.razaoSocial ?? fornecedorVencedorNome ?? null,
+        fornecedorVencedorCnpj:
+          fornecedorInterno?.cnpj ?? fornecedorVencedorCnpj ?? null,
+        valorLanceVencedorUnitario,
+        valorLanceVencedorTotal,
+        statusResumo: sourceStatusResumo,
+      },
+      sourceStatusResumo,
+    );
 
-    return {
+    const builtRow = {
       itemProcessoId: item.id,
       numeroItem: item.numeroItem,
       numeroLote: firstString(matchedLot?.numero, explicitLote),
       valorEstimadoUnitario,
       valorEstimadoTotal,
       valorLanceVencedorUnitario,
-      valorLanceVencedorTotal,
+      valorLanceVencedorTotal: awardedResult ? valorLanceVencedorTotal : null,
       percentualDesconto,
       economiaObtida,
       fornecedorVencedorId: fornecedorInterno?.id ?? null,
@@ -473,17 +1132,22 @@ async function buildItemValuesFromStoredImports(
         fornecedorInterno?.razaoSocial ?? fornecedorVencedorNome ?? null,
       fornecedorVencedorCnpj:
         fornecedorInterno?.cnpj ?? fornecedorVencedorCnpj ?? null,
-      itemHomologado: statusResumo === "HOMOLOGADO",
-      itemDeserto: statusResumo === "DESERTO",
-      itemFracassado: statusResumo === "FRACASSADO",
+      itemHomologado,
+      itemDeserto,
+      itemFracassado,
       motivoFracasso:
-        statusResumo === "FRACASSADO" || statusResumo === "DESERTO"
+        itemFracassado || itemDeserto
           ? firstString(matchedLot?.faseAtual)
           : null,
       dataHomologacao: homologationDate,
       origemAlteracao,
       statusResumo,
-    };
+    } satisfies BuiltItemValue;
+
+    return mergeBuiltItemValueSources({
+      base: builtRow,
+      ataFallback: ataFallbackByItemId.get(item.id) ?? null,
+    });
   });
 }
 
@@ -532,11 +1196,59 @@ export async function syncProcessItemValuesFromStoredImports(params: {
       ),
     );
   const processItemById = new Map(processItems.map((row) => [row.id, row]));
+  const mergedRows = builtRows.map((row) => {
+    const previous = currentByItemId.get(row.itemProcessoId) ?? null;
+    const shouldPreservePreviousAwardData = !row.itemFracassado && !row.itemDeserto;
+    return mergeBuiltItemValueSources({
+      base: row,
+      previous: previous
+        ? {
+            numeroLote: previous.numeroLote,
+            valorEstimadoUnitario: toNumber(previous.valorEstimadoUnitario),
+            valorEstimadoTotal: toNumber(previous.valorEstimadoTotal),
+            valorLanceVencedorUnitario: shouldPreservePreviousAwardData
+              ? toNumber(previous.valorLanceVencedorUnitario)
+              : undefined,
+            valorLanceVencedorTotal: shouldPreservePreviousAwardData
+              ? toNumber(previous.valorLanceVencedorTotal)
+              : undefined,
+            percentualDesconto: shouldPreservePreviousAwardData
+              ? toNumber(previous.percentualDesconto)
+              : undefined,
+            economiaObtida: shouldPreservePreviousAwardData
+              ? toNumber(previous.economiaObtida)
+              : undefined,
+            fornecedorVencedorId: shouldPreservePreviousAwardData
+              ? previous.fornecedorVencedorId
+              : undefined,
+            fornecedorVencedorNome: shouldPreservePreviousAwardData
+              ? previous.fornecedorVencedorNome
+              : undefined,
+            fornecedorVencedorCnpj: shouldPreservePreviousAwardData
+              ? previous.fornecedorVencedorCnpj
+              : undefined,
+            itemHomologado: previous.itemHomologado,
+            itemDeserto: previous.itemDeserto,
+            itemFracassado: previous.itemFracassado,
+            motivoFracasso: previous.motivoFracasso,
+            dataHomologacao: toDateOnly(previous.dataHomologacao),
+            origemAlteracao: previous.origemAlteracao ?? undefined,
+            statusResumo: previous.itemHomologado
+              ? "HOMOLOGADO"
+              : previous.itemFracassado
+                ? "FRACASSADO"
+                : previous.itemDeserto
+                  ? "DESERTO"
+                  : "NAO_IDENTIFICADO",
+          }
+        : null,
+    });
+  });
 
   let atualizados = 0;
 
   await db.transaction(async (tx) => {
-    for (const row of builtRows) {
+    for (const row of mergedRows) {
       const previous = currentByItemId.get(row.itemProcessoId) ?? null;
       const previousEstimated = toNumber(previous?.valorEstimadoTotal);
       const previousWinner = toNumber(previous?.valorLanceVencedorTotal);
@@ -661,11 +1373,11 @@ export async function syncProcessItemValuesFromStoredImports(params: {
   });
 
   return {
-    totalItens: builtRows.length,
+    totalItens: mergedRows.length,
     atualizados,
-    homologados: builtRows.filter((row) => row.itemHomologado).length,
-    fracassados: builtRows.filter((row) => row.itemFracassado).length,
-    desertos: builtRows.filter((row) => row.itemDeserto).length,
+    homologados: mergedRows.filter((row) => row.itemHomologado).length,
+    fracassados: mergedRows.filter((row) => row.itemFracassado).length,
+    desertos: mergedRows.filter((row) => row.itemDeserto).length,
   };
 }
 
@@ -983,6 +1695,9 @@ export async function calculateResumoFinanceiroProcesso(processoId: number) {
           itemHomologado: itensProcessoValores.itemHomologado,
           itemDeserto: itensProcessoValores.itemDeserto,
           itemFracassado: itensProcessoValores.itemFracassado,
+          fornecedorVencedorId: itensProcessoValores.fornecedorVencedorId,
+          fornecedorVencedorNome: itensProcessoValores.fornecedorVencedorNome,
+          fornecedorVencedorCnpj: itensProcessoValores.fornecedorVencedorCnpj,
           valorEstimadoTotal: itensProcessoValores.valorEstimadoTotal,
           valorLanceVencedorTotal: itensProcessoValores.valorLanceVencedorTotal,
         })
@@ -1032,6 +1747,7 @@ export async function calculateResumoFinanceiroProcesso(processoId: number) {
   const itensHomologados = itemRows.filter((row) => row.itemHomologado).length;
   const itensFracassados = itemRows.filter((row) => row.itemFracassado).length;
   const itensDesertos = itemRows.filter((row) => row.itemDeserto).length;
+  const awardedItemRows = itemRows.filter((row) => hasAwardedResult(row));
   const valorEstimadoTotal =
     itemRows.reduce((total, row) => total + (toNumber(row.valorEstimadoTotal) ?? 0), 0) ||
     (toNumber(processRow?.valorEstimado) ?? 0);
@@ -1044,15 +1760,21 @@ export async function calculateResumoFinanceiroProcesso(processoId: number) {
       (total, row) => total + (toNumber(row.valorContrato) ?? 0),
       0,
     );
+  const valorEstimadoEconomiaBase =
+    awardedItemRows.reduce(
+      (total, row) => total + (toNumber(row.valorEstimadoTotal) ?? 0),
+      0,
+    ) || (awardedItemRows.length ? 0 : toNumber(processRow?.valorEstimado) ?? 0);
   const valorVencedorTotal =
-    itemRows.reduce(
+    awardedItemRows.reduce(
       (total, row) => total + (toNumber(row.valorLanceVencedorTotal) ?? 0),
       0,
-    ) || (toNumber(processRow?.valorHomologado) ?? 0);
-  const economiaTotal = roundMoney(valorEstimadoTotal - valorVencedorTotal) ?? 0;
+    ) || (awardedItemRows.length ? 0 : toNumber(processRow?.valorHomologado) ?? 0);
+  const economiaTotal =
+    roundMoney(valorEstimadoEconomiaBase - valorVencedorTotal) ?? 0;
   const percentualEconomia =
-    valorEstimadoTotal > 0
-      ? roundPercent((economiaTotal / valorEstimadoTotal) * 100)
+    valorEstimadoEconomiaBase > 0
+      ? roundPercent((economiaTotal / valorEstimadoEconomiaBase) * 100)
       : null;
 
   return {

@@ -586,6 +586,8 @@ export function DossiePage({ processoId }: DossiePageProps = {}) {
                               "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em]",
                               item.itemHomologado
                                 ? "bg-emerald-50 text-emerald-700"
+                                : item.statusResumo === "ADJUDICADO"
+                                  ? "bg-sky-50 text-sky-700"
                                 : item.itemFracassado
                                   ? "bg-rose-50 text-rose-700"
                                   : item.itemDeserto

@@ -3,6 +3,7 @@ import type { AtaSessaoPreview } from "@sirel/shared/schemas/ata-sessao";
 import { Modal } from "@/components/shared/modal";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { resolveServerAssetUrl } from "@/lib/document-upload";
 import { formatShortDateTimeBR } from "@/lib/formatters";
 
 interface AtaSessaoSyncModalProps {
@@ -23,6 +24,7 @@ export function AtaSessaoSyncModal({
   onApply,
 }: AtaSessaoSyncModalProps) {
   const hasBlockingIssues = (preview?.blockingIssues.length ?? 0) > 0;
+  const previewArtifacts = preview?.artifacts ?? [];
 
   return (
     <Modal
@@ -54,8 +56,10 @@ export function AtaSessaoSyncModal({
       ) : (
         <div className="space-y-5">
           {hasBlockingIssues ? (
-            <Alert variant="error" title="Conflitos bloqueantes">
-              {preview.blockingIssues.length} conflito(s) precisam ser resolvidos antes da aplicacao.
+            <Alert variant="error" title="Prévia gerada com bloqueios">
+              {preview.blockingIssues.length} conflito(s) precisam ser
+              resolvidos antes da aplicacao. Os relatorios e o JSON desta
+              leitura continuam disponiveis abaixo.
             </Alert>
           ) : (
             <Alert variant="success" title="Previa pronta para aplicacao">
@@ -65,56 +69,138 @@ export function AtaSessaoSyncModal({
 
           {preview.warnings.length ? (
             <Alert variant="info" title="Pendencias nao bloqueantes">
-              {preview.warnings.length} observacao(oes) foram registradas para a leitura.
+              {preview.warnings.length} observacao(oes) foram registradas para a
+              leitura.
             </Alert>
           ) : null}
 
           <div className="grid gap-4 lg:grid-cols-3">
             <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Processo</p>
-              <p className="mt-3 text-lg font-black text-slate-950">{preview.process.numeroSirel}</p>
-              <p className="mt-1 text-sm text-slate-600">{preview.process.objeto}</p>
-            </article>
-            <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Metadados extraidos</p>
-              <p className="mt-3 text-sm text-slate-700">Edital: {preview.extractedMetadata.edital ?? "Nao identificado"}</p>
-              <p className="mt-1 text-sm text-slate-700">
-                Processo administrativo: {preview.extractedMetadata.processoAdministrativo ?? "Nao identificado"}
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                Processo
+              </p>
+              <p className="mt-3 text-lg font-black text-slate-950">
+                {preview.process.numeroSirel}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {preview.process.objeto}
               </p>
             </article>
             <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Fase da licitacao</p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                Metadados extraidos
+              </p>
               <p className="mt-3 text-sm text-slate-700">
-                Atual: <span className="font-semibold text-slate-950">{preview.phase.current}</span>
+                Edital: {preview.extractedMetadata.edital ?? "Nao identificado"}
               </p>
               <p className="mt-1 text-sm text-slate-700">
-                Sugerida: <span className="font-semibold text-slate-950">{preview.phase.suggested ?? "Sem avanco"}</span>
+                Processo administrativo:{" "}
+                {preview.extractedMetadata.processoAdministrativo ??
+                  "Nao identificado"}
               </p>
-              <p className="mt-1 text-sm text-slate-700">Previa gerada em {formatShortDateTimeBR(preview.generatedAt)}</p>
+            </article>
+            <article className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                Fase da licitacao
+              </p>
+              <p className="mt-3 text-sm text-slate-700">
+                Atual:{" "}
+                <span className="font-semibold text-slate-950">
+                  {preview.phase.current}
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-slate-700">
+                Sugerida:{" "}
+                <span className="font-semibold text-slate-950">
+                  {preview.phase.suggested ?? "Sem avanco"}
+                </span>
+              </p>
+              <p className="mt-1 text-sm text-slate-700">
+                Previa gerada em {formatShortDateTimeBR(preview.generatedAt)}
+              </p>
             </article>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {[
-              { label: "Fornecedores novos", value: preview.counts.fornecedoresCriar },
-              { label: "Licitantes novos", value: preview.counts.licitantesCriar },
-              { label: "Propostas", value: preview.counts.propostasCriar + preview.counts.propostasAtualizar },
+              {
+                label: "Fornecedores novos",
+                value: preview.counts.fornecedoresCriar,
+              },
+              {
+                label: "Licitantes novos",
+                value: preview.counts.licitantesCriar,
+              },
+              {
+                label: "Propostas",
+                value:
+                  preview.counts.propostasCriar +
+                  preview.counts.propostasAtualizar,
+              },
               { label: "Lances", value: preview.counts.lancesCriar },
               { label: "Recursos", value: preview.counts.recursosCriar },
-              { label: "Resultados", value: preview.counts.resultadosAtualizar },
+              {
+                label: "Resultados",
+                value: preview.counts.resultadosAtualizar,
+              },
               { label: "Lotes sem cadastro", value: preview.counts.lotesCriar },
-              { label: "Conflitos", value: preview.counts.conflitosBloqueantes },
+              {
+                label: "Conflitos",
+                value: preview.counts.conflitosBloqueantes,
+              },
             ].map((item) => (
-              <article key={item.label} className="rounded-3xl border border-slate-200 bg-white px-4 py-4">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
-                <p className="mt-3 text-3xl font-black text-slate-950">{item.value}</p>
+              <article
+                key={item.label}
+                className="rounded-3xl border border-slate-200 bg-white px-4 py-4"
+              >
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                  {item.label}
+                </p>
+                <p className="mt-3 text-3xl font-black text-slate-950">
+                  {item.value}
+                </p>
               </article>
             ))}
           </div>
 
+          {previewArtifacts.length ? (
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Arquivos gerados nesta leitura
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Baixe o JSON consolidado e os relatorios mesmo quando a
+                    aplicacao estiver bloqueada.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {previewArtifacts.map((artifact) => (
+                  <a
+                    key={artifact.relativePath}
+                    href={
+                      resolveServerAssetUrl(artifact.downloadUrl) ??
+                      artifact.downloadUrl
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Button type="button" variant="outline">
+                      {artifact.label}
+                    </Button>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {preview.blockingIssues.length ? (
             <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4">
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-rose-700">Bloqueios</p>
+              <p className="text-sm font-bold uppercase tracking-[0.18em] text-rose-700">
+                Bloqueios
+              </p>
               <div className="mt-3 space-y-2">
                 {preview.blockingIssues.map((issue) => (
                   <div
@@ -122,7 +208,11 @@ export function AtaSessaoSyncModal({
                     className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-800"
                   >
                     <p className="font-semibold">{issue.message}</p>
-                    {issue.lotNumber ? <p className="mt-1 text-xs text-rose-600">Lote {issue.lotNumber}</p> : null}
+                    {issue.lotNumber ? (
+                      <p className="mt-1 text-xs text-rose-600">
+                        Lote {issue.lotNumber}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -131,12 +221,21 @@ export function AtaSessaoSyncModal({
 
           <div className="space-y-3">
             {preview.lots.map((lot) => (
-              <article key={lot.lotNumber} className="rounded-3xl border border-slate-200 bg-white p-4">
+              <article
+                key={lot.lotNumber}
+                className="rounded-3xl border border-slate-200 bg-white p-4"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Lote {lot.lotNumber}</p>
-                    <h4 className="mt-2 text-base font-black text-slate-950">{lot.title}</h4>
-                    <p className="mt-1 text-sm text-slate-600">Status da ata: {lot.statusAta}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                      Lote {lot.lotNumber}
+                    </p>
+                    <h4 className="mt-2 text-base font-black text-slate-950">
+                      {lot.title}
+                    </h4>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Status da ata: {lot.statusAta}
+                    </p>
                     <p className="mt-1 text-sm text-slate-600">
                       Item associado: {lot.matchedItemLabel ?? "Nao associado"}
                     </p>
@@ -149,7 +248,10 @@ export function AtaSessaoSyncModal({
                 {lot.actions.length ? (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {lot.actions.map((action) => (
-                      <span key={action} className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                      <span
+                        key={action}
+                        className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700"
+                      >
                         {action}
                       </span>
                     ))}

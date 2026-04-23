@@ -1,6 +1,12 @@
 import "./bootstrap/load-env.js";
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,7 +41,10 @@ import {
   createAtaSessaoPreviewFromDocumento,
   discoverAtaSessaoProcess,
 } from "./lib/ata-sessao-sync.js";
-import { startBllLocalScheduler, stopBllLocalScheduler } from "./lib/bll-sync-local.js";
+import {
+  startBllLocalScheduler,
+  stopBllLocalScheduler,
+} from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
@@ -48,7 +57,10 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const uploadsRoot = resolve(currentDir, "../../storage/uploads");
 const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
-const ataSessaoReportsRoot = resolve(currentDir, "../../storage/reports/atas-sessao");
+const ataSessaoReportsRoot = resolve(
+  currentDir,
+  "../../storage/reports/atas-sessao",
+);
 const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
 const sdReportsRoot = resolve(currentDir, "../../storage/reports/sd");
 const sdUploadsRoot = join(sdReportsRoot, "uploads");
@@ -76,7 +88,10 @@ function resolveDocumentoPath(arquivoChave: string) {
     ]),
   );
 
-  return candidates.find((candidate) => existsSync(candidate)) ?? join(uploadsRoot, normalizedKey);
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ??
+    join(uploadsRoot, normalizedKey)
+  );
 }
 
 function slugifyFileName(value: string) {
@@ -90,7 +105,11 @@ function slugifyFileName(value: string) {
 }
 
 function parseBooleanFlag(value: unknown) {
-  return ["1", "true", "on", "sim", "yes"].includes(String(value ?? "").trim().toLowerCase());
+  return ["1", "true", "on", "sim", "yes"].includes(
+    String(value ?? "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 function parseStringArrayField(value: unknown) {
@@ -116,11 +135,14 @@ function parseStringArrayField(value: unknown) {
 
 function resolveRequestUser(req: express.Request) {
   const authHeader = String(req.headers.authorization ?? "").trim();
-  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
   const sessionPayload = verifySessionToken(bearerToken);
   const roleHeader = String(req.headers["x-sirel-role"] ?? "").trim();
   const userId = Number(req.headers["x-sirel-user-id"] ?? 0) || 1;
-  const secretariaId = Number(req.headers["x-sirel-secretaria-id"] ?? 0) || null;
+  const secretariaId =
+    Number(req.headers["x-sirel-secretaria-id"] ?? 0) || null;
 
   return sessionPayload
     ? {
@@ -136,7 +158,9 @@ function resolveRequestUser(req: express.Request) {
           id: userId,
           username: String(req.headers["x-sirel-username"] ?? "demo"),
           name: String(req.headers["x-sirel-user-name"] ?? "Usuario demo"),
-          email: String(req.headers["x-sirel-user-email"] ?? "demo@sirel.local"),
+          email: String(
+            req.headers["x-sirel-user-email"] ?? "demo@sirel.local",
+          ),
           role: roleHeader,
           secretariaId,
         }
@@ -150,7 +174,11 @@ function requireUploadUser(req: express.Request, res: express.Response) {
     return null;
   }
   if (!["admin", "gestor", "operador"].includes(user.role)) {
-    res.status(403).json({ message: "Acesso restrito a operadores, gestores e administradores." });
+    res
+      .status(403)
+      .json({
+        message: "Acesso restrito a operadores, gestores e administradores.",
+      });
     return null;
   }
   return user;
@@ -158,14 +186,16 @@ function requireUploadUser(req: express.Request, res: express.Response) {
 
 const storage = multer.diskStorage({
   destination(req, _file, callback) {
-    const processoId = String(req.body.processoId ?? "geral").replace(/\D+/g, "") || "geral";
+    const processoId =
+      String(req.body.processoId ?? "geral").replace(/\D+/g, "") || "geral";
     const targetDir = join(uploadsRoot, `processo-${processoId}`);
     mkdirSync(targetDir, { recursive: true });
     callback(null, targetDir);
   },
   filename(_req, file, callback) {
     const extension = extname(file.originalname) || "";
-    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "documento";
+    const baseName =
+      slugifyFileName(file.originalname.replace(extension, "")) || "documento";
     callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
   },
 });
@@ -177,15 +207,19 @@ const upload = multer({
 
 const cadastroAssetStorage = multer.diskStorage({
   destination(req, _file, callback) {
-    const entity = String(req.body.entity ?? "").trim().toLowerCase();
-    const recordId = String(req.body.recordId ?? "").replace(/\D+/g, "") || "geral";
+    const entity = String(req.body.entity ?? "")
+      .trim()
+      .toLowerCase();
+    const recordId =
+      String(req.body.recordId ?? "").replace(/\D+/g, "") || "geral";
     const targetDir = join(cadastroAssetsRoot, `${entity}-${recordId}`);
     mkdirSync(targetDir, { recursive: true });
     callback(null, targetDir);
   },
   filename(_req, file, callback) {
     const extension = extname(file.originalname) || "";
-    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "arquivo";
+    const baseName =
+      slugifyFileName(file.originalname.replace(extension, "")) || "arquivo";
     callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
   },
 });
@@ -202,7 +236,8 @@ const ataSessaoStorage = multer.diskStorage({
   },
   filename(_req, file, callback) {
     const extension = extname(file.originalname) || ".pdf";
-    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "ata-sessao";
+    const baseName =
+      slugifyFileName(file.originalname.replace(extension, "")) || "ata-sessao";
     callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
   },
 });
@@ -219,7 +254,8 @@ const sdStorage = multer.diskStorage({
   },
   filename(_req, file, callback) {
     const extension = extname(file.originalname) || ".pdf";
-    const baseName = slugifyFileName(file.originalname.replace(extension, "")) || "sd";
+    const baseName =
+      slugifyFileName(file.originalname.replace(extension, "")) || "sd";
     callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
   },
 });
@@ -267,7 +303,8 @@ function parseSdNumberish(value: unknown) {
   if (!raw) return null;
 
   const normalized =
-    raw.includes(",") && (!raw.includes(".") || raw.lastIndexOf(",") > raw.lastIndexOf("."))
+    raw.includes(",") &&
+    (!raw.includes(".") || raw.lastIndexOf(",") > raw.lastIndexOf("."))
       ? raw.replace(/\./g, "").replace(",", ".")
       : raw.replace(/,/g, "");
   const parsed = Number(normalized);
@@ -278,7 +315,11 @@ function formatSdDecimal(value: number, scale: number) {
   return value.toFixed(scale);
 }
 
-function buildSdArtifact(relativePath: string, downloadBasePath: string, label: string) {
+function buildSdArtifact(
+  relativePath: string,
+  downloadBasePath: string,
+  label: string,
+) {
   return {
     label,
     relativePath,
@@ -287,7 +328,10 @@ function buildSdArtifact(relativePath: string, downloadBasePath: string, label: 
 }
 
 function resolveSdArtifactPath(relativePath: string) {
-  const normalizedRelativePath = String(relativePath ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  const normalizedRelativePath = String(relativePath ?? "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
   if (!normalizedRelativePath) {
     throw new Error("Arquivo base do parse não informado.");
   }
@@ -313,12 +357,17 @@ function finalizeSdPayload(params: {
   manualItemsRaw: unknown[];
   downloadBasePath: string;
 }) {
-  const { absolutePath, relativePath } = resolveSdArtifactPath(params.relativePath);
+  const { absolutePath, relativePath } = resolveSdArtifactPath(
+    params.relativePath,
+  );
   const manualItems = params.manualItemsRaw
     .map((item: unknown) => normalizeSdManualItem(item))
     .filter((item: SdManualItem | null): item is SdManualItem => Boolean(item));
 
-  const basePayload = JSON.parse(readFileSync(absolutePath, "utf-8")) as Record<string, unknown>;
+  const basePayload = JSON.parse(readFileSync(absolutePath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
   const baseItems = Array.isArray(basePayload.itens) ? basePayload.itens : [];
   const mergedItems = [
     ...baseItems,
@@ -338,13 +387,21 @@ function finalizeSdPayload(params: {
 
   const finalRelativePath = relativePath.replace(/\.json$/i, "-final.json");
   const finalAbsolutePath = resolve(sdReportsRoot, finalRelativePath);
-  writeFileSync(finalAbsolutePath, JSON.stringify(mergedPayload, null, 2), "utf-8");
+  writeFileSync(
+    finalAbsolutePath,
+    JSON.stringify(mergedPayload, null, 2),
+    "utf-8",
+  );
 
   return {
     manualItems,
     mergedPayload,
     finalRelativePath,
-    artifact: buildSdArtifact(finalRelativePath, params.downloadBasePath, "JSON SD finalizado"),
+    artifact: buildSdArtifact(
+      finalRelativePath,
+      params.downloadBasePath,
+      "JSON SD finalizado",
+    ),
   };
 }
 
@@ -378,12 +435,20 @@ function normalizeSdImportItem(payload: unknown): SdProcessImportItem | null {
   }
 
   return {
-    numeroItem: Number.isFinite(numeroItem) && numeroItem > 0 ? numeroItem : undefined,
+    numeroItem:
+      Number.isFinite(numeroItem) && numeroItem > 0 ? numeroItem : undefined,
     descricao,
     unidade: String(source.unidade ?? "").trim() || "UND",
-    quantidade: formatSdDecimal(quantidade && quantidade > 0 ? quantidade : 1, 3),
-    valorUnitarioEstimado: valorUnitario && valorUnitario > 0 ? formatSdDecimal(valorUnitario, 2) : null,
-    valorTotalEstimado: valorTotal && valorTotal > 0 ? formatSdDecimal(valorTotal, 2) : null,
+    quantidade: formatSdDecimal(
+      quantidade && quantidade > 0 ? quantidade : 1,
+      3,
+    ),
+    valorUnitarioEstimado:
+      valorUnitario && valorUnitario > 0
+        ? formatSdDecimal(valorUnitario, 2)
+        : null,
+    valorTotalEstimado:
+      valorTotal && valorTotal > 0 ? formatSdDecimal(valorTotal, 2) : null,
   };
 }
 
@@ -408,7 +473,9 @@ async function vincularSdAoProcesso(params: {
     .filter((item): item is SdProcessImportItem => Boolean(item));
 
   if (!itensValidos.length) {
-    throw new Error("Nenhum item válido foi encontrado para vincular ao processo.");
+    throw new Error(
+      "Nenhum item válido foi encontrado para vincular ao processo.",
+    );
   }
 
   const itensAtuais = await db
@@ -433,18 +500,24 @@ async function vincularSdAoProcesso(params: {
       .where(inArray(propostasLicitacao.itemId, existingIds))
       .limit(1);
     if (propostaExistente) {
-      throw new Error("Não é possível importar a SD porque o processo já possui propostas vinculadas aos itens.");
+      throw new Error(
+        "Não é possível importar a SD porque o processo já possui propostas vinculadas aos itens.",
+      );
     }
   }
 
-  const numeroToItem = new Map(itensAtuais.map((item) => [item.numeroItem, item]));
+  const numeroToItem = new Map(
+    itensAtuais.map((item) => [item.numeroItem, item]),
+  );
   const usedNumbers = new Set(itensAtuais.map((item) => item.numeroItem));
   let nextNumero = (itensAtuais[itensAtuais.length - 1]?.numeroItem ?? 0) + 1;
   let created = 0;
   let updated = 0;
 
   for (const item of itensValidos) {
-    const existing = item.numeroItem ? (numeroToItem.get(item.numeroItem) ?? null) : null;
+    const existing = item.numeroItem
+      ? (numeroToItem.get(item.numeroItem) ?? null)
+      : null;
     const payload = {
       descricao: item.descricao,
       quantidade: item.quantidade,
@@ -455,7 +528,10 @@ async function vincularSdAoProcesso(params: {
     };
 
     if (existing) {
-      await db.update(itensProcesso).set(payload).where(eq(itensProcesso.id, existing.id));
+      await db
+        .update(itensProcesso)
+        .set(payload)
+        .where(eq(itensProcesso.id, existing.id));
       updated += 1;
       continue;
     }
@@ -493,7 +569,8 @@ async function vincularSdAoProcesso(params: {
   await db
     .update(processos)
     .set({
-      valorEstimado: totalEstimado > 0 ? formatSdDecimal(totalEstimado, 2) : null,
+      valorEstimado:
+        totalEstimado > 0 ? formatSdDecimal(totalEstimado, 2) : null,
       atualizadoEm: new Date(),
     })
     .where(eq(processos.id, params.processoId));
@@ -529,18 +606,27 @@ async function handleSdProcessarRequest(
   const user = requireUploadUser(req, res);
   if (!user) return;
   if (!req.file) {
-    res.status(400).json({ message: "Selecione um arquivo PDF da SD para processar." });
+    res
+      .status(400)
+      .json({ message: "Selecione um arquivo PDF da SD para processar." });
     return;
   }
 
   const extension = extname(req.file.originalname).toLowerCase();
   if (extension !== ".pdf") {
-    res.status(400).json({ message: "Somente arquivos PDF de Solicitação de Despesa são aceitos." });
+    res
+      .status(400)
+      .json({
+        message: "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
+      });
     return;
   }
 
   const result = await parseSdReport(req.file.path);
-  const relativeJsonPath = relative(sdReportsRoot, resolve(result.outputDir, "sd-parsed.json"))
+  const relativeJsonPath = relative(
+    sdReportsRoot,
+    resolve(result.outputDir, "sd-parsed.json"),
+  )
     .replace(/\\/g, "/")
     .replace(/^\/+/, "");
 
@@ -561,15 +647,19 @@ async function handleSdProcessarRequest(
   res.status(201).json({
     ...result,
     originalFileName: req.file.originalname,
-    artifact: buildSdArtifact(relativeJsonPath, params.downloadBasePath, "JSON SD parseado"),
+    artifact: buildSdArtifact(
+      relativeJsonPath,
+      params.downloadBasePath,
+      "JSON SD parseado",
+    ),
   });
 }
 
-function handleSdDownloadRequest(
-  req: express.Request,
-  res: express.Response,
-) {
-  const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+function handleSdDownloadRequest(req: express.Request, res: express.Response) {
+  const relativeFile = String(req.query.file ?? "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
   if (!relativeFile) {
     res.status(400).json({ message: "Arquivo do parse de SD não informado." });
     return;
@@ -590,306 +680,386 @@ function handleSdDownloadRequest(
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("X-Content-Type-Options", "nosniff");
   const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
-  res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`,
+  );
   res.sendFile(absolutePath);
 }
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin) {
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const configuredOrigins = clientUrl
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+      if (!configuredOrigins.length || configuredOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
       callback(null, true);
-      return;
-    }
-
-    const configuredOrigins = clientUrl
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-    if (!configuredOrigins.length || configuredOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(null, true);
-  },
-  credentials: true,
-}));
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, service: "sirel-modern-server", timestamp: new Date().toISOString() });
+  res.json({
+    ok: true,
+    service: "sirel-modern-server",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-app.post("/api/planejamento/documentos/upload", upload.single("arquivo"), async (req, res) => {
-  try {
-    const user = requireUploadUser(req, res);
-    if (!user) return;
-    if (!req.file) {
-      res.status(400).json({ message: "Selecione um arquivo para upload." });
-      return;
-    }
-
-    const processoId = Number(req.body.processoId ?? 0);
-    const tipo = String(req.body.tipo ?? "").trim();
-    const categoria = String(req.body.categoria ?? "").trim() || null;
-    const titulo = String(req.body.titulo ?? req.file.originalname).trim();
-    const descricao = String(req.body.descricao ?? "").trim() || null;
-    const dataReferencia = String(req.body.dataReferencia ?? "").trim() || null;
-    const publico = parseBooleanFlag(req.body.publico);
-    const palavrasChave = parseStringArrayField(req.body.palavrasChave);
-    const restritoA = parseStringArrayField(req.body.restritoA);
-    if (!processoId || !titulo || !tipo) {
-      res.status(400).json({ message: "Informe processo, tipo e titulo do documento." });
-      return;
-    }
-
-    const db = requireDb();
-    const latest = await db
-      .select({ versao: documentos.versao })
-      .from(documentos)
-      .where(eq(documentos.processoId, processoId))
-      .orderBy(desc(documentos.versao))
-      .limit(1);
-    const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
-    const relativePath = req.file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ?? req.file.filename;
-
-    const [created] = await db.insert(documentos).values({
-      processoId,
-      titulo,
-      descricao,
-      tipo: tipo as "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO",
-      categoria,
-      versao: nextVersion,
-      arquivoUrl: "",
-      arquivoChave: relativePath,
-      tamanhoBytes: req.file.size,
-      mimeType: req.file.mimetype,
-      dataReferencia,
-      publico,
-      palavrasChave,
-      restritoA,
-      criadoPor: user.id,
-      criadoEm: new Date(),
-      atualizadoEm: new Date(),
-    }).returning();
-
-    const downloadUrl = `/api/planejamento/documentos/${created.id}/download`;
-    await db.update(documentos).set({ arquivoUrl: downloadUrl, atualizadoEm: new Date() }).where(eq(documentos.id, created.id));
-
-    await logAuditoria({ user } as any, {
-      tabela: "documentos",
-      registroId: created.id,
-      acao: "CREATE",
-      dadosNovos: { ...created, arquivoUrl: downloadUrl },
-      descricao: `Documento ${titulo} enviado por upload local`,
-    });
-
-    res.status(201).json({ ...created, arquivoUrl: downloadUrl });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Falha ao salvar o documento enviado." });
-  }
-});
-
-app.post("/api/cadastros/assets/upload", cadastroAssetUpload.single("arquivo"), async (req, res) => {
-  try {
-    const user = requireUploadUser(req, res);
-    if (!user) return;
-    if (!req.file) {
-      res.status(400).json({ message: "Selecione um arquivo para upload." });
-      return;
-    }
-
-    const entity = String(req.body.entity ?? "").trim();
-    const recordId = Number(req.body.recordId ?? 0);
-    if (!recordId || !["itens", "fornecedores"].includes(entity)) {
-      res.status(400).json({ message: "Informe a entidade e o registro do cadastro." });
-      return;
-    }
-
-    const relativePath = req.file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ?? req.file.filename;
-    const db = requireDb();
-
-    if (entity === "itens") {
-      const [item] = await db.select().from(catalogoItens).where(eq(catalogoItens.id, recordId)).limit(1);
-      if (!item) {
-        res.status(404).json({ message: "Item não encontrado." });
+app.post(
+  "/api/planejamento/documentos/upload",
+  upload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!req.file) {
+        res.status(400).json({ message: "Selecione um arquivo para upload." });
         return;
       }
 
-      if (item.imagemChave) {
-        const previousPath = resolveDocumentoPath(item.imagemChave);
+      const processoId = Number(req.body.processoId ?? 0);
+      const tipo = String(req.body.tipo ?? "").trim();
+      const categoria = String(req.body.categoria ?? "").trim() || null;
+      const titulo = String(req.body.titulo ?? req.file.originalname).trim();
+      const descricao = String(req.body.descricao ?? "").trim() || null;
+      const dataReferencia =
+        String(req.body.dataReferencia ?? "").trim() || null;
+      const publico = parseBooleanFlag(req.body.publico);
+      const palavrasChave = parseStringArrayField(req.body.palavrasChave);
+      const restritoA = parseStringArrayField(req.body.restritoA);
+      if (!processoId || !titulo || !tipo) {
+        res
+          .status(400)
+          .json({ message: "Informe processo, tipo e titulo do documento." });
+        return;
+      }
+
+      const db = requireDb();
+      const latest = await db
+        .select({ versao: documentos.versao })
+        .from(documentos)
+        .where(eq(documentos.processoId, processoId))
+        .orderBy(desc(documentos.versao))
+        .limit(1);
+      const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
+      const relativePath =
+        req.file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ??
+        req.file.filename;
+
+      const [created] = await db
+        .insert(documentos)
+        .values({
+          processoId,
+          titulo,
+          descricao,
+          tipo: tipo as
+            | "DFD"
+            | "ETP"
+            | "TR"
+            | "EDITAL"
+            | "COMUNICACAO_INTERNA"
+            | "RESULTADO"
+            | "CONTRATO"
+            | "OUTRO",
+          categoria,
+          versao: nextVersion,
+          arquivoUrl: "",
+          arquivoChave: relativePath,
+          tamanhoBytes: req.file.size,
+          mimeType: req.file.mimetype,
+          dataReferencia,
+          publico,
+          palavrasChave,
+          restritoA,
+          criadoPor: user.id,
+          criadoEm: new Date(),
+          atualizadoEm: new Date(),
+        })
+        .returning();
+
+      const downloadUrl = `/api/planejamento/documentos/${created.id}/download`;
+      await db
+        .update(documentos)
+        .set({ arquivoUrl: downloadUrl, atualizadoEm: new Date() })
+        .where(eq(documentos.id, created.id));
+
+      await logAuditoria({ user } as any, {
+        tabela: "documentos",
+        registroId: created.id,
+        acao: "CREATE",
+        dadosNovos: { ...created, arquivoUrl: downloadUrl },
+        descricao: `Documento ${titulo} enviado por upload local`,
+      });
+
+      res.status(201).json({ ...created, arquivoUrl: downloadUrl });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Falha ao salvar o documento enviado." });
+    }
+  },
+);
+
+app.post(
+  "/api/cadastros/assets/upload",
+  cadastroAssetUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!req.file) {
+        res.status(400).json({ message: "Selecione um arquivo para upload." });
+        return;
+      }
+
+      const entity = String(req.body.entity ?? "").trim();
+      const recordId = Number(req.body.recordId ?? 0);
+      if (!recordId || !["itens", "fornecedores"].includes(entity)) {
+        res
+          .status(400)
+          .json({ message: "Informe a entidade e o registro do cadastro." });
+        return;
+      }
+
+      const relativePath =
+        req.file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ??
+        req.file.filename;
+      const db = requireDb();
+
+      if (entity === "itens") {
+        const [item] = await db
+          .select()
+          .from(catalogoItens)
+          .where(eq(catalogoItens.id, recordId))
+          .limit(1);
+        if (!item) {
+          res.status(404).json({ message: "Item não encontrado." });
+          return;
+        }
+
+        if (item.imagemChave) {
+          const previousPath = resolveDocumentoPath(item.imagemChave);
+          if (existsSync(previousPath)) {
+            rmSync(previousPath, { force: true });
+          }
+        }
+
+        const assetUrl = `/api/cadastros/assets/itens/${recordId}/download`;
+        const [updated] = await db
+          .update(catalogoItens)
+          .set({
+            imagemUrl: assetUrl,
+            imagemChave: relativePath,
+            atualizadoEm: new Date(),
+          })
+          .where(eq(catalogoItens.id, recordId))
+          .returning();
+
+        await logAuditoria({ user } as any, {
+          tabela: "catalogo_itens",
+          registroId: recordId,
+          acao: "UPDATE",
+          dadosAnteriores: item,
+          dadosNovos: updated,
+          descricao: `Imagem do item ${item.descricao} atualizada`,
+        });
+
+        res.status(201).json({ success: true, assetUrl });
+        return;
+      }
+
+      const [fornecedor] = await db
+        .select()
+        .from(fornecedores)
+        .where(eq(fornecedores.id, recordId))
+        .limit(1);
+      if (!fornecedor) {
+        res.status(404).json({ message: "Fornecedor não encontrado." });
+        return;
+      }
+
+      if (fornecedor.logoChave) {
+        const previousPath = resolveDocumentoPath(fornecedor.logoChave);
         if (existsSync(previousPath)) {
           rmSync(previousPath, { force: true });
         }
       }
 
-      const assetUrl = `/api/cadastros/assets/itens/${recordId}/download`;
-      const [updated] = await db.update(catalogoItens).set({
-        imagemUrl: assetUrl,
-        imagemChave: relativePath,
-        atualizadoEm: new Date(),
-      }).where(eq(catalogoItens.id, recordId)).returning();
+      const assetUrl = `/api/cadastros/assets/fornecedores/${recordId}/download`;
+      const [updated] = await db
+        .update(fornecedores)
+        .set({
+          logoUrl: assetUrl,
+          logoChave: relativePath,
+          atualizadoEm: new Date(),
+        })
+        .where(eq(fornecedores.id, recordId))
+        .returning();
 
       await logAuditoria({ user } as any, {
-        tabela: "catalogo_itens",
+        tabela: "fornecedores",
         registroId: recordId,
         acao: "UPDATE",
-        dadosAnteriores: item,
+        dadosAnteriores: fornecedor,
         dadosNovos: updated,
-        descricao: `Imagem do item ${item.descricao} atualizada`,
+        descricao: `Logo do fornecedor ${fornecedor.razaoSocial} atualizada`,
       });
 
       res.status(201).json({ success: true, assetUrl });
-      return;
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ message: "Falha ao salvar o arquivo do cadastro." });
     }
+  },
+);
 
-    const [fornecedor] = await db.select().from(fornecedores).where(eq(fornecedores.id, recordId)).limit(1);
-    if (!fornecedor) {
-      res.status(404).json({ message: "Fornecedor não encontrado." });
-      return;
-    }
-
-    if (fornecedor.logoChave) {
-      const previousPath = resolveDocumentoPath(fornecedor.logoChave);
-      if (existsSync(previousPath)) {
-        rmSync(previousPath, { force: true });
+app.post(
+  "/api/relatorios/ata-sessao/processar",
+  ataSessaoUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!req.file) {
+        res
+          .status(400)
+          .json({ message: "Selecione um arquivo PDF da ata para processar." });
+        return;
       }
+
+      const extension = extname(req.file.originalname).toLowerCase();
+      if (extension !== ".pdf") {
+        res
+          .status(400)
+          .json({
+            message: "Somente arquivos PDF de ata de sessão são aceitos.",
+          });
+        return;
+      }
+
+      const result = await generateAtaSessaoReports({
+        sourcePath: req.file.path,
+        generatedByName: user.name,
+        edital: String(req.body.edital ?? "").trim() || undefined,
+        processoAdministrativo:
+          String(req.body.processoAdministrativo ?? "").trim() || undefined,
+        arquivoOrigem:
+          String(req.body.arquivoOrigem ?? req.file.originalname).trim() ||
+          undefined,
+        dataGeracao: String(req.body.dataGeracao ?? "").trim() || undefined,
+      });
+
+      await logAuditoria({ user } as any, {
+        tabela: "relatorios_ata_sessao",
+        registroId: 0,
+        acao: "CREATE",
+        dadosNovos: {
+          arquivoOriginal: req.file.originalname,
+          outputDir: result.outputDir,
+          summary: result.summary,
+        },
+        descricao: `Processamento avulso de ata de sessão em Documentos: ${req.file.originalname}`,
+      });
+
+      res.status(201).json({
+        ...result,
+        originalFileName: req.file.originalname,
+      });
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ message: "Falha ao processar a ata de sessão enviada." });
     }
+  },
+);
 
-    const assetUrl = `/api/cadastros/assets/fornecedores/${recordId}/download`;
-    const [updated] = await db.update(fornecedores).set({
-      logoUrl: assetUrl,
-      logoChave: relativePath,
-      atualizadoEm: new Date(),
-    }).where(eq(fornecedores.id, recordId)).returning();
+app.post(
+  "/api/ata-sessao/discover-process",
+  ataSessaoUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!req.file) {
+        res
+          .status(400)
+          .json({
+            message:
+              "Selecione um arquivo PDF da ata para identificar o processo.",
+          });
+        return;
+      }
 
-    await logAuditoria({ user } as any, {
-      tabela: "fornecedores",
-      registroId: recordId,
-      acao: "UPDATE",
-      dadosAnteriores: fornecedor,
-      dadosNovos: updated,
-      descricao: `Logo do fornecedor ${fornecedor.razaoSocial} atualizada`,
-    });
+      const extension = extname(req.file.originalname).toLowerCase();
+      if (extension !== ".pdf") {
+        res
+          .status(400)
+          .json({
+            message: "Somente arquivos PDF de ata de sessão são aceitos.",
+          });
+        return;
+      }
 
-    res.status(201).json({ success: true, assetUrl });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Falha ao salvar o arquivo do cadastro." });
-  }
-});
+      const providedProcessoId =
+        Number(req.body.providedProcessoId ?? 0) || null;
+      const result = await discoverAtaSessaoProcess({
+        sourcePath: req.file.path,
+        originalFileName: req.file.originalname,
+        providedProcessoId,
+        userId: user.id,
+      });
 
-app.post("/api/relatorios/ata-sessao/processar", ataSessaoUpload.single("arquivo"), async (req, res) => {
-  try {
-    const user = requireUploadUser(req, res);
-    if (!user) return;
-    if (!req.file) {
-      res.status(400).json({ message: "Selecione um arquivo PDF da ata para processar." });
-      return;
+      await logAuditoria({ user } as any, {
+        tabela: "licitacao_ata_sync_runs",
+        registroId: result.discoveryId,
+        acao: "CREATE",
+        dadosNovos: {
+          discoveryId: result.discoveryId,
+          originalFileName: result.originalFileName,
+          metadata: result.metadata,
+          summary: result.summary,
+        },
+        descricao: `Descoberta de processo a partir de ata de sessão: ${req.file.originalname}`,
+      });
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Falha ao identificar o processo pela ata de sessão.",
+      });
     }
-
-    const extension = extname(req.file.originalname).toLowerCase();
-    if (extension !== ".pdf") {
-      res.status(400).json({ message: "Somente arquivos PDF de ata de sessão são aceitos." });
-      return;
-    }
-
-    const result = await generateAtaSessaoReports({
-      sourcePath: req.file.path,
-      generatedByName: user.name,
-      edital: String(req.body.edital ?? "").trim() || undefined,
-      processoAdministrativo: String(req.body.processoAdministrativo ?? "").trim() || undefined,
-      arquivoOrigem: String(req.body.arquivoOrigem ?? req.file.originalname).trim() || undefined,
-      dataGeracao: String(req.body.dataGeracao ?? "").trim() || undefined,
-    });
-    const artifacts = result.artifacts.map((artifact) => {
-      const relativePath = relative(ataSessaoReportsRoot, resolve(artifact.path)).replace(/\\/g, "/").replace(/^\/+/, "");
-      return {
-        ...artifact,
-        relativePath,
-        downloadUrl: `/api/relatorios/ata-sessao/download?file=${encodeURIComponent(relativePath)}`,
-      };
-    });
-
-    await logAuditoria({ user } as any, {
-      tabela: "relatorios_ata_sessao",
-      registroId: 0,
-      acao: "CREATE",
-      dadosNovos: {
-        arquivoOriginal: req.file.originalname,
-        outputDir: result.outputDir,
-        summary: result.summary,
-      },
-      descricao: `Processamento avulso de ata de sessão em Documentos: ${req.file.originalname}`,
-    });
-
-    res.status(201).json({
-      ...result,
-      originalFileName: req.file.originalname,
-      artifacts,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Falha ao processar a ata de sessão enviada." });
-  }
-});
-
-app.post("/api/ata-sessao/discover-process", ataSessaoUpload.single("arquivo"), async (req, res) => {
-  try {
-    const user = requireUploadUser(req, res);
-    if (!user) return;
-    if (!req.file) {
-      res.status(400).json({ message: "Selecione um arquivo PDF da ata para identificar o processo." });
-      return;
-    }
-
-    const extension = extname(req.file.originalname).toLowerCase();
-    if (extension !== ".pdf") {
-      res.status(400).json({ message: "Somente arquivos PDF de ata de sessão são aceitos." });
-      return;
-    }
-
-    const providedProcessoId = Number(req.body.providedProcessoId ?? 0) || null;
-    const result = await discoverAtaSessaoProcess({
-      sourcePath: req.file.path,
-      originalFileName: req.file.originalname,
-      providedProcessoId,
-      userId: user.id,
-    });
-
-    await logAuditoria({ user } as any, {
-      tabela: "licitacao_ata_sync_runs",
-      registroId: result.discoveryId,
-      acao: "CREATE",
-      dadosNovos: {
-        discoveryId: result.discoveryId,
-        originalFileName: result.originalFileName,
-        metadata: result.metadata,
-        summary: result.summary,
-      },
-      descricao: `Descoberta de processo a partir de ata de sessão: ${req.file.originalname}`,
-    });
-
-    res.status(201).json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message:
-        error instanceof Error
-          ? error.message
-          : "Falha ao identificar o processo pela ata de sessão.",
-    });
-  }
-});
+  },
+);
 
 app.post("/api/ata-sessao/create-preview-from-discovery", async (req, res) => {
   try {
     const user = requireUploadUser(req, res);
     if (!user) return;
-    const input = ataSessaoCreatePreviewFromDiscoveryInputSchema.parse(req.body);
+    const input = ataSessaoCreatePreviewFromDiscoveryInputSchema.parse(
+      req.body,
+    );
     const preview = await createAtaSessaoPreviewFromDiscovery(input, user.id);
     res.status(201).json(preview);
   } catch (error) {
@@ -942,62 +1112,82 @@ app.post("/api/licitacao/ata-sessao/aplicar", async (req, res) => {
   }
 });
 
-app.post("/api/relatorios/sd/processar", sdUpload.single("arquivo"), async (req, res) => {
-  try {
-    const user = requireUploadUser(req, res);
-    if (!user) return;
-    if (!req.file) {
-      res.status(400).json({ message: "Selecione um arquivo PDF da SD para processar." });
-      return;
+app.post(
+  "/api/relatorios/sd/processar",
+  sdUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!req.file) {
+        res
+          .status(400)
+          .json({ message: "Selecione um arquivo PDF da SD para processar." });
+        return;
+      }
+
+      const extension = extname(req.file.originalname).toLowerCase();
+      if (extension !== ".pdf") {
+        res
+          .status(400)
+          .json({
+            message:
+              "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
+          });
+        return;
+      }
+
+      const result = await parseSdReport(req.file.path);
+      const relativeJsonPath = relative(
+        sdReportsRoot,
+        resolve(result.outputDir, "sd-parsed.json"),
+      )
+        .replace(/\\/g, "/")
+        .replace(/^\/+/, "");
+
+      await logAuditoria({ user } as any, {
+        tabela: "relatorios_sd",
+        registroId: 0,
+        acao: "CREATE",
+        dadosNovos: {
+          arquivoOriginal: req.file.originalname,
+          outputDir: result.outputDir,
+          summary: result.summary,
+          metadata: result.metadata,
+        },
+        descricao: `Processamento avulso de SD em Documentos: ${req.file.originalname}`,
+      });
+
+      res.status(201).json({
+        ...result,
+        originalFileName: req.file.originalname,
+        artifact: {
+          label: "JSON SD parseado",
+          relativePath: relativeJsonPath,
+          downloadUrl: `/api/relatorios/sd/download?file=${encodeURIComponent(relativeJsonPath)}`,
+        },
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Falha ao processar a SD enviada.",
+      });
     }
-
-    const extension = extname(req.file.originalname).toLowerCase();
-    if (extension !== ".pdf") {
-      res.status(400).json({ message: "Somente arquivos PDF de Solicitação de Despesa são aceitos." });
-      return;
-    }
-
-    const result = await parseSdReport(req.file.path);
-    const relativeJsonPath = relative(sdReportsRoot, resolve(result.outputDir, "sd-parsed.json"))
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "");
-
-    await logAuditoria({ user } as any, {
-      tabela: "relatorios_sd",
-      registroId: 0,
-      acao: "CREATE",
-      dadosNovos: {
-        arquivoOriginal: req.file.originalname,
-        outputDir: result.outputDir,
-        summary: result.summary,
-        metadata: result.metadata,
-      },
-      descricao: `Processamento avulso de SD em Documentos: ${req.file.originalname}`,
-    });
-
-    res.status(201).json({
-      ...result,
-      originalFileName: req.file.originalname,
-      artifact: {
-        label: "JSON SD parseado",
-        relativePath: relativeJsonPath,
-        downloadUrl: `/api/relatorios/sd/download?file=${encodeURIComponent(relativeJsonPath)}`,
-      },
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: error instanceof Error ? error.message : "Falha ao processar a SD enviada.",
-    });
-  }
-});
+  },
+);
 
 app.post("/api/relatorios/sd/finalizar", async (req, res) => {
   try {
     const user = requireUploadUser(req, res);
     if (!user) return;
 
-    const relativePath = String(req.body.relativePath ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    const relativePath = String(req.body.relativePath ?? "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
     if (!relativePath) {
       res.status(400).json({ message: "Arquivo base do parse não informado." });
       return;
@@ -1011,20 +1201,31 @@ app.post("/api/relatorios/sd/finalizar", async (req, res) => {
       return;
     }
     if (!existsSync(absolutePath)) {
-      res.status(404).json({ message: "Arquivo base do parse não encontrado." });
+      res
+        .status(404)
+        .json({ message: "Arquivo base do parse não encontrado." });
       return;
     }
 
-    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems) ? req.body.manualItems : [];
+    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems)
+      ? req.body.manualItems
+      : [];
     const manualItems = manualItemsRaw
       .map((item: unknown) => normalizeSdManualItem(item))
-      .filter((item: SdManualItem | null): item is SdManualItem => Boolean(item));
+      .filter((item: SdManualItem | null): item is SdManualItem =>
+        Boolean(item),
+      );
 
-    const basePayload = JSON.parse(readFileSync(absolutePath, "utf-8")) as Record<string, unknown>;
+    const basePayload = JSON.parse(
+      readFileSync(absolutePath, "utf-8"),
+    ) as Record<string, unknown>;
     const baseItems = Array.isArray(basePayload.itens) ? basePayload.itens : [];
     const mergedItems = [
       ...baseItems,
-      ...manualItems.map((item: SdManualItem) => ({ ...item, fonte: "manual" })),
+      ...manualItems.map((item: SdManualItem) => ({
+        ...item,
+        fonte: "manual",
+      })),
     ];
     const baseSummary = (basePayload.summary as Record<string, unknown>) ?? {};
     const mergedPayload = {
@@ -1040,7 +1241,11 @@ app.post("/api/relatorios/sd/finalizar", async (req, res) => {
 
     const finalRelativePath = relativePath.replace(/\.json$/i, "-final.json");
     const finalAbsolutePath = resolve(sdReportsRoot, finalRelativePath);
-    writeFileSync(finalAbsolutePath, JSON.stringify(mergedPayload, null, 2), "utf-8");
+    writeFileSync(
+      finalAbsolutePath,
+      JSON.stringify(mergedPayload, null, 2),
+      "utf-8",
+    );
 
     await logAuditoria({ user } as any, {
       tabela: "relatorios_sd",
@@ -1065,25 +1270,35 @@ app.post("/api/relatorios/sd/finalizar", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({
-      message: error instanceof Error ? error.message : "Falha ao finalizar o parse da SD.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao finalizar o parse da SD.",
     });
   }
 });
 
-app.post("/api/licitacao/sd/processar", sdUpload.single("arquivo"), async (req, res) => {
-  try {
-    await handleSdProcessarRequest(req, res, {
-      auditTable: "licitacao_sd",
-      auditDescription: `Processamento de SD na Licitação para o processo ${String(req.body.processoId ?? "0")}`,
-      downloadBasePath: "/api/licitacao/sd/download",
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: error instanceof Error ? error.message : "Falha ao processar a SD do processo.",
-    });
-  }
-});
+app.post(
+  "/api/licitacao/sd/processar",
+  sdUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      await handleSdProcessarRequest(req, res, {
+        auditTable: "licitacao_sd",
+        auditDescription: `Processamento de SD na Licitação para o processo ${String(req.body.processoId ?? "0")}`,
+        downloadBasePath: "/api/licitacao/sd/download",
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Falha ao processar a SD do processo.",
+      });
+    }
+  },
+);
 
 app.post("/api/licitacao/sd/vincular", async (req, res) => {
   try {
@@ -1092,16 +1307,21 @@ app.post("/api/licitacao/sd/vincular", async (req, res) => {
 
     const processoId = Number(req.body.processoId ?? 0);
     if (!processoId) {
-      res.status(400).json({ message: "Processo não informado para vinculação da SD." });
+      res
+        .status(400)
+        .json({ message: "Processo não informado para vinculação da SD." });
       return;
     }
 
-    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems) ? req.body.manualItems : [];
-    const { manualItems, mergedPayload, finalRelativePath, artifact } = finalizeSdPayload({
-      relativePath: String(req.body.relativePath ?? ""),
-      manualItemsRaw,
-      downloadBasePath: "/api/licitacao/sd/download",
-    });
+    const manualItemsRaw: unknown[] = Array.isArray(req.body.manualItems)
+      ? req.body.manualItems
+      : [];
+    const { manualItems, mergedPayload, finalRelativePath, artifact } =
+      finalizeSdPayload({
+        relativePath: String(req.body.relativePath ?? ""),
+        manualItemsRaw,
+        downloadBasePath: "/api/licitacao/sd/download",
+      });
     const vinculacao = await vincularSdAoProcesso({
       processoId,
       itens: Array.isArray(mergedPayload.itens) ? mergedPayload.itens : [],
@@ -1138,14 +1358,20 @@ app.post("/api/licitacao/sd/vincular", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({
-      message: error instanceof Error ? error.message : "Falha ao vincular a SD ao processo.",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Falha ao vincular a SD ao processo.",
     });
   }
 });
 
 app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   try {
-    const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    const relativeFile = String(req.query.file ?? "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
     if (!relativeFile) {
       res.status(400).json({ message: "Arquivo do relatório não informado." });
       return;
@@ -1176,20 +1402,32 @@ app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
     res.setHeader("Content-Type", mimeType);
     res.setHeader("X-Content-Type-Options", "nosniff");
     const rawName = relativeFile.split("/").pop() || "relatorio";
-    const baseName = rawName.endsWith(extension) ? rawName.slice(0, -extension.length) : rawName;
-    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(baseName) || "relatorio"}${extension}\"`);
+    const baseName = rawName.endsWith(extension)
+      ? rawName.slice(0, -extension.length)
+      : rawName;
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=\"${slugifyFileName(baseName) || "relatorio"}${extension}\"`,
+    );
     res.sendFile(absolutePath);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Falha ao disponibilizar o relatório da ata." });
+    res
+      .status(500)
+      .json({ message: "Falha ao disponibilizar o relatório da ata." });
   }
 });
 
 app.get("/api/relatorios/sd/download", async (req, res) => {
   try {
-    const relativeFile = String(req.query.file ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    const relativeFile = String(req.query.file ?? "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
     if (!relativeFile) {
-      res.status(400).json({ message: "Arquivo do parse de SD não informado." });
+      res
+        .status(400)
+        .json({ message: "Arquivo do parse de SD não informado." });
       return;
     }
 
@@ -1208,7 +1446,10 @@ app.get("/api/relatorios/sd/download", async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("X-Content-Type-Options", "nosniff");
     const rawName = relativeFile.split("/").pop() || "sd-parsed.json";
-    res.setHeader("Content-Disposition", `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=\"${slugifyFileName(rawName.replace(/\\.json$/i, ""))}.json\"`,
+    );
     res.sendFile(absolutePath);
   } catch (error) {
     console.error(error);
@@ -1225,83 +1466,107 @@ app.get("/api/licitacao/sd/download", async (req, res) => {
   }
 });
 
-app.get("/api/cadastros/assets/:entity/:recordId/download", async (req, res) => {
-  try {
-    const entity = String(req.params.entity ?? "").trim();
-    const recordId = Number(req.params.recordId ?? 0);
-    const db = requireDb();
+app.get(
+  "/api/cadastros/assets/:entity/:recordId/download",
+  async (req, res) => {
+    try {
+      const entity = String(req.params.entity ?? "").trim();
+      const recordId = Number(req.params.recordId ?? 0);
+      const db = requireDb();
 
-    if (!recordId || !["itens", "fornecedores"].includes(entity)) {
-      res.status(400).json({ message: "Cadastro inválido." });
-      return;
-    }
-
-    if (entity === "itens") {
-      const [item] = await db.select().from(catalogoItens).where(eq(catalogoItens.id, recordId)).limit(1);
-      if (!item?.imagemChave) {
-        res.status(404).json({ message: "Imagem do item não encontrada." });
+      if (!recordId || !["itens", "fornecedores"].includes(entity)) {
+        res.status(400).json({ message: "Cadastro inválido." });
         return;
       }
 
-      const absolutePath = resolveDocumentoPath(item.imagemChave);
+      if (entity === "itens") {
+        const [item] = await db
+          .select()
+          .from(catalogoItens)
+          .where(eq(catalogoItens.id, recordId))
+          .limit(1);
+        if (!item?.imagemChave) {
+          res.status(404).json({ message: "Imagem do item não encontrada." });
+          return;
+        }
+
+        const absolutePath = resolveDocumentoPath(item.imagemChave);
+        if (!existsSync(absolutePath)) {
+          res.status(404).json({ message: "Arquivo físico não encontrado." });
+          return;
+        }
+
+        res.sendFile(absolutePath);
+        return;
+      }
+
+      const [fornecedor] = await db
+        .select()
+        .from(fornecedores)
+        .where(eq(fornecedores.id, recordId))
+        .limit(1);
+      if (!fornecedor?.logoChave) {
+        res.status(404).json({ message: "Logo do fornecedor não encontrada." });
+        return;
+      }
+
+      const absolutePath = resolveDocumentoPath(fornecedor.logoChave);
       if (!existsSync(absolutePath)) {
         res.status(404).json({ message: "Arquivo físico não encontrado." });
         return;
       }
 
       res.sendFile(absolutePath);
-      return;
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ message: "Falha ao disponibilizar o arquivo do cadastro." });
     }
+  },
+);
 
-    const [fornecedor] = await db.select().from(fornecedores).where(eq(fornecedores.id, recordId)).limit(1);
-    if (!fornecedor?.logoChave) {
-      res.status(404).json({ message: "Logo do fornecedor não encontrada." });
-      return;
+app.get(
+  "/api/planejamento/documentos/:documentoId/download",
+  async (req, res) => {
+    try {
+      const db = requireDb();
+      const documentoId = Number(req.params.documentoId ?? 0);
+      const [documento] = await db
+        .select()
+        .from(documentos)
+        .where(eq(documentos.id, documentoId))
+        .limit(1);
+      if (!documento?.arquivoChave) {
+        res.status(404).json({ message: "Documento não encontrado." });
+        return;
+      }
+
+      const absolutePath = resolveDocumentoPath(documento.arquivoChave);
+      if (!existsSync(absolutePath)) {
+        res.status(404).json({ message: "Arquivo físico não encontrado." });
+        return;
+      }
+
+      const extension =
+        extname(documento.arquivoChave || "") || extname(absolutePath);
+      const downloadName = `${slugifyFileName(documento.titulo || "documento") || "documento"}${extension}`;
+      const forceDownload = String(req.query.download ?? "").trim() === "1";
+      const mimeType = documento.mimeType?.trim() || "application/octet-stream";
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader(
+        "Content-Disposition",
+        `${forceDownload ? "attachment" : "inline"}; filename=\"${downloadName}\"`,
+      );
+      res.sendFile(absolutePath);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Falha ao disponibilizar o documento." });
     }
-
-    const absolutePath = resolveDocumentoPath(fornecedor.logoChave);
-    if (!existsSync(absolutePath)) {
-      res.status(404).json({ message: "Arquivo físico não encontrado." });
-      return;
-    }
-
-    res.sendFile(absolutePath);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Falha ao disponibilizar o arquivo do cadastro." });
-  }
-});
-
-app.get("/api/planejamento/documentos/:documentoId/download", async (req, res) => {
-  try {
-    const db = requireDb();
-    const documentoId = Number(req.params.documentoId ?? 0);
-    const [documento] = await db.select().from(documentos).where(eq(documentos.id, documentoId)).limit(1);
-    if (!documento?.arquivoChave) {
-      res.status(404).json({ message: "Documento não encontrado." });
-      return;
-    }
-
-    const absolutePath = resolveDocumentoPath(documento.arquivoChave);
-    if (!existsSync(absolutePath)) {
-      res.status(404).json({ message: "Arquivo físico não encontrado." });
-      return;
-    }
-
-    const extension = extname(documento.arquivoChave || "") || extname(absolutePath);
-    const downloadName = `${slugifyFileName(documento.titulo || "documento") || "documento"}${extension}`;
-    const forceDownload = String(req.query.download ?? "").trim() === "1";
-    const mimeType = documento.mimeType?.trim() || "application/octet-stream";
-
-    res.setHeader("Content-Type", mimeType);
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Disposition", `${forceDownload ? "attachment" : "inline"}; filename=\"${downloadName}\"`);
-    res.sendFile(absolutePath);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Falha ao disponibilizar o documento." });
-  }
-});
+  },
+);
 
 app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
   try {
@@ -1310,7 +1575,11 @@ app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
 
     const db = requireDb();
     const documentoId = Number(req.params.documentoId ?? 0);
-    const [documento] = await db.select().from(documentos).where(eq(documentos.id, documentoId)).limit(1);
+    const [documento] = await db
+      .select()
+      .from(documentos)
+      .where(eq(documentos.id, documentoId))
+      .limit(1);
     if (!documento) {
       res.status(404).json({ message: "Documento não encontrado." });
       return;
@@ -1339,7 +1608,10 @@ app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
   }
 });
 
-app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
+app.use(
+  "/api/trpc",
+  createExpressMiddleware({ router: appRouter, createContext }),
+);
 
 const server = app.listen(port, host, () => {
   startImportacoesScheduler();

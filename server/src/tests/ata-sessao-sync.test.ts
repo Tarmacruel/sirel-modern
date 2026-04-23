@@ -8,7 +8,7 @@ import {
 } from "../lib/ata-sessao-sync.js";
 
 describe("ata sessao sync", () => {
-  it("prioriza processo com edital e administrativo coincidentes", () => {
+  it("prioritizes process with matching edital and administrative number", () => {
     const suggestions = buildAtaSessaoSuggestedProcesses({
       edital: "PE-029-2026",
       processoAdministrativo: "1657/2025",
@@ -41,7 +41,7 @@ describe("ata sessao sync", () => {
     expect(suggestions[0]?.score).toBe(100);
   });
 
-  it("retorna sugestao media quando apenas o administrativo coincide", () => {
+  it("returns medium confidence when only the administrative number matches", () => {
     const suggestions = buildAtaSessaoSuggestedProcesses({
       edital: "PE-888-2026",
       processoAdministrativo: "1657/2025",
@@ -64,11 +64,11 @@ describe("ata sessao sync", () => {
     expect(suggestions[0]?.score).toBe(68);
   });
 
-  it("associa item pelo numero do item quando a ata traz mapeamento direto", () => {
+  it("matches by item number when the ata points to the global process item", () => {
     const match = resolveAtaLotItemMatch(
       {
         numero_lote: 7,
-        status: "EM ADJUDICAÇÃO",
+        status: "EM ADJUDICACAO",
         titulo: "Lote 7",
         itens: [
           {
@@ -92,18 +92,104 @@ describe("ata sessao sync", () => {
 
     expect(match.status).toBe("MATCHED");
     expect(match.matchedItem?.id).toBe(11);
-    expect(match.reason).toContain("Número do item");
+    expect(match.reason).toContain("item");
   });
 
-  it("marca ambiguidade quando mais de um item tem descrição semelhante", () => {
+  it("prefers the internal lot mapping when the ata resets item_numero inside each lot", () => {
+    const match = resolveAtaLotItemMatch(
+      {
+        numero_lote: 225,
+        status: "ADJUDICADO",
+        titulo: "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+        itens: [
+          {
+            item_numero: "1",
+            descricao:
+              "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+          },
+        ],
+      },
+      [
+        {
+          id: 342,
+          numeroItem: 1,
+          descricao:
+            "9901100288 ACEBROFILINA:10mg/ml, xarope, frasco com 120ml. EXCLUSIVO PARA ME/EPP.",
+          quantidade: "100.000",
+          unidade: "FR",
+          loteId: null,
+          loteNumero: "1",
+        },
+        {
+          id: 566,
+          numeroItem: 225,
+          descricao:
+            "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+          quantidade: "451450.000",
+          unidade: "CO",
+          loteId: null,
+          loteNumero: "225",
+        },
+      ],
+    );
+
+    expect(match.status).toBe("MATCHED");
+    expect(match.matchedItem?.id).toBe(566);
+    expect(match.reason).toContain("lote");
+  });
+
+  it("does not trust a local ata item number when the description clearly points elsewhere", () => {
+    const match = resolveAtaLotItemMatch(
+      {
+        numero_lote: 225,
+        status: "ADJUDICADO",
+        titulo: "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+        itens: [
+          {
+            item_numero: "1",
+            descricao:
+              "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+          },
+        ],
+      },
+      [
+        {
+          id: 342,
+          numeroItem: 1,
+          descricao:
+            "9901100288 ACEBROFILINA:10mg/ml, xarope, frasco com 120ml. EXCLUSIVO PARA ME/EPP.",
+          quantidade: "100.000",
+          unidade: "FR",
+          loteId: null,
+          loteNumero: null,
+        },
+        {
+          id: 566,
+          numeroItem: 225,
+          descricao:
+            "36910 GLIBENCLAMIDA:5MG.:GLIBENCLAMIDA:5MG. COTA DE 25% RESERVADA PARA ME/EPP.",
+          quantidade: "451450.000",
+          unidade: "CO",
+          loteId: null,
+          loteNumero: null,
+        },
+      ],
+    );
+
+    expect(match.status).toBe("MATCHED");
+    expect(match.matchedItem?.id).toBe(566);
+    expect(match.reason).toContain("descri");
+  });
+
+  it("marks ambiguity when more than one item has a similar description", () => {
     const match = resolveAtaLotItemMatch(
       {
         numero_lote: 1,
         status: "JULGAMENTO",
-        titulo: "Aquisição de caneta esferográfica azul",
+        titulo: "Aquisicao de caneta esferografica azul",
         itens: [
           {
-            descricao: "Caneta esferográfica azul",
+            descricao: "Caneta esferografica azul",
           },
         ],
       },
@@ -111,7 +197,7 @@ describe("ata sessao sync", () => {
         {
           id: 21,
           numeroItem: 1,
-          descricao: "Caneta esferográfica azul fina",
+          descricao: "Caneta esferografica azul fina",
           quantidade: "100.000",
           unidade: "UN",
           loteId: null,
@@ -120,7 +206,7 @@ describe("ata sessao sync", () => {
         {
           id: 22,
           numeroItem: 2,
-          descricao: "Caneta esferográfica azul média",
+          descricao: "Caneta esferografica azul media",
           quantidade: "100.000",
           unidade: "UN",
           loteId: null,
@@ -133,8 +219,10 @@ describe("ata sessao sync", () => {
     expect(match.matchedItem).toBeNull();
   });
 
-  it("normaliza identificadores e similaridade textual", () => {
+  it("normalizes identifiers and text similarity", () => {
     expect(normalizeAtaIdentifier(" PE-029/2026 ")).toBe("PE0292026");
-    expect(ataTokenSimilarity("medicamento aciclovir", "aciclovir medicamento")).toBe(1);
+    expect(
+      ataTokenSimilarity("medicamento aciclovir", "aciclovir medicamento"),
+    ).toBe(1);
   });
 });

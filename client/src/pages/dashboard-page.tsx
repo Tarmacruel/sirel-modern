@@ -276,13 +276,13 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <MetricTile label="Processos ativos" value={String(data.processosAtivos)} description="Base viva em andamento no SIREL." icon={<FolderOpenDot className="h-5 w-5" />} />
-        <MetricTile label="Contratos vigentes" value={String(data.contratosVigentes)} description="Contratos ligados a processos formalizados." icon={<BriefcaseBusiness className="h-5 w-5" />} />
-        <MetricTile label="Tarefas pendentes" value={String(data.tarefasPendentesUsuario)} description="Pendências pessoais ainda sem leitura final." icon={<CheckSquare className="h-5 w-5" />} />
-        <MetricTile label="Movimentações 24h" value={String(data.movimentacoesUltimas24h)} description="Atualizações recentes do workflow." icon={<Workflow className="h-5 w-5" />} />
-        <MetricTile label="Valor global" value={formatCurrencyBRL(data.valorGlobalEstimado)} description="Soma dos valores estimados registrados." icon={<Landmark className="h-5 w-5" />} />
-        <MetricTile label="Prazos em atraso" value={String(data.prazosAtrasados)} description="Volume que merece correção prioritária." icon={<Clock3 className="h-5 w-5" />} accent={data.prazosAtrasados > 0} />
+      <div className="grid gap-3 sm:grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3">
+        <MetricTile label="Processos ativos" value={String(data.processosAtivos)} description="Base viva em andamento no SIREL." icon={<FolderOpenDot className="h-6 w-6" />} />
+        <MetricTile label="Contratos vigentes" value={String(data.contratosVigentes)} description="Contratos ligados a processos formalizados." icon={<BriefcaseBusiness className="h-6 w-6" />} />
+        <MetricTile label="Tarefas pendentes" value={String(data.tarefasPendentesUsuario)} description="Pendências pessoais ainda sem leitura final." icon={<CheckSquare className="h-6 w-6" />} />
+        <MetricTile label="Movimentações 24h" value={String(data.movimentacoesUltimas24h)} description="Atualizações recentes do workflow." icon={<Workflow className="h-6 w-6" />} />
+        <MetricTile label="Valor global" value={formatCurrencyBRL(data.valorGlobalEstimado)} description="Soma dos valores estimados registrados." icon={<Landmark className="h-6 w-6" />} />
+        <MetricTile label="Prazos em atraso" value={String(data.prazosAtrasados)} description="Volume que merece correção prioritária." icon={<Clock3 className="h-6 w-6" />} accent={data.prazosAtrasados > 0} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
