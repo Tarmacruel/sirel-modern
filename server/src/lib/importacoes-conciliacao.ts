@@ -51,6 +51,7 @@ interface RegistroImportadoBase {
   valorReferencia: string | null;
   valorTotal: string | null;
   publicacaoEm: Date | null;
+  dadosOriginais: unknown;
   processoInternoId: number | null;
   statusConciliacao: ConciliacaoStatus;
 }
@@ -144,6 +145,30 @@ function tokenSimilarity(left: unknown, right: unknown) {
 function numberOrNull(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasAtaResultPayload(record: RegistroImportadoBase) {
+  const payload =
+    record.dadosOriginais && typeof record.dadosOriginais === "object"
+      ? (record.dadosOriginais as Record<string, unknown>)
+      : null;
+  if (!payload) return false;
+
+  const markerKeys = [
+    "resultadoAta",
+    "resultado_ata",
+    "numeroAta",
+    "numero_ata",
+    "idAta",
+    "id_ata",
+    "ataRegistroPreco",
+    "ata_registro_preco",
+  ];
+
+  return markerKeys.some((key) => {
+    const value = payload[key];
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  });
 }
 
 function extractReferenceValue(record: RegistroImportadoBase) {
@@ -503,46 +528,61 @@ export async function linkImportedProcessToInternal(
     })
     .where(eq(importacaoBllProcessos.id, importedId));
 
-  // Tentar ajustar campos do processo interno com base nos dados importados, sem sobrepor valores definidos manualmente.
+  // Em resultados oriundos de ATA, os dados importados prevalecem sobre ajustes manuais
+  // para evitar conflitos bloqueantes de conciliação/atualização na etapa de Licitação.
+  // Nos demais cenários, mantemos a regra conservadora (só preencher campos vazios).
   const updateData: any = {};
+  const shouldOverrideManualValues = hasAtaResultPayload(record);
 
-  if (record.numeroAdministrativo && !process.numeroAdministrativo) {
+  if (
+    record.numeroAdministrativo &&
+    (shouldOverrideManualValues || !process.numeroAdministrativo)
+  ) {
     updateData.numeroAdministrativo = record.numeroAdministrativo;
   }
-  if (record.numeroEdital && !process.numeroEdital) {
+  if (record.numeroEdital && (shouldOverrideManualValues || !process.numeroEdital)) {
     updateData.numeroEdital = record.numeroEdital;
   }
 
   const suggestedDataAbertura =
     record.publicacaoEm ?? record.inicioRecepcaoEm ?? record.inicioDisputaEm;
-  if (suggestedDataAbertura && !process.dataAbertura) {
+  if (suggestedDataAbertura && (shouldOverrideManualValues || !process.dataAbertura)) {
     updateData.dataAbertura = suggestedDataAbertura;
   }
-  if (record.publicacaoEm && !process.dataPublicacao) {
+  if (record.publicacaoEm && (shouldOverrideManualValues || !process.dataPublicacao)) {
     updateData.dataPublicacao = record.publicacaoEm;
   }
-  if (record.inicioDisputaEm && !process.dataDisputaSessao) {
+  if (
+    record.inicioDisputaEm &&
+    (shouldOverrideManualValues || !process.dataDisputaSessao)
+  ) {
     updateData.dataDisputaSessao = record.inicioDisputaEm;
   }
 
-  if (record.objeto && !process.objeto) {
+  if (record.objeto && (shouldOverrideManualValues || !process.objeto)) {
     updateData.objeto = record.objeto;
   }
 
-  if (record.valorTotal && !process.valorEstimado) {
+  if (record.valorTotal && (shouldOverrideManualValues || !process.valorEstimado)) {
     updateData.valorEstimado = Number(record.valorTotal);
-  } else if (record.valorReferencia && !process.valorEstimado) {
+  } else if (
+    record.valorReferencia &&
+    (shouldOverrideManualValues || !process.valorEstimado)
+  ) {
     updateData.valorEstimado = Number(record.valorReferencia);
   }
 
   if (record.modalidade) {
     const modalidadeId = await findModalidadeIdByName(record.modalidade);
-    if (modalidadeId && !process.modalidadeId) {
+    if (modalidadeId && (shouldOverrideManualValues || !process.modalidadeId)) {
       updateData.modalidadeId = modalidadeId;
     }
   }
 
-  if (record.tipoContrato && !process.tipoContratacao) {
+  if (
+    record.tipoContrato &&
+    (shouldOverrideManualValues || !process.tipoContratacao)
+  ) {
     updateData.tipoContratacao = mapTipoContrato(record.tipoContrato);
   }
 
@@ -555,7 +595,7 @@ export async function linkImportedProcessToInternal(
   }
   if (registroModoDisputa) {
     const modoDisputa = mapModoDisputa(registroModoDisputa);
-    if (modoDisputa && !process.modoDisputa) {
+    if (modoDisputa && (shouldOverrideManualValues || !process.modoDisputa)) {
       updateData.modoDisputa = modoDisputa;
     }
   }
