@@ -379,6 +379,7 @@ class AtaSessaoParserTests(unittest.TestCase):
         self.assertEqual(item.valor_total_estimado, 5000.0)
         self.assertEqual(item.valor_estimado_fonte, 'Dossiê - valores do item')
         self.assertEqual(item.valor_estimado_confianca, 'MEDIA')
+        self.assertEqual(item.valor_estimado_processo_fonte, '2026-001')
         self.assertIn('Processo sugerido usado para enriquecimento.', result.warnings)
 
 
