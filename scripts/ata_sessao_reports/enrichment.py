@@ -76,6 +76,15 @@ def apply_estimated_value_enrichment(
         if (lot_number := _entry_lot_number(entry)) is not None
     }
 
+    processo = enrichment.get("processo")
+    processo_fonte = None
+    if isinstance(processo, dict):
+        processo_fonte = (
+            _text(processo.get("numeroSirel"))
+            or _text(processo.get("numero_edital"))
+            or _text(processo.get("id"))
+        )
+
     applied = 0
     for lot in result.lotes:
         if not is_malsucedido_status(lot.status):
@@ -103,6 +112,7 @@ def apply_estimated_value_enrichment(
             item.valor_total_estimado = total_value
         item.valor_estimado_fonte = _text(entry.get("fonte_label")) or _text(entry.get("fonte")) or "Dossiê"
         item.valor_estimado_confianca = _text(entry.get("confianca")) or "SUGERIDA"
+        item.valor_estimado_processo_fonte = processo_fonte
         applied += 1
 
         if item.valor_estimado_confianca.upper() != "ALTA":

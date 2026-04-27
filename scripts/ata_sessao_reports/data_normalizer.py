@@ -51,6 +51,7 @@ class NormalizedItem:
     valor_total_estimado: float | None
     valor_estimado_fonte: str | None
     valor_estimado_confianca: str | None
+    valor_estimado_processo_fonte: str | None
     marca: str | None
     modelo: str | None
 
@@ -135,6 +136,7 @@ def _normalize_item(item: LotItemData) -> NormalizedItem:
         valor_total_estimado=item.valor_total_estimado,
         valor_estimado_fonte=item.valor_estimado_fonte,
         valor_estimado_confianca=item.valor_estimado_confianca,
+        valor_estimado_processo_fonte=item.valor_estimado_processo_fonte,
         marca=item.marca,
         modelo=item.modelo,
     )

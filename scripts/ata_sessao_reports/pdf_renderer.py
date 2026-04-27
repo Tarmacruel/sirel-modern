@@ -256,6 +256,7 @@ def _summary_rows_malsucedidos(lots: list[NormalizedLot], styles: dict[str, Para
             _text(lot.participantes_totais),
             _format_currency(lot.itens[0].valor_unitario_estimado if lot.itens else None),
             _format_currency(lot.itens[0].valor_total_estimado if lot.itens else None),
+            _shorten(lot.itens[0].valor_estimado_processo_fonte if lot.itens else None, 16),
             _shorten(lot.itens[0].valor_estimado_fonte if lot.itens else None, 38),
             _shorten(lot.itens[0].valor_estimado_confianca if lot.itens else None, 18),
             Paragraph(_text(_shorten(lot.motivo_falha, 140)), styles["table_cell_justify"]),
@@ -394,6 +395,7 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
                     ["Valor Total", _format_currency(item.valor_total)],
                     ["Valor Unitário Estimado", _format_currency(item.valor_unitario_estimado)],
                     ["Valor Total Estimado", _format_currency(item.valor_total_estimado)],
+                    ["Processo fonte do valor estimado", _text(item.valor_estimado_processo_fonte)],
                     ["Fonte do Valor Estimado", _text(item.valor_estimado_fonte)],
                     ["Confiança do Valor Estimado", _text(item.valor_estimado_confianca)],
                     ["Marca", _text(item.marca)],
@@ -606,6 +608,7 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
             _format_currency(item.valor_total),
             _format_currency(item.valor_unitario_estimado),
             _format_currency(item.valor_total_estimado),
+            _shorten(item.valor_estimado_processo_fonte, 14),
             _shorten(item.valor_estimado_fonte, 28),
             _shorten(item.valor_estimado_confianca, 14),
             item.marca,
@@ -613,13 +616,13 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
         ])
 
     empty_row: list[Any] = [Paragraph("Nenhum item detalhado foi identificado para este lote.", styles["table_cell"])]
-    while len(empty_row) < 12:
+    while len(empty_row) < 13:
         empty_row.append("")
 
     return _make_table(
-        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Fonte", "Conf.", "Marca", "Modelo"],
+        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Marca", "Modelo"],
         rows or [empty_row],
-        [28, 188, 36, 38, 56, 60, 62, 66, 74, 42, 42, 42],
+        [28, 172, 34, 36, 54, 58, 58, 62, 42, 68, 38, 38, 38],
         styles,
         justify_columns={1},
     )
@@ -964,9 +967,9 @@ def write_report_pdfs(
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
-        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Valor Est. Unit.", "Valor Est. Total", "Fonte", "Conf.", "Motivo resumido"],
+        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Motivo resumido"],
         _summary_rows_malsucedidos(normalized.malsucedidos, _styles()),
-        [30, 58, 182, 34, 38, 68, 72, 74, 42, 164],
+        [28, 54, 162, 32, 34, 62, 66, 44, 64, 40, 148],
         normalized.malsucedidos,
         normalized.header,
         config,
