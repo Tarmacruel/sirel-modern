@@ -337,14 +337,17 @@ def _items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle])
             _format_currency(item.valor_total),
             _format_currency(item.valor_unitario_estimado),
             _format_currency(item.valor_total_estimado),
+            _shorten(item.valor_estimado_processo_fonte, 14),
+            _shorten(item.valor_estimado_fonte, 28),
+            _shorten(item.valor_estimado_confianca, 14),
             _shorten(item.marca, 18),
             _shorten(item.modelo, 18),
         ])
 
     return _make_table(
-        ["Item", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Marca", "Modelo"],
+        ["Item", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Marca", "Modelo"],
         rows,
-        [30, 220, 42, 62, 66, 68, 72, 58, 58],
+        [24, 154, 32, 52, 54, 58, 62, 38, 62, 34, 34, 34],
         styles,
         justify_columns={1},
     )
