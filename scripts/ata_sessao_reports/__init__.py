@@ -1,6 +1,7 @@
 ﻿"""Ferramentas para processar atas de sessão da BLL no SIREL."""
 
 from .data_normalizer import normalize_report_data
+from .enrichment import apply_estimated_value_enrichment
 from .models import (
     AtaSessaoParseResult,
     LotItemData,
@@ -20,6 +21,7 @@ __all__ = [
     "LotRecord",
     "MovimentoLote",
     "normalize_report_data",
+    "apply_estimated_value_enrichment",
     "parse_ata_sessao_pdf",
     "write_ata_institucional_pdf",
     "write_report_pdfs",

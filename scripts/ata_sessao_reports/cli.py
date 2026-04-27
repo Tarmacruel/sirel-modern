@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from .data_normalizer import normalize_report_data
+from .enrichment import apply_estimated_value_enrichment
 from .excel import write_reports_workbooks
 from .models import ensure_directory
 from .parser import normalize_ascii_slug, parse_ata_sessao_pdf
@@ -47,6 +48,15 @@ def _load_branding(path: str | None) -> dict[str, object] | None:
     return json.loads(branding_path.read_text(encoding="utf-8"))
 
 
+def _load_enrichment(path: str | None) -> dict[str, object] | None:
+    if not path:
+        return None
+    enrichment_path = Path(path).expanduser().resolve()
+    if not enrichment_path.exists():
+        return None
+    return json.loads(enrichment_path.read_text(encoding="utf-8"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Processa atas de sessão e gera relatórios estruturados.")
     parser.add_argument("--input", required=True, help="Caminho do PDF de ata de sessão.")
@@ -58,6 +68,7 @@ def main() -> int:
     parser.add_argument("--processo-administrativo", help="Processo administrativo exibido no cabeçalho.")
     parser.add_argument("--arquivo-origem", help="Nome amigável do arquivo de origem exibido no cabeçalho.")
     parser.add_argument("--data-geracao", help="Data de geração textual exibida no cabeçalho.")
+    parser.add_argument("--enrichment-json", help="JSON opcional com valores estimados internos para enriquecer os lotes.")
     args = parser.parse_args()
 
     pdf_path = Path(args.input).expanduser().resolve()
@@ -67,6 +78,11 @@ def main() -> int:
     parsing_errors_path = output_dir / "erros_parsing.log"
 
     result = parse_ata_sessao_pdf(pdf_path, logger=logger, parsing_error_log_path=parsing_errors_path)
+    enrichment_metadata = apply_estimated_value_enrichment(
+        result,
+        _load_enrichment(args.enrichment_json),
+        logger=render_logger,
+    )
     normalized = normalize_report_data(
         result,
         metadata={
@@ -104,6 +120,8 @@ def main() -> int:
         "edital": normalized.header.edital,
         "processo_administrativo": normalized.header.processo_administrativo,
     }
+    if enrichment_metadata is not None:
+        payload["enrichment"] = enrichment_metadata
     payload["artifacts"] = artifacts
 
     json_out = Path(args.json_out).expanduser().resolve() if args.json_out else output_dir / f"{normalize_ascii_slug(pdf_path.stem)}-relatorio.json"

@@ -57,6 +57,7 @@ export interface AtaSessaoStandaloneProcessResult {
 }
 
 export interface ProcessAtaSessaoDocumentoOptions {
+  processoId?: number;
   edital?: string;
   processoAdministrativo?: string;
   arquivoOrigem?: string;
@@ -164,6 +165,7 @@ export async function processAtaSessaoDocumento(
 ): Promise<AtaSessaoStandaloneProcessResult> {
   const formData = new FormData();
   formData.append("arquivo", arquivo);
+  if (options.processoId) formData.append("processoId", String(options.processoId));
   if (options.edital?.trim()) formData.append("edital", options.edital.trim());
   if (options.processoAdministrativo?.trim()) formData.append("processoAdministrativo", options.processoAdministrativo.trim());
   if (options.arquivoOrigem?.trim()) formData.append("arquivoOrigem", options.arquivoOrigem.trim());

@@ -254,7 +254,10 @@ def _summary_rows_malsucedidos(lots: list[NormalizedLot], styles: dict[str, Para
             Paragraph(_text(_shorten(lot.descricao, 120)), styles["table_cell_justify"]),
             f"{lot.total_itens} ite(ns)",
             _text(lot.participantes_totais),
-            _format_currency(lot.melhor_oferta),
+            _format_currency(lot.itens[0].valor_unitario_estimado if lot.itens else None),
+            _format_currency(lot.itens[0].valor_total_estimado if lot.itens else None),
+            _shorten(lot.itens[0].valor_estimado_fonte if lot.itens else None, 38),
+            _shorten(lot.itens[0].valor_estimado_confianca if lot.itens else None, 18),
             Paragraph(_text(_shorten(lot.motivo_falha, 140)), styles["table_cell_justify"]),
         ])
     return rows
@@ -331,14 +334,16 @@ def _items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle])
             _format_number(item.quantidade),
             _format_currency(item.valor_unitario),
             _format_currency(item.valor_total),
+            _format_currency(item.valor_unitario_estimado),
+            _format_currency(item.valor_total_estimado),
             _shorten(item.marca, 18),
             _shorten(item.modelo, 18),
         ])
 
     return _make_table(
-        ["Item", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Marca", "Modelo"],
+        ["Item", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Marca", "Modelo"],
         rows,
-        [34, 270, 44, 72, 76, 80, 80],
+        [30, 220, 42, 62, 66, 68, 72, 58, 58],
         styles,
         justify_columns={1},
     )
@@ -387,6 +392,10 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
                     ["Quantidade", _format_number(item.quantidade)],
                     ["Valor Unitário", _format_currency(item.valor_unitario)],
                     ["Valor Total", _format_currency(item.valor_total)],
+                    ["Valor Unitário Estimado", _format_currency(item.valor_unitario_estimado)],
+                    ["Valor Total Estimado", _format_currency(item.valor_total_estimado)],
+                    ["Fonte do Valor Estimado", _text(item.valor_estimado_fonte)],
+                    ["Confiança do Valor Estimado", _text(item.valor_estimado_confianca)],
                     ["Marca", _text(item.marca)],
                     ["Modelo", _text(item.modelo)],
                 ],
@@ -596,18 +605,21 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
             _format_currency(item.valor_unitario),
             _format_currency(item.valor_total),
             _format_currency(item.valor_unitario_estimado),
+            _format_currency(item.valor_total_estimado),
+            _shorten(item.valor_estimado_fonte, 28),
+            _shorten(item.valor_estimado_confianca, 14),
             item.marca,
             item.modelo,
         ])
 
     empty_row: list[Any] = [Paragraph("Nenhum item detalhado foi identificado para este lote.", styles["table_cell"])]
-    while len(empty_row) < 9:
+    while len(empty_row) < 12:
         empty_row.append("")
 
     return _make_table(
-        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Estimado", "Marca", "Modelo"],
+        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Fonte", "Conf.", "Marca", "Modelo"],
         rows or [empty_row],
-        [34, 238, 42, 44, 66, 70, 76, 74, 74],
+        [28, 188, 36, 38, 56, 60, 62, 66, 74, 42, 42, 42],
         styles,
         justify_columns={1},
     )
@@ -952,9 +964,9 @@ def write_report_pdfs(
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
-        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Melhor oferta", "Motivo resumido"],
+        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Valor Est. Unit.", "Valor Est. Total", "Fonte", "Conf.", "Motivo resumido"],
         _summary_rows_malsucedidos(normalized.malsucedidos, _styles()),
-        [34, 68, 236, 36, 42, 82, 220],
+        [30, 58, 182, 34, 38, 68, 72, 74, 42, 164],
         normalized.malsucedidos,
         normalized.header,
         config,

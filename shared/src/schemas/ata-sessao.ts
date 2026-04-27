@@ -19,6 +19,7 @@ export const ataSessaoProcessInputSchema = z
   .object({
     sourcePath: z.string().trim().min(3).optional(),
     documentoId: z.number().int().positive().optional(),
+    processoId: z.number().int().positive().optional(),
     outputDir: z.string().trim().min(3).optional(),
     generatedByName: z.string().trim().min(2).max(160).optional(),
     edital: z.string().trim().min(2).max(240).optional(),

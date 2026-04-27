@@ -37,6 +37,12 @@ Opcionalmente:
 npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf" --output-dir "storage/reports/minha-saida"
 ```
 
+Para forçar o enriquecimento por um processo interno específico:
+
+```bash
+npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf" --processo-id 123
+```
+
 ## Execução via backend
 Procedure tRPC:
 - `relatorios.processAtaSessao`
@@ -63,6 +69,8 @@ A mutation e o script retornam:
 - lista de artefatos gerados.
 
 O artefato `Ata_Institucional_Completa.pdf` consolida a ata em aparência institucional, reorganizada por lote, com metadados, resumo geral, itens, participantes, movimentos e anexo técnico quando houver warnings ou erros de parsing.
+
+Quando a ata possui lotes malsucedidos e a BLL não exibe o valor estimado, o backend tenta enriquecer a saída com os valores já registrados no SIREL. A prioridade é: valores consolidados do dossiê por item, valores base do item do processo e, por fim, valor estimado do lote. Em processamento avulso, o processo é sugerido pelos identificadores extraídos da ata; quando a correspondência não é perfeita, o relatório mostra a fonte e a confiança do valor estimado.
 
 ## Logs e tolerância a falhas
 - warnings: `warnings.log`

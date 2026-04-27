@@ -12,6 +12,7 @@ function parseArg(flag: string) {
 async function main() {
   const sourcePath = parseArg("--input");
   const documentoIdArg = parseArg("--documento-id");
+  const processoIdArg = parseArg("--processo-id");
   const outputDir = parseArg("--output-dir");
   const generatedByName = parseArg("--generated-by");
   const edital = parseArg("--edital");
@@ -22,6 +23,7 @@ async function main() {
   const input = ataSessaoProcessInputSchema.parse({
     sourcePath,
     documentoId: documentoIdArg ? Number(documentoIdArg) : undefined,
+    processoId: processoIdArg ? Number(processoIdArg) : undefined,
     outputDir,
     generatedByName,
     edital,

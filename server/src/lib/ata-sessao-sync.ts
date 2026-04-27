@@ -2307,6 +2307,7 @@ export async function discoverAtaSessaoProcess(params: {
   const pipeline = await runAtaSessaoPipeline({
     sourcePath: params.sourcePath,
     arquivoOrigem: params.originalFileName,
+    processoId: params.providedProcessoId ?? undefined,
   });
   const suggestedProcesses = buildAtaSessaoSuggestedProcesses({
     candidates: await loadProcessSuggestionCandidates(db),
@@ -2432,6 +2433,7 @@ export async function createAtaSessaoPreviewFromDocumento(
   const db = requireDb();
   const pipeline = await runAtaSessaoPipeline({
     documentoId: input.documentoId,
+    processoId: input.processoId,
   });
   const [run] = await db
     .insert(licitacaoAtaSyncRuns)

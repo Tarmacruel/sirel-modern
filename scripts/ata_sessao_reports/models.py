@@ -89,6 +89,9 @@ class LotItemData:
     valor_unitario: float | None = None
     valor_total: float | None = None
     valor_unitario_estimado: float | None = None
+    valor_total_estimado: float | None = None
+    valor_estimado_fonte: str | None = None
+    valor_estimado_confianca: str | None = None
     marca: str | None = None
     modelo: str | None = None
 

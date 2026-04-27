@@ -956,6 +956,7 @@ app.post(
 
       const result = await generateAtaSessaoReports({
         sourcePath: req.file.path,
+        processoId: Number(req.body.processoId) || undefined,
         generatedByName: user.name,
         edital: String(req.body.edital ?? "").trim() || undefined,
         processoAdministrativo:

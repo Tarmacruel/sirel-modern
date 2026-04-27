@@ -461,10 +461,17 @@ def apply_estimated_value_from_movements(lot: LotRecord) -> None:
             lot.itens[0].valor_unitario_estimado = valor_total / lot.itens[0].quantidade
         else:
             lot.itens[0].valor_unitario_estimado = valor_total
+        lot.itens[0].valor_total_estimado = valor_total
+        lot.itens[0].valor_estimado_fonte = "Ata BLL"
+        lot.itens[0].valor_estimado_confianca = "ALTA"
         return
     
     if lot.itens[0].valor_unitario and lot.itens[0].valor_unitario > 0:
         lot.itens[0].valor_unitario_estimado = lot.itens[0].valor_unitario
+        if lot.itens[0].quantidade and lot.itens[0].quantidade > 0:
+            lot.itens[0].valor_total_estimado = lot.itens[0].valor_unitario * lot.itens[0].quantidade
+        lot.itens[0].valor_estimado_fonte = "Ata BLL"
+        lot.itens[0].valor_estimado_confianca = "ALTA"
 
 
 def resolve_winner(lot: LotRecord) -> None:

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from scripts.ata_sessao_reports.data_normalizer import normalize_report_data, prepare_lote_data
+from scripts.ata_sessao_reports.enrichment import apply_estimated_value_enrichment
 from scripts.ata_sessao_reports.models import (
     AtaSessaoParseResult,
     LotItemData,
@@ -331,6 +332,54 @@ class AtaSessaoParserTests(unittest.TestCase):
             self.assertEqual(output_path.name, 'Ata_Institucional_Completa.pdf')
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 1000)
+
+    def test_apply_estimated_value_enrichment_fills_failed_lot(self) -> None:
+        result = AtaSessaoParseResult(
+            source_path='ata.pdf',
+            generated_at='2026-04-27T09:38:21',
+            lotes=[
+                LotRecord(
+                    numero_lote=1,
+                    status='FRACASSADO',
+                    titulo='Banca metálica',
+                    itens=[
+                        LotItemData(
+                            item_numero='1',
+                            descricao='BANCA EM ESTRUTURA METÁLICA',
+                            quantidade=2,
+                        )
+                    ],
+                )
+            ],
+        )
+
+        metadata = apply_estimated_value_enrichment(
+            result,
+            {
+                'processo': {'id': 10, 'numeroSirel': '2026-001'},
+                'warnings': ['Processo sugerido usado para enriquecimento.'],
+                'lotes': [
+                    {
+                        'numero_lote': 1,
+                        'item_numero': '1',
+                        'valor_unitario_estimado': None,
+                        'valor_total_estimado': 5000.0,
+                        'fonte_label': 'Dossiê - valores do item',
+                        'confianca': 'MEDIA',
+                    }
+                ],
+            },
+        )
+
+        item = result.lotes[0].itens[0]
+        self.assertIsNotNone(metadata)
+        assert metadata is not None
+        self.assertEqual(metadata['lotes_enriquecidos'], 1)
+        self.assertEqual(item.valor_unitario_estimado, 2500.0)
+        self.assertEqual(item.valor_total_estimado, 5000.0)
+        self.assertEqual(item.valor_estimado_fonte, 'Dossiê - valores do item')
+        self.assertEqual(item.valor_estimado_confianca, 'MEDIA')
+        self.assertIn('Processo sugerido usado para enriquecimento.', result.warnings)
 
 
 if __name__ == '__main__':
