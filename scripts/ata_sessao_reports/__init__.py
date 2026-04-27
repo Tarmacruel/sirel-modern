@@ -9,7 +9,7 @@ from .models import (
     MovimentoLote,
 )
 from .parser import parse_ata_sessao_pdf
-from .pdf_renderer import write_report_pdfs
+from .pdf_renderer import write_ata_institucional_pdf, write_report_pdfs
 from .sd_parser import SDItem, SDMetadata, SDRecord, map_sd_item_to_lot_item, parse_sd_pdf
 
 
@@ -21,6 +21,7 @@ __all__ = [
     "MovimentoLote",
     "normalize_report_data",
     "parse_ata_sessao_pdf",
+    "write_ata_institucional_pdf",
     "write_report_pdfs",
     "write_reports_workbooks",
     "SDItem",

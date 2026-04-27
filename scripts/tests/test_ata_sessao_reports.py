@@ -1,13 +1,16 @@
 ﻿from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from scripts.ata_sessao_reports.data_normalizer import prepare_lote_data
+from scripts.ata_sessao_reports.data_normalizer import normalize_report_data, prepare_lote_data
 from scripts.ata_sessao_reports.models import (
     AtaSessaoParseResult,
     LotItemData,
     LotParticipant,
     LotRecord,
+    MovimentoLote,
     is_adjudicavel_status,
     is_em_andamento_status,
     is_fase_recursal_status,
@@ -20,6 +23,7 @@ from scripts.ata_sessao_reports.parser import (
     parse_status,
     split_lot_blocks,
 )
+from scripts.ata_sessao_reports.pdf_renderer import write_ata_institucional_pdf
 
 
 class AtaSessaoParserTests(unittest.TestCase):
@@ -248,6 +252,85 @@ class AtaSessaoParserTests(unittest.TestCase):
         normalized = prepare_lote_data(lot)
         self.assertEqual(normalized.melhor_oferta, 23733.0)
         self.assertEqual(normalized.motivo_falha, 'Erro técnico na cotação')
+
+    def test_write_ata_institucional_pdf_generates_artifact(self) -> None:
+        result = AtaSessaoParseResult(
+            source_path='AtaSessaoFinal_teste.pdf',
+            generated_at='2026-04-27T09:38:21',
+            edital='Pregão Eletrônico Nº PE-001-2026',
+            processo_administrativo='123/2026',
+            lotes=[
+                LotRecord(
+                    numero_lote=1,
+                    status='FRACASSADO',
+                    titulo='Banca metálica',
+                    itens=[
+                        LotItemData(
+                            item_numero='1',
+                            unidade='UNID.',
+                            descricao='BANCA EM ESTRUTURA METÁLICA',
+                            quantidade=1,
+                            valor_unitario=1200.0,
+                            valor_total=1200.0,
+                            valor_unitario_estimado=1200.0,
+                        )
+                    ],
+                    participantes=[
+                        LotParticipant(
+                            section='INABILITADOS',
+                            ranking=None,
+                            participante_numero='100',
+                            razao_social='FORNECEDOR TESTE LTDA',
+                            documento='11.111.111/0001-11',
+                            oferta_inicial=1500.0,
+                            oferta_final=1200.0,
+                            diferenca_percentual=None,
+                            me_epp=True,
+                        )
+                    ],
+                    movimentos=[
+                        MovimentoLote(
+                            timestamp='27/04/2026 09:00:00',
+                            evento='INABILITAÇÃO DE PARTICIPANTE',
+                            detalhe='Documentação não atendida conforme edital.',
+                            raw_text='27/04/2026 09:00:00 INABILITAÇÃO DE PARTICIPANTE Motivo: Documentação não atendida conforme edital.',
+                        )
+                    ],
+                    melhor_lance=1200.0,
+                    motivo_falha='Documentação não atendida conforme edital.',
+                )
+            ],
+        )
+        normalized = normalize_report_data(
+            result,
+            metadata={
+                'arquivo_origem': 'AtaSessaoFinal_teste.pdf',
+                'data_geracao': '2026-04-27T09:38:21',
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            artifacts = write_ata_institucional_pdf(
+                result,
+                normalized,
+                tmp_dir,
+                branding={
+                    'lines': [
+                        'MUNICÍPIO TESTE',
+                        'PREFEITURA TESTE',
+                        'CNPJ: 00.000.000/0001-00',
+                        'RUA TESTE, 1',
+                    ],
+                    'footer': 'SIREL',
+                    'logo_path': None,
+                },
+                generated_by='Usuário Teste',
+            )
+
+            output_path = Path(artifacts['ata_institucional_pdf'])
+            self.assertEqual(output_path.name, 'Ata_Institucional_Completa.pdf')
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 1000)
 
 
 if __name__ == '__main__':

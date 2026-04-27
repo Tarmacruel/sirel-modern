@@ -242,6 +242,14 @@ export function buildAtaSessaoArtifacts(
   parsed: AtaSessaoParsedPayload,
 ): AtaSessaoReportArtifact[] {
   const rawArtifacts = [
+    {
+      label: "Ata institucional completa (PDF)",
+      path: String(
+        parsed.artifacts?.ata_institucional_pdf ??
+          join(outputDir, "Ata_Institucional_Completa.pdf"),
+      ),
+      type: "pdf" as const,
+    },
     { label: "JSON consolidado", path: jsonPath, type: "json" as const },
     {
       label: "Relatório Em Andamento (PDF)",

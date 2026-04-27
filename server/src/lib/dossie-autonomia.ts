@@ -326,6 +326,52 @@ function buildAwardEconomyMetrics(
   };
 }
 
+function sumFinanceValues(values: Array<number | null | undefined>): number {
+  return values.reduce<number>((total, value) => {
+    const parsed = Number(value);
+    return total + (Number.isFinite(parsed) ? parsed : 0);
+  }, 0);
+}
+
+export function calculateResumoEconomiaMetrics(params: {
+  itemEstimatedTotals: Array<number | null | undefined>;
+  awardedEstimatedTotals: Array<number | null | undefined>;
+  awardedWinnerTotals: Array<number | null | undefined>;
+  processEstimatedTotal?: number | null;
+  processAwardedTotal?: number | null;
+  hasAwardedItems: boolean;
+}) {
+  const itemEstimatedSum = sumFinanceValues(params.itemEstimatedTotals);
+  const awardedEstimatedSum = sumFinanceValues(params.awardedEstimatedTotals);
+  const winnerSum = sumFinanceValues(params.awardedWinnerTotals);
+  const processEstimatedTotal = params.processEstimatedTotal ?? 0;
+  const processAwardedTotal = params.processAwardedTotal ?? 0;
+
+  const valorEstimadoTotal =
+    roundMoney(itemEstimatedSum || processEstimatedTotal) ?? 0;
+  const valorEstimadoEconomiaBase =
+    roundMoney(awardedEstimatedSum || processEstimatedTotal || itemEstimatedSum) ??
+    0;
+  const valorVencedorTotal =
+    roundMoney(
+      winnerSum || (params.hasAwardedItems ? 0 : processAwardedTotal),
+    ) ?? 0;
+  const economiaTotal =
+    roundMoney(valorEstimadoEconomiaBase - valorVencedorTotal) ?? 0;
+  const percentualEconomia =
+    valorEstimadoEconomiaBase > 0
+      ? roundPercent((economiaTotal / valorEstimadoEconomiaBase) * 100)
+      : null;
+
+  return {
+    valorEstimadoTotal,
+    valorEstimadoEconomiaBase,
+    valorVencedorTotal,
+    economiaTotal,
+    percentualEconomia,
+  };
+}
+
 export function hasAwardedResult(row: ResultadoItemLike) {
   if (row.itemFracassado || row.itemDeserto) return false;
 
@@ -1749,9 +1795,18 @@ export async function calculateResumoFinanceiroProcesso(processoId: number) {
   const itensFracassados = itemRows.filter((row) => row.itemFracassado).length;
   const itensDesertos = itemRows.filter((row) => row.itemDeserto).length;
   const awardedItemRows = itemRows.filter((row) => hasAwardedResult(row));
-  const valorEstimadoTotal =
-    itemRows.reduce((total, row) => total + (toNumber(row.valorEstimadoTotal) ?? 0), 0) ||
-    (toNumber(processRow?.valorEstimado) ?? 0);
+  const resumoEconomia = calculateResumoEconomiaMetrics({
+    itemEstimatedTotals: itemRows.map((row) => toNumber(row.valorEstimadoTotal)),
+    awardedEstimatedTotals: awardedItemRows.map((row) =>
+      toNumber(row.valorEstimadoTotal),
+    ),
+    awardedWinnerTotals: awardedItemRows.map((row) =>
+      toNumber(row.valorLanceVencedorTotal),
+    ),
+    processEstimatedTotal: toNumber(processRow?.valorEstimado),
+    processAwardedTotal: toNumber(processRow?.valorHomologado),
+    hasAwardedItems: awardedItemRows.length > 0,
+  });
   const valorContratadoTotal =
     internalContractRows.reduce(
       (total, row) => total + (toNumber(row.valorContrato) ?? 0),
@@ -1761,29 +1816,13 @@ export async function calculateResumoFinanceiroProcesso(processoId: number) {
       (total, row) => total + (toNumber(row.valorContrato) ?? 0),
       0,
     );
-  const valorEstimadoEconomiaBase =
-    awardedItemRows.reduce(
-      (total, row) => total + (toNumber(row.valorEstimadoTotal) ?? 0),
-      0,
-    ) || (awardedItemRows.length ? 0 : toNumber(processRow?.valorEstimado) ?? 0);
-  const valorVencedorTotal =
-    awardedItemRows.reduce(
-      (total, row) => total + (toNumber(row.valorLanceVencedorTotal) ?? 0),
-      0,
-    ) || (awardedItemRows.length ? 0 : toNumber(processRow?.valorHomologado) ?? 0);
-  const economiaTotal =
-    roundMoney(valorEstimadoEconomiaBase - valorVencedorTotal) ?? 0;
-  const percentualEconomia =
-    valorEstimadoEconomiaBase > 0
-      ? roundPercent((economiaTotal / valorEstimadoEconomiaBase) * 100)
-      : null;
 
   return {
-    valorEstimadoTotal,
+    valorEstimadoTotal: resumoEconomia.valorEstimadoTotal,
     valorContratadoTotal,
-    valorVencedorTotal,
-    economiaTotal,
-    percentualEconomia,
+    valorVencedorTotal: resumoEconomia.valorVencedorTotal,
+    economiaTotal: resumoEconomia.economiaTotal,
+    percentualEconomia: resumoEconomia.percentualEconomia,
     itensHomologados,
     itensFracassados,
     itensDesertos,

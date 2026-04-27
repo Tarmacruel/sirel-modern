@@ -3,6 +3,7 @@
 ## Objetivo
 Processar atas de sessão de Pregão Eletrônico ou Dispensa em PDF textual e gerar:
 
+- `Ata_Institucional_Completa.pdf`
 - `Relatorio_EmAndamento.pdf`
 - `Relatorio_EmAndamento.xlsx`
 - `Relatorio_Adjudicados.pdf`
@@ -60,6 +61,8 @@ A mutation e o script retornam:
 - diretório de saída;
 - sumário de lotes em andamento, adjudicados, fase recursal e malsucedidos;
 - lista de artefatos gerados.
+
+O artefato `Ata_Institucional_Completa.pdf` consolida a ata em aparência institucional, reorganizada por lote, com metadados, resumo geral, itens, participantes, movimentos e anexo técnico quando houver warnings ou erros de parsing.
 
 ## Logs e tolerância a falhas
 - warnings: `warnings.log`

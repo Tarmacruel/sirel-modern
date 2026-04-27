@@ -9,7 +9,7 @@ from .data_normalizer import normalize_report_data
 from .excel import write_reports_workbooks
 from .models import ensure_directory
 from .parser import normalize_ascii_slug, parse_ata_sessao_pdf
-from .pdf_renderer import write_report_pdfs
+from .pdf_renderer import write_ata_institucional_pdf, write_report_pdfs
 
 
 def build_logger(output_dir: Path) -> logging.Logger:
@@ -77,12 +77,21 @@ def main() -> int:
         },
         logger=render_logger,
     )
-    artifacts = write_reports_workbooks(result, output_dir)
+    branding = _load_branding(args.branding_json)
+    artifacts = write_ata_institucional_pdf(
+        result,
+        normalized,
+        output_dir,
+        branding=branding,
+        generated_by=args.generated_by,
+        logger=render_logger,
+    )
+    artifacts.update(write_reports_workbooks(result, output_dir))
     artifacts.update(
         write_report_pdfs(
             normalized,
             output_dir,
-            branding=_load_branding(args.branding_json),
+            branding=branding,
             generated_by=args.generated_by,
             logger=render_logger,
         )

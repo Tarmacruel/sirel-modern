@@ -60,6 +60,7 @@ import {
 } from "../db/schema.js";
 import {
   buildResultadoItemStatus,
+  calculateResumoEconomiaMetrics,
   hasAwardedResult,
   refreshDossieAutonomoProcesso,
 } from "../lib/dossie-autonomia.js";
@@ -1363,28 +1364,20 @@ export const dossieRouter = router({
       const itemValuesAwardedRows = itemValuesResolvedRows.filter((row) =>
         isAwardedItemResult(row),
       );
-      const valorEstimadoFinanceiro =
-        sumValues(
-          itemValuesResolvedRows.map((row) => toNumberOrNull(row.valorEstimadoTotal)),
-        ) || toNumber(baseRow.valorEstimado);
-      const valorEstimadoEconomiaBase =
-        sumValues(
-          itemValuesAwardedRows.map((row) =>
-            toNumberOrNull(row.valorEstimadoTotal),
-          ),
-        ) ||
-        (itemValuesAwardedRows.length ? 0 : toNumber(baseRow.valorEstimado));
-      const valorVencedorFinanceiro =
-        sumValues(
-          itemValuesAwardedRows.map((row) =>
-            toNumberOrNull(row.valorLanceVencedorTotal),
-          ),
-        ) || (itemValuesAwardedRows.length ? 0 : toNumber(baseRow.valorHomologado));
-      const economiaFinanceira = valorEstimadoEconomiaBase - valorVencedorFinanceiro;
-      const percentualEconomia =
-        valorEstimadoEconomiaBase > 0
-          ? (economiaFinanceira / valorEstimadoEconomiaBase) * 100
-          : null;
+      const resumoEconomia = calculateResumoEconomiaMetrics({
+        itemEstimatedTotals: itemValuesResolvedRows.map((row) =>
+          toNumberOrNull(row.valorEstimadoTotal),
+        ),
+        awardedEstimatedTotals: itemValuesAwardedRows.map((row) =>
+          toNumberOrNull(row.valorEstimadoTotal),
+        ),
+        awardedWinnerTotals: itemValuesAwardedRows.map((row) =>
+          toNumberOrNull(row.valorLanceVencedorTotal),
+        ),
+        processEstimatedTotal: toNumber(baseRow.valorEstimado),
+        processAwardedTotal: toNumber(baseRow.valorHomologado),
+        hasAwardedItems: itemValuesAwardedRows.length > 0,
+      });
       const percentualHomologacao =
         itemsRows.length > 0
           ? (totalItensHomologados / itemsRows.length) * 100
@@ -1409,8 +1402,8 @@ export const dossieRouter = router({
           prazosPendentes: prazosRows.filter(
             (row) => row.status !== "CONCLUIDO",
           ).length,
-          valorEstimadoTotal: valorEstimadoFinanceiro,
-          valorVencedorTotal: valorVencedorFinanceiro,
+          valorEstimadoTotal: resumoEconomia.valorEstimadoTotal,
+          valorVencedorTotal: resumoEconomia.valorVencedorTotal,
           valorCotadoTotal: sumValues(
             cotacaoRows.map((row) => toNumberOrNull(row.valorTotal)),
           ),
@@ -1437,8 +1430,8 @@ export const dossieRouter = router({
                 toNumberOrNull(row.valorTotalEstimado),
               ),
             ),
-          economiaTotal: economiaFinanceira,
-          percentualEconomia,
+          economiaTotal: resumoEconomia.economiaTotal,
+          percentualEconomia: resumoEconomia.percentualEconomia,
           itensHomologados: totalItensHomologados,
           itensFracassados: totalItensFracassados,
           itensDesertos: totalItensDesertos,

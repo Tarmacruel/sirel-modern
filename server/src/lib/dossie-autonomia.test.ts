@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildResultadoItemStatus,
+  calculateResumoEconomiaMetrics,
   hasAwardedResult,
   mergeBuiltItemValueSources,
 } from "./dossie-autonomia.js";
@@ -109,5 +110,21 @@ describe("dossie autonomia merge", () => {
         itemDeserto: false,
       }),
     ).toBe("ADJUDICADO");
+  });
+
+  it("uses the process estimate when awarded items have no item estimate", () => {
+    const resumo = calculateResumoEconomiaMetrics({
+      itemEstimatedTotals: [],
+      awardedEstimatedTotals: [null],
+      awardedWinnerTotals: [11684.6],
+      processEstimatedTotal: 24559,
+      processAwardedTotal: null,
+      hasAwardedItems: true,
+    });
+
+    expect(resumo.valorEstimadoTotal).toBe(24559);
+    expect(resumo.valorVencedorTotal).toBe(11684.6);
+    expect(resumo.economiaTotal).toBe(12874.4);
+    expect(resumo.percentualEconomia).toBe(52.4223);
   });
 });

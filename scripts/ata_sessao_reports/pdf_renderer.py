@@ -4,13 +4,14 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .data_normalizer import (
     NormalizedItem,
@@ -19,6 +20,17 @@ from .data_normalizer import (
     NormalizedReportData,
     ReportHeaderMetadata,
     SECTION_LABELS,
+    prepare_lote_data,
+)
+from .models import (
+    AtaSessaoParseResult,
+    LotParticipant,
+    LotRecord,
+    MovimentoLote,
+    is_adjudicavel_status,
+    is_em_andamento_status,
+    is_fase_recursal_status,
+    is_malsucedido_status,
 )
 
 PAGE_SIZE = landscape(A4)
@@ -92,14 +104,14 @@ def _format_number(value: float | None, decimals: int = 3) -> str:
 
 def _text(value: Any) -> str:
     text = str(value or "").strip()
-    return text or "-"
+    return escape(text) if text else "-"
 
 
 def _shorten(value: str | None, max_length: int) -> str:
     text = " ".join(str(value or "").split())
     if not text:
         return "-"
-    return text if len(text) <= max_length else f"{text[: max_length - 1].rstrip()}…"
+    return text if len(text) <= max_length else f"{text[: max(max_length - 3, 0)].rstrip()}..."
 
 
 def _scale_widths(widths: list[float], available_width: float) -> list[float]:
@@ -218,8 +230,8 @@ def _summary_rows_operacionais(lots: list[NormalizedLot], styles: dict[str, Para
     rows: list[list[Any]] = []
     for lot in lots:
         rows.append([
-            _text(lot.numero_lote),
-            Paragraph(_shorten(lot.descricao, 90), styles["table_cell_justify"]),
+            lot.numero_lote,
+            Paragraph(_text(_shorten(lot.descricao, 90)), styles["table_cell_justify"]),
             f"{lot.total_itens} ite(ns)",
             _format_number(lot.quantidade_total),
             _format_currency(lot.valor_total_lote),
@@ -239,11 +251,11 @@ def _summary_rows_malsucedidos(lots: list[NormalizedLot], styles: dict[str, Para
         rows.append([
             _text(lot.numero_lote),
             _text(lot.status),
-            Paragraph(_shorten(lot.descricao, 120), styles["table_cell_justify"]),
+            Paragraph(_text(_shorten(lot.descricao, 120)), styles["table_cell_justify"]),
             f"{lot.total_itens} ite(ns)",
             _text(lot.participantes_totais),
             _format_currency(lot.melhor_oferta),
-            Paragraph(_shorten(lot.motivo_falha, 140), styles["table_cell_justify"]),
+            Paragraph(_text(_shorten(lot.motivo_falha, 140)), styles["table_cell_justify"]),
         ])
     return rows
 
@@ -315,7 +327,7 @@ def _items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle])
     for item in items:
         rows.append([
             _text(item.item_numero),
-            Paragraph(_shorten(item.descricao, 80), styles["table_cell_justify"]),
+            Paragraph(_text(_shorten(item.descricao, 80)), styles["table_cell_justify"]),
             _format_number(item.quantidade),
             _format_currency(item.valor_unitario),
             _format_currency(item.valor_total),
@@ -345,7 +357,7 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
     ]
     intro: list[Any] = [
         Paragraph(f"LOTE {lot.numero_lote} - {lot.status}", styles["lot_title"]),
-        Paragraph(lot.descricao or "-", styles["body_justify"]),
+        Paragraph(_text(lot.descricao), styles["body_justify"]),
         Spacer(1, 6),
         _cards_table(cards, styles, columns=4),
     ]
@@ -459,7 +471,7 @@ def _build_pdf(
 
     story: list[Any] = [
         Paragraph(report_title, styles["title"]),
-        Paragraph(subtitle, styles["subtitle"]),
+        Paragraph(_text(subtitle), styles["subtitle"]),
         _metadata_table(meta, styles),
         Spacer(1, 8),
         _cards_table(report_cards, styles, columns=4),
@@ -483,6 +495,357 @@ def _build_pdf(
         onFirstPage=lambda canvas, document: _page_decorations(canvas, document, branding),
         onLaterPages=lambda canvas, document: _page_decorations(canvas, document, branding),
     )
+
+
+def _status_group_label(status: str) -> str:
+    if is_em_andamento_status(status):
+        return "Em andamento"
+    if is_adjudicavel_status(status):
+        return "Adjudicado"
+    if is_fase_recursal_status(status):
+        return "Fase recursal"
+    if is_malsucedido_status(status):
+        return "Malsucedido"
+    return "Outros"
+
+
+def _normalized_lot_pairs(
+    result: AtaSessaoParseResult,
+    normalized: NormalizedReportData,
+    logger: logging.Logger | None,
+) -> list[tuple[LotRecord, NormalizedLot]]:
+    by_key: dict[tuple[int, str], NormalizedLot] = {}
+    by_number: dict[int, NormalizedLot] = {}
+    grouped_lots = [
+        *normalized.em_andamento,
+        *normalized.adjudicados,
+        *normalized.fase_recursal,
+        *normalized.malsucedidos,
+    ]
+    for lot in grouped_lots:
+        by_key[(lot.numero_lote, lot.status)] = lot
+        by_number.setdefault(lot.numero_lote, lot)
+
+    pairs: list[tuple[LotRecord, NormalizedLot]] = []
+    for raw_lot in result.lotes:
+        normalized_lot = (
+            by_key.get((raw_lot.numero_lote, raw_lot.status))
+            or by_number.get(raw_lot.numero_lote)
+            or prepare_lote_data(raw_lot, logger)
+        )
+        pairs.append((raw_lot, normalized_lot))
+    return pairs
+
+
+def _complete_summary_cards(normalized: NormalizedReportData) -> list[tuple[str, str]]:
+    return [
+        ("Lotes totais", str(normalized.summary.get("total_lotes", 0))),
+        ("Em andamento", str(normalized.summary.get("em_andamento", 0))),
+        ("Adjudicados", str(normalized.summary.get("adjudicados", 0))),
+        ("Fase recursal", str(normalized.summary.get("fase_recursal", 0))),
+        ("Malsucedidos", str(normalized.summary.get("malsucedidos", 0))),
+        ("Warnings", str(normalized.summary.get("warnings", 0))),
+        ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
+        ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
+    ]
+
+
+def _complete_index_table(
+    pairs: list[tuple[LotRecord, NormalizedLot]],
+    styles: dict[str, ParagraphStyle],
+) -> Table:
+    rows: list[list[Any]] = []
+    for raw_lot, lot in pairs:
+        outcome = (
+            _format_currency(lot.melhor_oferta)
+            if lot.melhor_oferta
+            else _shorten(lot.motivo_falha, 88)
+        )
+        rows.append([
+            _text(lot.numero_lote),
+            _status_group_label(lot.status),
+            lot.status,
+            Paragraph(_text(_shorten(lot.descricao, 125)), styles["table_cell_justify"]),
+            f"{lot.total_itens} ite(ns)",
+            str(len(raw_lot.participantes)),
+            str(len(raw_lot.movimentos)),
+            outcome,
+        ])
+
+    empty_row: list[Any] = [Paragraph("Nenhum lote identificado na ata.", styles["table_cell"])]
+    while len(empty_row) < 8:
+        empty_row.append("")
+
+    return _make_table(
+        ["Lote", "Situação", "Status", "Descrição", "Itens", "Partic.", "Mov.", "Melhor oferta / motivo"],
+        rows or [empty_row],
+        [34, 72, 72, 268, 42, 48, 42, 154],
+        styles,
+        justify_columns={3, 7},
+    )
+
+
+def _complete_items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle]) -> Table:
+    rows: list[list[Any]] = []
+    for item in items:
+        rows.append([
+            item.item_numero,
+            Paragraph(_text(item.descricao), styles["table_cell_justify"]),
+            item.unidade,
+            _format_number(item.quantidade),
+            _format_currency(item.valor_unitario),
+            _format_currency(item.valor_total),
+            _format_currency(item.valor_unitario_estimado),
+            item.marca,
+            item.modelo,
+        ])
+
+    empty_row: list[Any] = [Paragraph("Nenhum item detalhado foi identificado para este lote.", styles["table_cell"])]
+    while len(empty_row) < 9:
+        empty_row.append("")
+
+    return _make_table(
+        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Estimado", "Marca", "Modelo"],
+        rows or [empty_row],
+        [34, 238, 42, 44, 66, 70, 76, 74, 74],
+        styles,
+        justify_columns={1},
+    )
+
+
+def _participant_section_label(section: str) -> str:
+    return SECTION_LABELS.get(section, section.replace("_", " ").title())
+
+
+def _participant_rows_for_complete(
+    section: str,
+    participants: list[LotParticipant],
+) -> tuple[list[str], list[list[Any]], list[float], set[int]]:
+    if section == "MOVIMENTOS":
+        rows = [
+            [
+                item.participante_numero,
+                item.razao_social,
+                _format_currency(item.oferta_inicial or item.oferta_final),
+            ]
+            for item in participants
+        ]
+        return ["Part.", "Razão Social", "Oferta registrada"], rows, [54, 520, 132], {1}
+
+    rows = [
+        [
+            item.ranking,
+            item.participante_numero,
+            item.razao_social,
+            item.documento,
+            _format_currency(item.oferta_inicial),
+            _format_currency(item.oferta_final),
+            "-" if item.diferenca_percentual is None else f"{item.diferenca_percentual:.2f}%".replace(".", ","),
+            "Sim" if item.me_epp else "Não" if item.me_epp is False else "-",
+        ]
+        for item in participants
+    ]
+    return (
+        ["Class.", "Part.", "Razão Social", "CNPJ/CPF", "Oferta Inicial", "Oferta Final", "Dif.(%)", "ME/EPP"],
+        rows,
+        [38, 42, 260, 104, 72, 72, 54, 46],
+        {2},
+    )
+
+
+def _participants_story(raw_lot: LotRecord, styles: dict[str, ParagraphStyle]) -> list[Any]:
+    grouped: dict[str, list[LotParticipant]] = {}
+    for participant in raw_lot.participantes:
+        grouped.setdefault(participant.section or "CLASSIFICACAO", []).append(participant)
+
+    if not grouped:
+        return [Paragraph("Nenhum participante foi identificado para este lote.", styles["body"])]
+
+    story: list[Any] = []
+    ordered_sections = ["CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS"]
+    remaining_sections = sorted(section for section in grouped if section not in ordered_sections)
+    for section in [*ordered_sections, *remaining_sections]:
+        participants = grouped.get(section) or []
+        if not participants:
+            continue
+        headers, rows, widths, justify_columns = _participant_rows_for_complete(section, participants)
+        story.append(Paragraph(_participant_section_label(section).upper(), styles["section_center"]))
+        story.append(_make_table(headers, rows, widths, styles, justify_columns=justify_columns))
+        story.append(Spacer(1, 8))
+    return story
+
+
+def _movements_table(movements: list[MovimentoLote], styles: dict[str, ParagraphStyle]) -> Table:
+    rows: list[list[Any]] = []
+    for movement in movements:
+        detail = movement.detalhe or movement.raw_text
+        rows.append([
+            movement.timestamp,
+            movement.evento,
+            Paragraph(_text(detail), styles["table_cell_justify"]),
+        ])
+
+    empty_row: list[Any] = [Paragraph("Nenhum movimento foi identificado para este lote.", styles["table_cell"])]
+    while len(empty_row) < 3:
+        empty_row.append("")
+
+    return _make_table(
+        ["Data/Hora", "Evento", "Detalhe"],
+        rows or [empty_row],
+        [88, 220, 410],
+        styles,
+        justify_columns={2},
+    )
+
+
+def _complete_lot_story(
+    raw_lot: LotRecord,
+    lot: NormalizedLot,
+    styles: dict[str, ParagraphStyle],
+) -> list[Any]:
+    cards = [
+        ("Situação", _status_group_label(lot.status)),
+        ("Itens", str(lot.total_itens)),
+        ("Qtd. Total", _format_number(lot.quantidade_total)),
+        ("Participantes", str(len(raw_lot.participantes))),
+        ("Movimentos", str(len(raw_lot.movimentos))),
+        ("Classificados", str(lot.classificados)),
+        ("Inabilitados", str(lot.inabilitados)),
+        ("Melhor oferta", _format_currency(lot.melhor_oferta)),
+    ]
+    story: list[Any] = [
+        KeepTogether([
+            Paragraph(f"LOTE {lot.numero_lote} - {lot.status}", styles["lot_title"]),
+            Paragraph(_text(lot.descricao), styles["body_justify"]),
+            Spacer(1, 6),
+            _cards_table(cards, styles, columns=4),
+        ]),
+    ]
+
+    if lot.vencedor or lot.cnpj_vencedor:
+        story.extend([
+            Paragraph("RESULTADO IDENTIFICADO", styles["section_center"]),
+            _make_table(
+                ["Campo", "Valor"],
+                [
+                    ["Vencedor", lot.vencedor],
+                    ["CNPJ/CPF do vencedor", lot.cnpj_vencedor],
+                    ["Melhor oferta", _format_currency(lot.melhor_oferta)],
+                ],
+                [150, 568],
+                styles,
+                justify_columns={1},
+            ),
+            Spacer(1, 8),
+        ])
+
+    if lot.motivo_falha:
+        story.extend([_reason_block(lot, styles), Spacer(1, 8)])
+
+    story.extend([
+        Paragraph("DETALHAMENTO DOS ITENS", styles["section_center"]),
+        _complete_items_table(lot.itens, styles),
+        Spacer(1, 8),
+        Paragraph("PARTICIPANTES", styles["section_center"]),
+    ])
+    story.extend(_participants_story(raw_lot, styles))
+    story.extend([
+        Paragraph("LINHA DO TEMPO DA SESSÃO", styles["section_center"]),
+        _movements_table(raw_lot.movimentos, styles),
+    ])
+    return story
+
+
+def _technical_annex_story(
+    result: AtaSessaoParseResult,
+    styles: dict[str, ParagraphStyle],
+) -> list[Any]:
+    rows: list[list[Any]] = []
+    for warning in result.warnings:
+        rows.append(["Warning", "Geral", Paragraph(_text(warning), styles["table_cell_justify"])])
+    for lot in result.lotes:
+        for warning in lot.warnings:
+            rows.append(["Warning", f"Lote {lot.numero_lote}", Paragraph(_text(warning), styles["table_cell_justify"])])
+    for error in result.parsing_errors:
+        reference = error.get("lote") or error.get("status") or "-"
+        detail = error.get("message") or error.get("erro") or error.get("error") or str(error)
+        rows.append(["Erro de parsing", str(reference), Paragraph(_text(detail), styles["table_cell_justify"])])
+
+    if not rows:
+        return []
+
+    return [
+        Paragraph("ANEXO TÉCNICO", styles["title"]),
+        Paragraph("Ocorrências registradas durante a leitura estruturada da ata.", styles["subtitle"]),
+        _make_table(
+            ["Tipo", "Referência", "Detalhe"],
+            rows,
+            [100, 110, 508],
+            styles,
+            justify_columns={2},
+        ),
+    ]
+
+
+def write_ata_institucional_pdf(
+    result: AtaSessaoParseResult,
+    normalized: NormalizedReportData,
+    output_dir: str | Path,
+    *,
+    branding: dict[str, Any] | None = None,
+    generated_by: str | None = None,
+    logger: logging.Logger | None = None,
+) -> dict[str, str]:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config = _branding_from_config(branding, generated_by)
+    styles = _styles()
+    path = output_dir / "Ata_Institucional_Completa.pdf"
+    pairs = _normalized_lot_pairs(result, normalized, logger)
+    subtitle = f"Leitura estruturada da ata de sessão - {normalized.header.arquivo_origem} - {normalized.header.data_geracao[:19].replace('T', ' ')}"
+
+    doc = SimpleDocTemplate(
+        str(path),
+        pagesize=PAGE_SIZE,
+        leftMargin=LEFT_MARGIN,
+        rightMargin=RIGHT_MARGIN,
+        topMargin=TOP_MARGIN,
+        bottomMargin=BOTTOM_MARGIN,
+        title="Ata institucional completa",
+        author=config.generated_by,
+    )
+
+    story: list[Any] = [
+        Paragraph("Ata institucional completa", styles["title"]),
+        Paragraph(_text(subtitle), styles["subtitle"]),
+        _metadata_table(normalized.header, styles),
+        Spacer(1, 8),
+        _cards_table(_complete_summary_cards(normalized), styles, columns=4),
+        Spacer(1, 2),
+        Paragraph("RESUMO DOS LOTES", styles["section_center"]),
+        _complete_index_table(pairs, styles),
+    ]
+
+    if pairs:
+        story.append(PageBreak())
+
+    for index, (raw_lot, lot) in enumerate(pairs):
+        story.extend(_complete_lot_story(raw_lot, lot, styles))
+        if index < len(pairs) - 1:
+            story.append(PageBreak())
+
+    annex_story = _technical_annex_story(result, styles)
+    if annex_story:
+        story.append(PageBreak())
+        story.extend(annex_story)
+
+    doc.build(
+        story,
+        onFirstPage=lambda canvas, document: _page_decorations(canvas, document, config),
+        onLaterPages=lambda canvas, document: _page_decorations(canvas, document, config),
+    )
+
+    return {"ata_institucional_pdf": str(path)}
 
 
 def _branding_from_config(config: dict[str, Any] | None, generated_by: str | None) -> BrandingConfig:

@@ -2356,25 +2356,51 @@ export function LicitacaoProcessoPage({
       detalhe: string;
     } => Boolean(item),
   );
-  const propostasSemClassificacao = detalhe?.propostas.filter(
-    (item) => item.classificacao == null,
-  ).length;
-  const habilitacoesPendentes = detalhe?.licitantes.filter(
-    (item) => item.statusHabilitacao === "PENDENTE",
-  ).length;
+  const propostasClassificadas = [...(detalhe?.propostas ?? [])]
+    .filter(
+      (item) =>
+        item.classificacao != null && item.situacao !== "DESCLASSIFICADA",
+    )
+    .sort(
+      (a, b) =>
+        Number(a.classificacao ?? Number.MAX_SAFE_INTEGER) -
+        Number(b.classificacao ?? Number.MAX_SAFE_INTEGER),
+    );
+  const propostaPrimeiroColocado =
+    detalhe?.propostas.find((item) => item.situacao === "VENCEDORA") ??
+    propostasClassificadas[0] ??
+    null;
+  const licitantePrimeiroColocado = propostaPrimeiroColocado
+    ? (detalhe?.licitantes.find(
+        (item) => item.id === propostaPrimeiroColocado.licitanteId,
+      ) ?? null)
+    : null;
+  const habilitacaoPrimeiroColocadoConcluida = showCompetitivoSteps
+    ? Boolean(
+        licitantePrimeiroColocado &&
+          licitantePrimeiroColocado.statusHabilitacao !== "PENDENTE",
+      )
+    : (detalhe?.licitantes.some(
+        (item) => item.statusHabilitacao !== "PENDENTE",
+      ) ?? false);
   const julgamentoHabilitacaoPendings = [
-    showCompetitivoSteps && propostasSemClassificacao
+    showCompetitivoSteps && !propostaPrimeiroColocado
       ? {
           category: "judgment-ranking",
-          label: `${propostasSemClassificacao} proposta(s) sem classificacao`,
-          detalhe: "Consolide a classificacao para fechar o julgamento.",
+          label: "Primeiro colocado sem julgamento",
+          detalhe:
+            "Defina uma proposta vencedora ou a melhor classificacao para liberar recursos e homologacao.",
         }
       : null,
-    habilitacoesPendentes
+    !habilitacaoPrimeiroColocadoConcluida
       ? {
           category: "qualification-review",
-          label: `${habilitacoesPendentes} licitante(s) com habilitacao pendente`,
-          detalhe: "Finalize a conferencia documental do classificado.",
+          label: showCompetitivoSteps
+            ? "Habilitacao do primeiro colocado pendente"
+            : "Habilitacao julgada pendente",
+          detalhe: showCompetitivoSteps
+            ? "Finalize a conferencia documental apenas do licitante classificado em primeiro lugar."
+            : "Julgue pelo menos um licitante para liberar recursos e homologacao.",
         }
       : null,
   ].filter(
