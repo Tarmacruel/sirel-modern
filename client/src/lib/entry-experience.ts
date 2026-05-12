@@ -5,6 +5,7 @@ export type EntryActionIconKey =
   | "consultas"
   | "prazos"
   | "planejamento"
+  | "pca"
   | "compras"
   | "licitacao"
   | "contratos"

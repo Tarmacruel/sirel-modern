@@ -1,4 +1,4 @@
-﻿import { TRPCError } from "@trpc/server";
+import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,6 +14,16 @@ import {
   etpCotacaoSaveInputSchema,
   etpSaveInputSchema,
   planejamentoDocumentoGenerateInputSchema,
+  pcaApproveInputSchema,
+  pcaConsolidateVersionInputSchema,
+  pcaDetailInputSchema,
+  pcaDocumentoGenerateInputSchema,
+  pcaItemFromDfdInputSchema,
+  pcaItemRemoveInputSchema,
+  pcaItemSaveInputSchema,
+  pcaListInputSchema,
+  pcaPreparePublicationInputSchema,
+  pcaSaveInputSchema,
   planejamentoListInputSchema,
   trSaveInputSchema,
 } from "@sirel/shared/schemas/planejamento";
@@ -31,6 +41,10 @@ import {
   etpCotacoesPreliminares,
   itensProcesso,
   movimentacoesWorkflow,
+  pcaHistorico,
+  pcaItens,
+  pcaPlanos,
+  pcaPublicacoes,
   pessoas,
   processos,
   secretarias,
@@ -473,7 +487,404 @@ async function loadPlanejamentoDetail(processoId: number) {
   };
 }
 
+
+function buildPcaPendencias(item: any) {
+  const pendencias = new Set<string>(Array.isArray(item.pendencias) ? item.pendencias : []);
+  if (!item.descricao?.trim()) pendencias.add("Descrição pendente");
+  if (toNumber(item.quantidade) <= 0) pendencias.add("Quantidade inválida");
+  if (!item.unidade?.trim()) pendencias.add("Unidade pendente");
+  if (!item.dataDesejada) pendencias.add("Data desejada pendente");
+  if (item.valorEstimado == null || toNumber(item.valorEstimado) <= 0) pendencias.add("Valor estimado pendente");
+  if (!item.dfdId && !item.dfdVinculo) pendencias.add("Vínculo com DFD pendente");
+  return Array.from(pendencias);
+}
+
+async function insertPcaHistorico({
+  planoId,
+  itemId,
+  acao,
+  descricao,
+  dadosAnteriores,
+  dadosNovos,
+  usuarioId,
+}: {
+  planoId: number;
+  itemId?: number | null;
+  acao: "CREATE" | "UPDATE" | "ADD_ITEM" | "REMOVE_ITEM" | "APPROVE" | "CONSOLIDATE" | "PREPARE_PUBLICATION" | "PUBLISH";
+  descricao: string;
+  dadosAnteriores?: unknown;
+  dadosNovos?: unknown;
+  usuarioId?: number | null;
+}) {
+  const db = requireDb();
+  await db.insert(pcaHistorico).values({
+    planoId,
+    itemId: itemId ?? null,
+    acao,
+    descricao,
+    dadosAnteriores: dadosAnteriores ?? null,
+    dadosNovos: dadosNovos ?? null,
+    usuarioId: usuarioId ?? null,
+    criadoEm: new Date(),
+  });
+}
+
+async function loadPcaDetail(planoId: number) {
+  const db = requireDb();
+  const [plano] = await db
+    .select({
+      id: pcaPlanos.id,
+      ano: pcaPlanos.ano,
+      orgaoCnpj: pcaPlanos.orgaoCnpj,
+      orgaoNome: pcaPlanos.orgaoNome,
+      unidade: pcaPlanos.unidade,
+      secretariaId: pcaPlanos.secretariaId,
+      secretaria: secretarias.nome,
+      status: pcaPlanos.status,
+      versao: pcaPlanos.versao,
+      dataAprovacao: pcaPlanos.dataAprovacao,
+      responsavelId: pcaPlanos.responsavelId,
+      responsavelNome: pcaPlanos.responsavelNome,
+      justificativa: pcaPlanos.justificativa,
+      pncpId: pcaPlanos.pncpId,
+      pncpUrl: pcaPlanos.pncpUrl,
+      pncpPayload: pcaPlanos.pncpPayload,
+      pncpPublicadoEm: pcaPlanos.pncpPublicadoEm,
+      metadados: pcaPlanos.metadados,
+      criadoEm: pcaPlanos.criadoEm,
+      atualizadoEm: pcaPlanos.atualizadoEm,
+    })
+    .from(pcaPlanos)
+    .leftJoin(secretarias, eq(secretarias.id, pcaPlanos.secretariaId))
+    .where(eq(pcaPlanos.id, planoId))
+    .limit(1);
+
+  if (!plano) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "PCA não encontrado." });
+  }
+
+  const [itens, publicacoes, historico] = await Promise.all([
+    db
+      .select({
+        id: pcaItens.id,
+        planoId: pcaItens.planoId,
+        processoId: pcaItens.processoId,
+        numeroSirel: processos.numeroSirel,
+        dfdId: pcaItens.dfdId,
+        itemProcessoId: pcaItens.itemProcessoId,
+        numeroItem: pcaItens.numeroItem,
+        descricao: pcaItens.descricao,
+        quantidade: pcaItens.quantidade,
+        unidade: pcaItens.unidade,
+        valorEstimado: pcaItens.valorEstimado,
+        dataDesejada: pcaItens.dataDesejada,
+        grauPrioridade: pcaItens.grauPrioridade,
+        categoria: pcaItens.categoria,
+        tipo: pcaItens.tipo,
+        unidadeRequisitanteId: pcaItens.unidadeRequisitanteId,
+        unidadeRequisitante: pcaItens.unidadeRequisitante,
+        secretariaRequisitante: secretarias.nome,
+        dfdVinculo: pcaItens.dfdVinculo,
+        pendencias: pcaItens.pendencias,
+        criadoEm: pcaItens.criadoEm,
+        atualizadoEm: pcaItens.atualizadoEm,
+      })
+      .from(pcaItens)
+      .leftJoin(processos, eq(processos.id, pcaItens.processoId))
+      .leftJoin(secretarias, eq(secretarias.id, pcaItens.unidadeRequisitanteId))
+      .where(eq(pcaItens.planoId, planoId))
+      .orderBy(asc(pcaItens.numeroItem)),
+    db.select().from(pcaPublicacoes).where(eq(pcaPublicacoes.planoId, planoId)).orderBy(desc(pcaPublicacoes.preparadoEm)),
+    db.select().from(pcaHistorico).where(eq(pcaHistorico.planoId, planoId)).orderBy(desc(pcaHistorico.criadoEm)).limit(30),
+  ]);
+
+  const itensComPendencias = itens.map((item) => ({ ...item, pendencias: buildPcaPendencias(item) }));
+  const valorTotal = itensComPendencias.reduce((acc, item) => acc + toNumber(item.valorEstimado), 0);
+
+  return {
+    plano,
+    itens: itensComPendencias,
+    publicacoes,
+    historico,
+    resumo: {
+      totalItens: itensComPendencias.length,
+      valorTotal,
+      pendencias: itensComPendencias.reduce((acc, item) => acc + item.pendencias.length, 0),
+      dfdVinculados: itensComPendencias.filter((item) => item.dfdId || item.dfdVinculo).length,
+    },
+  };
+}
+
+function buildPcaDocumentoHtml(detail: Awaited<ReturnType<typeof loadPcaDetail>>) {
+  const rows = detail.itens
+    .map(
+      (item) => `<tr><td>${item.numeroItem}</td><td>${item.descricao}</td><td>${item.quantidade} ${item.unidade}</td><td>${item.valorEstimado ?? "-"}</td><td>${item.dataDesejada ?? "-"}</td><td>${item.grauPrioridade}</td><td>${item.pendencias.length ? item.pendencias.join(", ") : "Sem pendências"}</td></tr>`,
+    )
+    .join("");
+
+  return `<article><h1>PCA ${detail.plano.ano} - ${detail.plano.unidade}</h1><p>Status: ${detail.plano.status} · Versão ${detail.plano.versao}</p><p>Órgão/CNPJ: ${detail.plano.orgaoNome ?? "-"} / ${detail.plano.orgaoCnpj}</p><p>Responsável: ${detail.plano.responsavelNome ?? "-"}</p><p>Justificativa: ${detail.plano.justificativa ?? "-"}</p><h2>Itens</h2><table><thead><tr><th>#</th><th>Descrição</th><th>Quantidade</th><th>Valor estimado</th><th>Data desejada</th><th>Prioridade</th><th>Pendências</th></tr></thead><tbody>${rows || '<tr><td colspan="7">Nenhum item no PCA.</td></tr>'}</tbody></table></article>`;
+}
+
 export const planejamentoRouter = router({
+
+  listPca: publicProcedure.input(pcaListInputSchema.optional()).query(async ({ input }) => {
+    const db = requireDb();
+    const filters: any[] = [];
+    if (input?.ano) filters.push(eq(pcaPlanos.ano, input.ano));
+    if (input?.secretariaId) filters.push(eq(pcaPlanos.secretariaId, input.secretariaId));
+    if (input?.status) filters.push(eq(pcaPlanos.status, input.status));
+    if (input?.search) {
+      filters.push(
+        or(
+          ilike(pcaPlanos.unidade, `%${input.search}%`),
+          ilike(pcaPlanos.orgaoNome, `%${input.search}%`),
+          ilike(secretarias.nome, `%${input.search}%`),
+        ),
+      );
+    }
+
+    const rows = await db
+      .select({
+        id: pcaPlanos.id,
+        ano: pcaPlanos.ano,
+        unidade: pcaPlanos.unidade,
+        orgaoCnpj: pcaPlanos.orgaoCnpj,
+        orgaoNome: pcaPlanos.orgaoNome,
+        secretariaId: pcaPlanos.secretariaId,
+        secretaria: secretarias.nome,
+        status: pcaPlanos.status,
+        versao: pcaPlanos.versao,
+        dataAprovacao: pcaPlanos.dataAprovacao,
+        responsavelNome: pcaPlanos.responsavelNome,
+        atualizadoEm: pcaPlanos.atualizadoEm,
+      })
+      .from(pcaPlanos)
+      .leftJoin(secretarias, eq(secretarias.id, pcaPlanos.secretariaId))
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(pcaPlanos.ano), asc(pcaPlanos.unidade));
+
+    const planoIds = rows.map((row) => row.id);
+    const itemCounts = planoIds.length
+      ? await db
+          .select({ planoId: pcaItens.planoId, total: count() })
+          .from(pcaItens)
+          .where(inArray(pcaItens.planoId, planoIds))
+          .groupBy(pcaItens.planoId)
+      : [];
+    const itemCountMap = new Map(itemCounts.map((row) => [row.planoId, Number(row.total)]));
+
+    return rows.map((row) => ({ ...row, itensCount: itemCountMap.get(row.id) ?? 0 }));
+  }),
+
+  detailPca: publicProcedure.input(pcaDetailInputSchema).query(async ({ input }) => {
+    return loadPcaDetail(input.planoId);
+  }),
+
+  savePca: gestorProcedure.input(pcaSaveInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const existing = input.planoId
+      ? await db.select().from(pcaPlanos).where(eq(pcaPlanos.id, input.planoId)).limit(1).then((rows) => rows[0] ?? null)
+      : null;
+
+    const payload = {
+      ano: input.ano,
+      orgaoCnpj: input.orgaoCnpj,
+      orgaoNome: input.orgaoNome?.trim() || null,
+      unidade: input.unidade,
+      secretariaId: input.secretariaId ?? null,
+      status: input.status,
+      versao: input.versao,
+      dataAprovacao: input.dataAprovacao ?? null,
+      responsavelId: input.responsavelId ?? null,
+      responsavelNome: input.responsavelNome?.trim() || null,
+      justificativa: input.justificativa?.trim() || null,
+      pncpId: input.pncpId?.trim() || null,
+      pncpUrl: input.pncpUrl?.trim() || null,
+      pncpPayload: input.pncpPayload ?? null,
+      metadados: input.metadados ?? null,
+      atualizadoEm: new Date(),
+    };
+
+    const [saved] = existing
+      ? await db.update(pcaPlanos).set(payload).where(eq(pcaPlanos.id, existing.id)).returning()
+      : await db.insert(pcaPlanos).values({ ...payload, criadoPor: ctx.user?.id ?? null, criadoEm: new Date() }).returning();
+
+    await insertPcaHistorico({
+      planoId: saved.id,
+      acao: existing ? "UPDATE" : "CREATE",
+      descricao: existing ? "PCA atualizado" : "PCA criado",
+      dadosAnteriores: existing,
+      dadosNovos: saved,
+      usuarioId: ctx.user?.id ?? null,
+    });
+
+    return saved;
+  }),
+
+  savePcaItem: gestorProcedure.input(pcaItemSaveInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const [plano] = await db.select().from(pcaPlanos).where(eq(pcaPlanos.id, input.planoId)).limit(1);
+    if (!plano) throw new TRPCError({ code: "NOT_FOUND", message: "PCA não encontrado." });
+
+    const existing = input.itemId
+      ? await db.select().from(pcaItens).where(and(eq(pcaItens.id, input.itemId), eq(pcaItens.planoId, input.planoId))).limit(1).then((rows) => rows[0] ?? null)
+      : null;
+    const [lastItem] = await db
+      .select({ numeroItem: pcaItens.numeroItem })
+      .from(pcaItens)
+      .where(eq(pcaItens.planoId, input.planoId))
+      .orderBy(desc(pcaItens.numeroItem))
+      .limit(1);
+
+    const draft = {
+      planoId: input.planoId,
+      processoId: input.processoId ?? null,
+      dfdId: input.dfdId ?? null,
+      itemProcessoId: input.itemProcessoId ?? null,
+      numeroItem: existing?.numeroItem ?? (lastItem?.numeroItem ?? 0) + 1,
+      descricao: input.descricao,
+      quantidade: input.quantidade.toString(),
+      unidade: input.unidade,
+      valorEstimado: input.valorEstimado != null ? input.valorEstimado.toFixed(2) : null,
+      dataDesejada: input.dataDesejada ?? null,
+      grauPrioridade: input.grauPrioridade,
+      categoria: input.categoria,
+      tipo: input.tipo?.trim() || null,
+      unidadeRequisitanteId: input.unidadeRequisitanteId ?? null,
+      unidadeRequisitante: input.unidadeRequisitante?.trim() || null,
+      dfdVinculo: input.dfdVinculo?.trim() || null,
+      pendencias: input.pendencias,
+      metadados: input.metadados ?? null,
+      atualizadoEm: new Date(),
+    };
+
+    const [saved] = existing
+      ? await db.update(pcaItens).set(draft).where(eq(pcaItens.id, existing.id)).returning()
+      : await db.insert(pcaItens).values({ ...draft, criadoPor: ctx.user?.id ?? null, criadoEm: new Date() }).returning();
+
+    await db.update(pcaPlanos).set({ status: plano.status === "RASCUNHO" ? "EM_CONSOLIDACAO" : plano.status, atualizadoEm: new Date() }).where(eq(pcaPlanos.id, input.planoId));
+    await insertPcaHistorico({
+      planoId: input.planoId,
+      itemId: saved.id,
+      acao: existing ? "UPDATE" : "ADD_ITEM",
+      descricao: existing ? "Item do PCA atualizado" : "Item incluído no PCA",
+      dadosAnteriores: existing,
+      dadosNovos: saved,
+      usuarioId: ctx.user?.id ?? null,
+    });
+    return saved;
+  }),
+
+  addPcaItemFromDfd: gestorProcedure.input(pcaItemFromDfdInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const [plano, processo, dfdRow] = await Promise.all([
+      db.select().from(pcaPlanos).where(eq(pcaPlanos.id, input.planoId)).limit(1).then((rows) => rows[0] ?? null),
+      db.select({ id: processos.id, numeroSirel: processos.numeroSirel, tipoObjeto: processos.tipoObjeto, secretariaId: processos.secretariaId, secretaria: secretarias.nome }).from(processos).innerJoin(secretarias, eq(secretarias.id, processos.secretariaId)).where(eq(processos.id, input.processoId)).limit(1).then((rows) => rows[0] ?? null),
+      db.select().from(dfd).where(eq(dfd.processoId, input.processoId)).limit(1).then((rows) => rows[0] ?? null),
+    ]);
+    if (!plano) throw new TRPCError({ code: "NOT_FOUND", message: "PCA não encontrado." });
+    if (!processo) throw new TRPCError({ code: "NOT_FOUND", message: "Processo não encontrado." });
+    if (!dfdRow) throw new TRPCError({ code: "BAD_REQUEST", message: "O processo selecionado ainda não possui DFD." });
+
+    const itemFilters = [eq(itensProcesso.processoId, input.processoId)];
+    if (input.itemIds?.length) itemFilters.push(inArray(itensProcesso.id, input.itemIds));
+    const sourceItens = await db.select().from(itensProcesso).where(and(...itemFilters)).orderBy(asc(itensProcesso.numeroItem));
+    if (!sourceItens.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum item da DFD encontrado para inclusão no PCA." });
+
+    const [lastItem] = await db.select({ numeroItem: pcaItens.numeroItem }).from(pcaItens).where(eq(pcaItens.planoId, input.planoId)).orderBy(desc(pcaItens.numeroItem)).limit(1);
+    let nextNumeroItem = (lastItem?.numeroItem ?? 0) + 1;
+    const rowsToInsert = sourceItens.map((item) => ({
+      planoId: input.planoId,
+      processoId: input.processoId,
+      dfdId: dfdRow.id,
+      itemProcessoId: item.id,
+      numeroItem: nextNumeroItem++,
+      descricao: item.descricao,
+      quantidade: String(item.quantidade),
+      unidade: item.unidade,
+      valorEstimado: item.valorTotalEstimado,
+      dataDesejada: dfdRow.dataNecessidade,
+      grauPrioridade: dfdRow.grauPrioridade,
+      categoria: processo.tipoObjeto,
+      tipo: processo.tipoObjeto,
+      unidadeRequisitanteId: processo.secretariaId,
+      unidadeRequisitante: processo.secretaria,
+      dfdVinculo: `DFD ${dfdRow.id} / ${processo.numeroSirel}`,
+      pendencias: [],
+      metadados: { origem: "DFD", numeroSirel: processo.numeroSirel },
+      criadoPor: ctx.user?.id ?? null,
+      criadoEm: new Date(),
+      atualizadoEm: new Date(),
+    }));
+
+    const inserted = await db.insert(pcaItens).values(rowsToInsert).returning();
+    await db.update(pcaPlanos).set({ status: plano.status === "RASCUNHO" ? "EM_CONSOLIDACAO" : plano.status, atualizadoEm: new Date() }).where(eq(pcaPlanos.id, input.planoId));
+    await insertPcaHistorico({ planoId: input.planoId, acao: "ADD_ITEM", descricao: `${inserted.length} item(ns) importado(s) da DFD`, dadosNovos: inserted, usuarioId: ctx.user?.id ?? null });
+    return inserted;
+  }),
+
+  removePcaItem: gestorProcedure.input(pcaItemRemoveInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const [existing] = await db.select().from(pcaItens).where(and(eq(pcaItens.id, input.itemId), eq(pcaItens.planoId, input.planoId))).limit(1);
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Item do PCA não encontrado." });
+    await db.delete(pcaItens).where(eq(pcaItens.id, existing.id));
+    await insertPcaHistorico({ planoId: input.planoId, itemId: existing.id, acao: "REMOVE_ITEM", descricao: input.justificativa || "Item removido do PCA", dadosAnteriores: existing, usuarioId: ctx.user?.id ?? null });
+    return { success: true };
+  }),
+
+  approvePca: gestorProcedure.input(pcaApproveInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const detail = await loadPcaDetail(input.planoId);
+    if (!detail.itens.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Inclua ao menos um item antes de aprovar o PCA." });
+    if (detail.resumo.pendencias > 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Resolva as validações pendentes antes de aprovar o PCA." });
+
+    const [saved] = await db.update(pcaPlanos).set({
+      status: "APROVADO",
+      dataAprovacao: input.dataAprovacao,
+      responsavelId: input.responsavelId ?? detail.plano.responsavelId,
+      responsavelNome: input.responsavelNome?.trim() || detail.plano.responsavelNome,
+      justificativa: input.justificativa,
+      aprovadoPor: ctx.user?.id ?? null,
+      atualizadoEm: new Date(),
+    }).where(eq(pcaPlanos.id, input.planoId)).returning();
+
+    await insertPcaHistorico({ planoId: input.planoId, acao: "APPROVE", descricao: "PCA aprovado", dadosAnteriores: detail.plano, dadosNovos: saved, usuarioId: ctx.user?.id ?? null });
+    return saved;
+  }),
+
+  consolidatePcaVersion: gestorProcedure.input(pcaConsolidateVersionInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const detail = await loadPcaDetail(input.planoId);
+    const [saved] = await db.update(pcaPlanos).set({ versao: detail.plano.versao + 1, status: "EM_CONSOLIDACAO", justificativa: input.justificativa, atualizadoEm: new Date() }).where(eq(pcaPlanos.id, input.planoId)).returning();
+    await insertPcaHistorico({ planoId: input.planoId, acao: "CONSOLIDATE", descricao: "Versão do PCA consolidada", dadosAnteriores: detail.plano, dadosNovos: saved, usuarioId: ctx.user?.id ?? null });
+    return saved;
+  }),
+
+  preparePcaPublication: gestorProcedure.input(pcaPreparePublicationInputSchema).mutation(async ({ ctx, input }) => {
+    const db = requireDb();
+    const detail = await loadPcaDetail(input.planoId);
+    if (detail.plano.status !== "APROVADO") throw new TRPCError({ code: "BAD_REQUEST", message: "A publicação só pode ser preparada após aprovação do PCA." });
+    const payload = input.pncpPayload ?? { plano: detail.plano, itens: detail.itens };
+    const [created] = await db.insert(pcaPublicacoes).values({ planoId: input.planoId, canal: input.canal, status: "PREPARADA", payload, preparadoPor: ctx.user?.id ?? null, preparadoEm: new Date(), atualizadoEm: new Date() }).returning();
+    await db.update(pcaPlanos).set({ status: "PUBLICACAO_PREPARADA", pncpPayload: payload, atualizadoEm: new Date() }).where(eq(pcaPlanos.id, input.planoId));
+    await insertPcaHistorico({ planoId: input.planoId, acao: "PREPARE_PUBLICATION", descricao: "Publicação do PCA preparada", dadosNovos: created, usuarioId: ctx.user?.id ?? null });
+    return created;
+  }),
+
+  generatePcaDocumento: gestorProcedure.input(pcaDocumentoGenerateInputSchema).mutation(async ({ ctx, input }) => {
+    const detail = await loadPcaDetail(input.planoId);
+    const documento = {
+      titulo: `PCA ${detail.plano.ano} - ${detail.plano.unidade}`,
+      formato: input.formato,
+      html: input.formato === "HTML" ? buildPcaDocumentoHtml(detail) : null,
+      json: input.formato === "JSON" ? detail : null,
+      resumo: detail.resumo,
+      geradoEm: new Date().toISOString(),
+    };
+    await insertPcaHistorico({ planoId: input.planoId, acao: "PREPARE_PUBLICATION", descricao: "Documento do PCA gerado para conferência", dadosNovos: { formato: input.formato, resumo: detail.resumo }, usuarioId: ctx.user?.id ?? null });
+    return documento;
+  }),
+
   list: publicProcedure.input(planejamentoListInputSchema.optional()).query(async ({ input }) => {
     const db = requireDb();
     const filters: any[] = [eq(workflowProcesso.moduloAtual, "PLANEJAMENTO")];

@@ -1,6 +1,113 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 
 import { grauPrioridadeOptions, metodologiaCotacaoOptions } from "../const.js";
+
+
+const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const pcaStatusOptions = [
+  "RASCUNHO",
+  "EM_CONSOLIDACAO",
+  "APROVADO",
+  "PUBLICACAO_PREPARADA",
+  "PUBLICADO",
+  "CANCELADO",
+] as const;
+
+export const pcaListInputSchema = z.object({
+  ano: z.number().int().min(2000).max(2100).optional(),
+  secretariaId: z.number().int().positive().optional(),
+  status: z.enum(pcaStatusOptions).optional(),
+  search: z.string().trim().optional(),
+});
+
+export const pcaDetailInputSchema = z.object({
+  planoId: z.number().int().positive(),
+});
+
+export const pcaSaveInputSchema = z.object({
+  planoId: z.number().int().positive().optional(),
+  ano: z.number().int().min(2000).max(2100),
+  orgaoCnpj: z.string().trim().min(14).max(18),
+  orgaoNome: z.string().trim().max(255).optional(),
+  unidade: z.string().trim().min(2).max(255),
+  secretariaId: z.number().int().positive().optional(),
+  status: z.enum(pcaStatusOptions).default("RASCUNHO"),
+  versao: z.number().int().positive().default(1),
+  dataAprovacao: dateStringSchema.optional(),
+  responsavelId: z.number().int().positive().optional(),
+  responsavelNome: z.string().trim().max(255).optional(),
+  justificativa: z.string().trim().max(6000).optional(),
+  pncpId: z.string().trim().max(120).optional(),
+  pncpUrl: z.string().trim().url().max(500).optional(),
+  pncpPayload: z.record(z.string(), z.unknown()).optional(),
+  metadados: z.record(z.string(), z.unknown()).optional(),
+}).superRefine((value, ctx) => {
+  if ((value.status === "APROVADO" || value.status === "PUBLICADO") && !value.dataAprovacao) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dataAprovacao"],
+      message: "Informe a data de aprovação do PCA.",
+    });
+  }
+});
+
+export const pcaItemSaveInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  itemId: z.number().int().positive().optional(),
+  processoId: z.number().int().positive().optional(),
+  dfdId: z.number().int().positive().optional(),
+  itemProcessoId: z.number().int().positive().optional(),
+  descricao: z.string().trim().min(3).max(4000),
+  quantidade: z.number().positive(),
+  unidade: z.string().trim().min(1).max(32),
+  valorEstimado: z.number().nonnegative().optional(),
+  dataDesejada: dateStringSchema.optional(),
+  grauPrioridade: z.enum(grauPrioridadeOptions).default("MEDIA"),
+  categoria: z.string().trim().min(2).max(120).default("PRODUTO"),
+  tipo: z.string().trim().max(120).optional(),
+  unidadeRequisitanteId: z.number().int().positive().optional(),
+  unidadeRequisitante: z.string().trim().max(255).optional(),
+  dfdVinculo: z.string().trim().max(120).optional(),
+  pendencias: z.array(z.string().trim().min(1).max(255)).default([]),
+  metadados: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const pcaItemFromDfdInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  processoId: z.number().int().positive(),
+  itemIds: z.array(z.number().int().positive()).optional(),
+});
+
+export const pcaItemRemoveInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  itemId: z.number().int().positive(),
+  justificativa: z.string().trim().max(1000).optional(),
+});
+
+export const pcaApproveInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  dataAprovacao: dateStringSchema,
+  responsavelId: z.number().int().positive().optional(),
+  responsavelNome: z.string().trim().max(255).optional(),
+  justificativa: z.string().trim().min(10).max(6000),
+});
+
+export const pcaConsolidateVersionInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  justificativa: z.string().trim().min(10).max(6000),
+});
+
+export const pcaPreparePublicationInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  canal: z.string().trim().min(2).max(80).default("PNCP"),
+  pncpPayload: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const pcaDocumentoGenerateInputSchema = z.object({
+  planoId: z.number().int().positive(),
+  formato: z.enum(["HTML", "JSON"]).default("HTML"),
+});
 
 export const planejamentoListInputSchema = z.object({
   search: z.string().trim().optional(),
@@ -152,6 +259,16 @@ export const planejamentoDocumentoGenerateInputSchema = z.object({
   formato: z.enum(["HTML", "PDF"]),
 });
 
+export type PcaListInput = z.infer<typeof pcaListInputSchema>;
+export type PcaDetailInput = z.infer<typeof pcaDetailInputSchema>;
+export type PcaSaveInput = z.infer<typeof pcaSaveInputSchema>;
+export type PcaItemSaveInput = z.infer<typeof pcaItemSaveInputSchema>;
+export type PcaItemFromDfdInput = z.infer<typeof pcaItemFromDfdInputSchema>;
+export type PcaItemRemoveInput = z.infer<typeof pcaItemRemoveInputSchema>;
+export type PcaApproveInput = z.infer<typeof pcaApproveInputSchema>;
+export type PcaConsolidateVersionInput = z.infer<typeof pcaConsolidateVersionInputSchema>;
+export type PcaPreparePublicationInput = z.infer<typeof pcaPreparePublicationInputSchema>;
+export type PcaDocumentoGenerateInput = z.infer<typeof pcaDocumentoGenerateInputSchema>;
 export type PlanejamentoListInput = z.infer<typeof planejamentoListInputSchema>;
 export type DfdSaveInput = z.infer<typeof dfdSaveInputSchema>;
 export type DfdItemSaveInput = z.infer<typeof dfdItemSaveInputSchema>;

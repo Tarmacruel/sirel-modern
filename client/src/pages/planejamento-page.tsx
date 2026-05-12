@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowRight, Search, ShoppingCart } from "lucide-react";
+import { ArrowRight, CalendarCheck, Search, ShoppingCart } from "lucide-react";
 
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { PageIntro } from "@/components/shared/page-intro";
@@ -134,6 +134,7 @@ export function PlanejamentoPage() {
           targetLabel="Compras"
           actions={
             <div className="flex flex-wrap gap-2">
+              <Link href="/planejamento/pca"><Button variant="outline" size="sm"><CalendarCheck className="h-4 w-4" /> PCA</Button></Link>
               <Link href={`/planejamento/dfd/${selectedRow.processoId}`}><Button variant="outline" size="sm">DFD</Button></Link>
               <Link href={`/planejamento/etp/${selectedRow.processoId}`}><Button variant="outline" size="sm">ETP</Button></Link>
               <Link href={`/planejamento/cotacoes/${selectedRow.processoId}`}><Button variant="outline" size="sm">Cotacoes</Button></Link>

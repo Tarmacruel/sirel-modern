@@ -15,6 +15,7 @@ import {
   Users,
   Workflow,
   Clock3,
+  CalendarCheck,
   ShoppingCart,
   Landmark,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const iconMap: Record<EntryActionIconKey, typeof LayoutDashboard> = {
   consultas: Search,
   prazos: Clock3,
   planejamento: FolderKanban,
+  pca: CalendarCheck,
   compras: ShoppingCart,
   licitacao: ScrollText,
   contratos: Landmark,
@@ -104,6 +106,15 @@ function buildStaticItems(userRole: string): CommandPaletteItem[] {
         iconKey: "planejamento",
         group: "Ações rápidas",
         keywords: ["dfd", "etp", "tr"],
+      },
+      {
+        id: "module-pca",
+        label: "PCA",
+        description: "Consolidar o Plano de Contratações Anual a partir das DFDs.",
+        href: "/planejamento/pca",
+        iconKey: "pca",
+        group: "Ações rápidas",
+        keywords: ["pca", "plano anual", "pncp"],
       },
       {
         id: "module-compras",

@@ -189,6 +189,33 @@ export const prioridadeDfdEnum = pgEnum("prioridade_dfd", [
   "ALTA",
   "URGENTE",
 ]);
+
+export const pcaPlanoStatusEnum = pgEnum("pca_plano_status", [
+  "RASCUNHO",
+  "EM_CONSOLIDACAO",
+  "APROVADO",
+  "PUBLICACAO_PREPARADA",
+  "PUBLICADO",
+  "CANCELADO",
+]);
+export const pcaPublicacaoStatusEnum = pgEnum("pca_publicacao_status", [
+  "PREPARADA",
+  "ENVIADA",
+  "PUBLICADA",
+  "ERRO",
+  "CANCELADA",
+]);
+export const pcaHistoricoAcaoEnum = pgEnum("pca_historico_acao", [
+  "CREATE",
+  "UPDATE",
+  "ADD_ITEM",
+  "REMOVE_ITEM",
+  "APPROVE",
+  "CONSOLIDATE",
+  "PREPARE_PUBLICATION",
+  "PUBLISH",
+]);
+
 export const licitacaoStatusEnum = pgEnum("licitacao_status", [
   "PREPARACAO",
   "PUBLICACAO",
@@ -590,6 +617,152 @@ export const dfdSecretariasParticipantes = pgTable(
     uqDfdSecretaria: uniqueIndex(
       "dfd_secretarias_participantes_dfd_secretaria_uq",
     ).on(table.dfdId, table.secretariaId),
+  }),
+);
+
+export const pcaPlanos = pgTable(
+  "pca_planos",
+  {
+    id: serial("id").primaryKey(),
+    ano: integer("ano").notNull(),
+    orgaoCnpj: varchar("orgao_cnpj", { length: 18 }).notNull(),
+    orgaoNome: varchar("orgao_nome", { length: 255 }),
+    unidade: varchar("unidade", { length: 255 }).notNull(),
+    secretariaId: integer("secretaria_id").references(() => secretarias.id),
+    status: pcaPlanoStatusEnum("status").notNull().default("RASCUNHO"),
+    versao: integer("versao").notNull().default(1),
+    dataAprovacao: date("data_aprovacao"),
+    responsavelId: integer("responsavel_id").references(() => pessoas.id),
+    responsavelNome: varchar("responsavel_nome", { length: 255 }),
+    justificativa: text("justificativa"),
+    pncpId: varchar("pncp_id", { length: 120 }),
+    pncpUrl: varchar("pncp_url", { length: 500 }),
+    pncpPayload: jsonb("pncp_payload"),
+    pncpPublicadoEm: timestamp("pncp_publicado_em", { withTimezone: true }),
+    metadados: jsonb("metadados"),
+    criadoPor: integer("criado_por").references(() => users.id),
+    aprovadoPor: integer("aprovado_por").references(() => users.id),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqAnoUnidadeVersao: uniqueIndex("pca_planos_ano_unidade_versao_uq").on(
+      table.ano,
+      table.unidade,
+      table.versao,
+    ),
+    idxAno: index("pca_planos_ano_idx").on(table.ano),
+    idxSecretaria: index("pca_planos_secretaria_idx").on(table.secretariaId),
+    idxStatus: index("pca_planos_status_idx").on(table.status),
+  }),
+);
+
+export const pcaItens = pgTable(
+  "pca_itens",
+  {
+    id: serial("id").primaryKey(),
+    planoId: integer("plano_id")
+      .notNull()
+      .references(() => pcaPlanos.id, { onDelete: "cascade" }),
+    processoId: integer("processo_id").references(() => processos.id, {
+      onDelete: "set null",
+    }),
+    dfdId: integer("dfd_id").references(() => dfd.id, { onDelete: "set null" }),
+    itemProcessoId: integer("item_processo_id").references(
+      () => itensProcesso.id,
+      { onDelete: "set null" },
+    ),
+    numeroItem: integer("numero_item").notNull(),
+    descricao: text("descricao").notNull(),
+    quantidade: numeric("quantidade", { precision: 14, scale: 3 }).notNull(),
+    unidade: varchar("unidade", { length: 32 }).notNull(),
+    valorEstimado: numeric("valor_estimado", { precision: 14, scale: 2 }),
+    dataDesejada: date("data_desejada"),
+    grauPrioridade: prioridadeDfdEnum("grau_prioridade").notNull().default("MEDIA"),
+    categoria: varchar("categoria", { length: 120 }).notNull().default("PRODUTO"),
+    tipo: varchar("tipo", { length: 120 }),
+    unidadeRequisitanteId: integer("unidade_requisitante_id").references(
+      () => secretarias.id,
+    ),
+    unidadeRequisitante: varchar("unidade_requisitante", { length: 255 }),
+    dfdVinculo: varchar("dfd_vinculo", { length: 120 }),
+    pendencias: jsonb("pendencias").$type<string[]>(),
+    metadados: jsonb("metadados"),
+    criadoPor: integer("criado_por").references(() => users.id),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxPlano: index("pca_itens_plano_idx").on(table.planoId),
+    idxProcesso: index("pca_itens_processo_idx").on(table.processoId),
+    idxDfd: index("pca_itens_dfd_idx").on(table.dfdId),
+    idxUnidadeRequisitante: index("pca_itens_unidade_req_idx").on(
+      table.unidadeRequisitanteId,
+    ),
+  }),
+);
+
+export const pcaPublicacoes = pgTable(
+  "pca_publicacoes",
+  {
+    id: serial("id").primaryKey(),
+    planoId: integer("plano_id")
+      .notNull()
+      .references(() => pcaPlanos.id, { onDelete: "cascade" }),
+    status: pcaPublicacaoStatusEnum("status").notNull().default("PREPARADA"),
+    canal: varchar("canal", { length: 80 }).notNull().default("PNCP"),
+    protocolo: varchar("protocolo", { length: 120 }),
+    urlPublicacao: varchar("url_publicacao", { length: 500 }),
+    payload: jsonb("payload"),
+    retorno: jsonb("retorno"),
+    erro: text("erro"),
+    preparadoPor: integer("preparado_por").references(() => users.id),
+    publicadoPor: integer("publicado_por").references(() => users.id),
+    preparadoEm: timestamp("preparado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publicadoEm: timestamp("publicado_em", { withTimezone: true }),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxPlano: index("pca_publicacoes_plano_idx").on(table.planoId),
+    idxStatus: index("pca_publicacoes_status_idx").on(table.status),
+  }),
+);
+
+export const pcaHistorico = pgTable(
+  "pca_historico",
+  {
+    id: serial("id").primaryKey(),
+    planoId: integer("plano_id")
+      .notNull()
+      .references(() => pcaPlanos.id, { onDelete: "cascade" }),
+    itemId: integer("item_id").references(() => pcaItens.id, {
+      onDelete: "set null",
+    }),
+    acao: pcaHistoricoAcaoEnum("acao").notNull(),
+    descricao: text("descricao").notNull(),
+    dadosAnteriores: jsonb("dados_anteriores"),
+    dadosNovos: jsonb("dados_novos"),
+    usuarioId: integer("usuario_id").references(() => users.id),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxPlano: index("pca_historico_plano_idx").on(table.planoId),
+    idxItem: index("pca_historico_item_idx").on(table.itemId),
+    idxCriadoEm: index("pca_historico_criado_em_idx").on(table.criadoEm),
   }),
 );
 
@@ -1848,8 +2021,8 @@ export const importacaoBllItens = pgTable(
       () => importacaoBllFornecedores.id,
       { onDelete: "set null" },
     ),
-    loteNumero: varchar("lote_numero", { length: 128 }),
-    itemNumero: varchar("item_numero", { length: 128 }),
+    loteNumero: varchar("lote_numero", { length: 32 }),
+    itemNumero: varchar("item_numero", { length: 32 }),
     descricao: text("descricao").notNull(),
     unidade: varchar("unidade", { length: 64 }),
     quantidade: numeric("quantidade", { precision: 14, scale: 4 }),
