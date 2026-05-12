@@ -1,4 +1,4 @@
-﻿export const workflowModuleOptions = [
+export const workflowModuleOptions = [
   "PLANEJAMENTO",
   "COMPRAS",
   "LICITACAO",
@@ -795,6 +795,7 @@ export const appModules = [
   { key: "dashboard", label: "Dashboard", href: "/" },
   { key: "notificacoes", label: "Notificações", href: "/notificacoes" },
   { key: "planejamento", label: "Planejamento", href: "/planejamento" },
+  { key: "pca", label: "PCA", href: "/planejamento/pca" },
   { key: "compras", label: "Compras", href: "/compras" },
   { key: "licitacao", label: "Licita\u00e7\u00e3o", href: "/licitacao" },
   { key: "contratos", label: "Contratos", href: "/contratos" },

@@ -6,6 +6,7 @@ import {
   Boxes,
   ChevronDown,
   Clock3,
+  CalendarCheck,
   Database,
   FileText,
   FolderKanban,
@@ -51,6 +52,7 @@ const icons: Record<string, typeof LayoutDashboard> = {
   dossie: FileText,
   itens: Boxes,
   planejamento: FolderKanban,
+  pca: CalendarCheck,
   compras: ShoppingCart,
   licitacao: ScrollText,
   documentos: FileText,
@@ -63,7 +65,7 @@ const icons: Record<string, typeof LayoutDashboard> = {
 
 const navGroups = [
   { title: "Visão geral", keys: ["dashboard", "notificacoes"] },
-  { title: "Ciclo principal", keys: ["planejamento", "compras", "licitacao", "contratos", "processos", "dossie", "workflow"] },
+  { title: "Ciclo principal", keys: ["planejamento", "pca", "compras", "licitacao", "contratos", "processos", "dossie", "workflow"] },
   { title: "Cadastros e base", keys: ["itens", "importacoes", "cadastros"] },
   { title: "Gestão", keys: ["consultas", "relatorios", "prazos", "auditoria", "documentos"] },
   { title: "Administração", keys: ["usuarios", "parametros"] },

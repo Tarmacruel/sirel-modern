@@ -128,6 +128,11 @@ const PlanejamentoPage = lazy(() =>
     default: module.PlanejamentoPage,
   })),
 );
+const PlanejamentoPcaPage = lazy(() =>
+  import("@/pages/planejamento-pca-page").then((module) => ({
+    default: module.PlanejamentoPcaPage,
+  })),
+);
 const PrazosPage = lazy(() =>
   import("@/pages/prazos-page").then((module) => ({
     default: module.PrazosPage,
@@ -271,6 +276,7 @@ function AuthenticatedApp({
               <PlanejamentoTrPage processoId={Number(params.processoId)} />
             )}
           </Route>
+          <Route path="/planejamento/pca" component={PlanejamentoPcaPage} />
           <Route path="/itens" component={ItensPage} />
           <Route path="/planejamento" component={PlanejamentoPage} />
           <Route path="/compras" component={ComprasPage} />
