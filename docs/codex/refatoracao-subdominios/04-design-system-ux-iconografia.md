@@ -158,3 +158,77 @@ A tela de Licitação deve apresentar etapas em ordem, conforme a modalidade. O 
 Ritos competitivos completos devem exibir preparação, publicação, propostas, disputa, julgamento, habilitação, recursos e homologação.
 
 Contratações diretas devem exibir justificativa, pesquisa ou comprovação, habilitação, ratificação ou homologação e contratação.
+
+## 9. Homes por subsistema
+
+Licitação: ações rápidas, prazos críticos, processos por fase, diligências abertas e documentos recentes.
+
+Planejamento: DFD pendentes, ETP em elaboração, cotações incompletas, TR aguardando validação e PCA.
+
+Compras: pesquisas de preço, mapas comparativos, fornecedores, itens sem referência e importações de SD.
+
+Administração: usuários ativos, auditoria recente, parâmetros críticos, importações e saúde do sistema.
+
+## 10. Ajuda progressiva
+
+Textos longos devem ficar fechados por padrão, em componentes de ajuda ou detalhes. A interface principal deve permanecer limpa.
+
+## 11. Estados visuais
+
+Badges padronizados:
+
+```txt
+Rascunho
+Em andamento
+Aguardando
+Concluído
+Atrasado
+Crítico
+```
+
+Ícones recomendados:
+
+- `AlertTriangle`: prazo crítico ou inconsistência;
+- `Clock3`: aguardando prazo;
+- `CheckCircle2`: concluído;
+- `XCircle`: inválido ou encerrado;
+- `ShieldCheck`: validado.
+
+## 12. Mobile
+
+Regras:
+
+- sidebar como drawer;
+- ações primárias sempre visíveis;
+- tabelas com versão card/lista;
+- header baixo;
+- busca rápida acessível.
+
+## 13. Componentes recomendados
+
+Criar ou consolidar:
+
+```txt
+SubsystemHero
+SubsystemActionGrid
+ActionCard
+StatusBadge
+StepTimeline
+ProcessQuickSearch
+CompactMetricCard
+ModuleEmptyState
+DeniedState
+CrossSubsystemLink
+```
+
+## 14. Definition of Done
+
+- cada subsistema possui título, ícone e descrição próprios;
+- login contextual usa textos do subsistema;
+- sidebar tem no máximo 7 entradas principais;
+- header é compacto;
+- home por subsistema prioriza ações e pendências;
+- textos longos foram movidos para ajuda progressiva;
+- botões usam verbos objetivos;
+- mobile foi considerado;
+- ícones têm função clara.
