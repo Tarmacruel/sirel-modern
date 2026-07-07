@@ -1,0 +1,70 @@
+# Refatoração SIREL por subsistemas e subdomínios
+
+Este pacote de documentação orienta a refatoração do SIREL Modern para uma arquitetura de experiência separada por subsistemas, preservando o monorepo atual, o backend compartilhado, os tipos compartilhados e a base de dados única.
+
+## Objetivo executivo
+
+Transformar o SIREL de uma experiência única e concentrada em `sirel.com.br` para uma experiência modular, com telas de entrada e navegação direcionadas por subdomínio:
+
+- `app.sirel.com.br` ou `www.sirel.com.br`: portal inicial / hub institucional;
+- `planejamento.sirel.com.br`: DFD, ETP, cotações preliminares, TR e PCA;
+- `compras.sirel.com.br`: compras, mapa comparativo, pesquisa de preços, importações pertinentes;
+- `licitacao.sirel.com.br`: fase externa, julgamento, habilitação, recursos, atas, publicações e acompanhamento por modalidade;
+- `contratos.sirel.com.br`: contratos, vigências, aditivos, saldos e fiscalizações;
+- `documentos.sirel.com.br`: geração, processamento, modelos, anexos, atas e relatórios documentais;
+- `workflow.sirel.com.br`: tramitação entre setores, pendências e movimentações;
+- `consultas.sirel.com.br`: consultas, dossiês, rastreabilidade e pesquisa transversal;
+- `admin.sirel.com.br`: usuários, parâmetros, auditoria e configurações restritas.
+
+A prioridade não é criar vários projetos independentes. A prioridade é **separar a visão operacional**, mantendo código, autenticação, API, tipos e componentes reutilizáveis.
+
+## Diretriz principal para o Codex
+
+Não reescrever o sistema inteiro. Executar a refatoração em camadas:
+
+1. criar registro de subsistemas;
+2. detectar o subsistema pelo hostname;
+3. adaptar login e shell por subsistema;
+4. filtrar rotas, menus, command palette e atalhos;
+5. reduzir textos e excesso cognitivo;
+6. preservar links profundos e fluxo entre módulos;
+7. endurecer autorização no frontend e no backend;
+8. preparar configuração de deploy, Cloudflare e CORS;
+9. validar com testes e checklist operacional.
+
+## Arquivos deste pacote
+
+1. [`00-diagnostico-e-premissas.md`](./00-diagnostico-e-premissas.md)  
+   Diagnóstico do estado atual, premissas técnicas e riscos.
+
+2. [`01-arquitetura-alvo.md`](./01-arquitetura-alvo.md)  
+   Desenho da arquitetura alvo, estratégia de subdomínios, registry de subsistemas e decisões de fronteira.
+
+3. [`02-frontend-rotas-shell-login.md`](./02-frontend-rotas-shell-login.md)  
+   Refatoração do frontend: App, rotas, shell, login, navegação, command palette e experiência visual.
+
+4. [`03-backend-auth-permissoes.md`](./03-backend-auth-permissoes.md)  
+   Ajustes no backend: contexto de subsistema, autorização, CORS, uploads e trilha de auditoria.
+
+5. [`04-design-system-ux-iconografia.md`](./04-design-system-ux-iconografia.md)  
+   Diretrizes de UX, iconografia, redução de textos, botões de ação, cards e linearidade operacional.
+
+6. [`05-deploy-cloudflare-subdominios.md`](./05-deploy-cloudflare-subdominios.md)  
+   Configuração de ambiente, Cloudflare Tunnel, hosts, variáveis `.env` e CORS.
+
+7. [`06-plano-de-execucao-por-etapas.md`](./06-plano-de-execucao-por-etapas.md)  
+   Plano incremental para o agente de código, com Definition of Done por etapa.
+
+8. [`07-checklist-testes-e-criterios-aceite.md`](./07-checklist-testes-e-criterios-aceite.md)  
+   Testes obrigatórios, regressão funcional, validação de segurança e critérios de aceite.
+
+9. [`08-prompts-codex.md`](./08-prompts-codex.md)  
+   Prompts prontos para orientar o Codex em cada fase.
+
+## Regra de ouro
+
+A mudança deve ser feita por isolamento de contexto, não por duplicação de código. O mesmo backend pode continuar respondendo em `/api/trpc`; o mesmo pacote `shared` deve continuar concentrando tipos e constantes; os componentes genéricos devem ser reutilizados; e as páginas existentes devem ser gradualmente encapsuladas por subsistema.
+
+## Resultado esperado
+
+Ao final da refatoração, o usuário que acessa `licitacao.sirel.com.br` não deve ser exposto ao mesmo volume de informações de Planejamento, Compras, Contratos, Cadastros e Administração. Ele deve ver uma tela de login própria, linguagem própria, ícones próprios, atalhos próprios e fluxo linear da licitação. O mesmo padrão deve ocorrer para os demais subsistemas.
