@@ -150,3 +150,11 @@ Consultar
 ```
 
 Evitar rótulos longos e explicações dentro do botão.
+
+## 8. Fluxo linear em Licitação
+
+A tela de Licitação deve apresentar etapas em ordem, conforme a modalidade. O componente sugerido é `StepTimeline`, com etapa atual, etapa concluída e próxima etapa.
+
+Ritos competitivos completos devem exibir preparação, publicação, propostas, disputa, julgamento, habilitação, recursos e homologação.
+
+Contratações diretas devem exibir justificativa, pesquisa ou comprovação, habilitação, ratificação ou homologação e contratação.
