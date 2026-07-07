@@ -115,3 +115,38 @@ Importações
 Cadastros
 Saúde do sistema
 ```
+
+## 6. Cards de ação
+
+Cada card deve ter:
+
+- ícone;
+- título de até 32 caracteres;
+- descrição de até 96 caracteres;
+- métrica opcional;
+- uma ação principal.
+
+Exemplo conceitual:
+
+```txt
+[ScrollText] Licitações em julgamento
+12 processos com proposta em análise.
+[ Abrir ]
+```
+
+## 7. Botões
+
+Usar verbos objetivos:
+
+```txt
+Abrir
+Novo
+Salvar
+Prosseguir
+Revisar
+Exportar
+Gerar PDF
+Consultar
+```
+
+Evitar rótulos longos e explicações dentro do botão.
