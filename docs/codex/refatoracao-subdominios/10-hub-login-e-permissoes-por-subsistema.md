@@ -2,17 +2,35 @@
 
 ## 1. Objetivo desta etapa
 
-Criar uma experiência de entrada coerente com a nova arquitetura por subsistemas.
+Criar uma experiência de entrada coerente com a arquitetura por subsistemas já implementada.
 
 O usuário deve fazer login uma única vez, entrar em um Hub institucional e visualizar somente os subsistemas aos quais possui acesso. A partir desse Hub, deve conseguir acessar ou alternar entre subsistemas sem autenticar novamente.
 
-## 2. Diagnóstico do estado remoto lido
+## 2. Diagnóstico correto da branch `docs/refatoracao-subdominios-codex`
 
-No estado remoto analisado, o `client/src/App.tsx` ainda concentra lazy imports e rotas de todos os módulos no mesmo `Switch`, com `/` apontando diretamente para `DashboardPage`. Isso significa que o Hub ainda não está funcionando como seletor de subsistemas.
+A branch já implementou a base de subsistemas. Não reimplementar essa fundação.
 
-A tela de login atual autentica corretamente, mas ainda é uma entrada institucional única, sem etapa posterior de seleção de subsistema e sem leitura de permissões por subsistema.
+Já existe:
 
-O backend já possui autenticação local, roles globais e `auth.me`, mas a sessão do usuário ainda retorna apenas `id`, `username`, `name`, `email`, `role` e `secretariaId`. Ainda não existe retorno de matriz de subsistemas autorizados.
+- `shared/src/subsystems.ts` com registry central de subsistemas;
+- `client/src/app/subsystem-context.tsx` com resolução por hostname e `?subsystem=` em desenvolvimento;
+- `client/src/app/routes.tsx` com registry tipado de rotas;
+- `client/src/app/subsystem-home.tsx` com homes contextuais;
+- `client/src/App.tsx` usando `SubsystemProvider`, `useAllowedRoutes` e `renderAppRoute`;
+- `client/src/components/layout/app-shell.tsx` com sidebar e header contextuais por subsistema;
+- `client/src/pages/login-page.tsx` com login contextual por subsistema;
+- `server/src/lib/subsystem-context.ts` e contexto tRPC com subsistema;
+- `server/src/lib/cors-origins.ts` aceitando origens derivadas do registry oficial.
+
+Problemas remanescentes desta etapa:
+
+1. Quando o subsistema atual é `hub`, `SubsystemHome` ainda renderiza `DashboardPage`, e não uma tela seletora de subsistemas.
+2. A sessão continua armazenada em `localStorage`, logo fica isolada por subdomínio.
+3. O backend ainda resolve autenticação principalmente por `Authorization: Bearer`, sem cookie compartilhado entre subdomínios.
+4. `auth.login` e `auth.me` retornam apenas dados globais do usuário, sem matriz de permissões por subsistema.
+5. As permissões ainda combinam `role` global e `allowedRoles` do registry, mas não há controle personalizado por usuário e subsistema.
+6. A tela de usuários ainda não permite administrar acessos por subsistema.
+7. O shell ainda não possui seletor explícito para alternar entre subsistemas autorizados.
 
 ## 3. Decisão de produto
 
@@ -31,7 +49,7 @@ Usuário escolhe Planejamento, Compras, Licitação, Contratos, Documentos etc.
         ↓
 Sistema abre o subsistema escolhido
         ↓
-Usuário pode alternar por um seletor no header, sem novo login
+Usuário pode alternar por seletor no header, sem novo login
 ```
 
 ## 4. Decisão técnica sobre sessão única
@@ -55,7 +73,7 @@ SameSite=Lax
 
 Em ambiente local, o cookie deve ser emitido sem `Domain=.sirel.com.br` e sem `Secure` quando estiver em HTTP local.
 
-### 4.3. Compatibilidade
+### 4.3. Compatibilidade de transição
 
 Manter temporariamente o header `Authorization: Bearer <token>` e o `localStorage` como fallback até estabilizar a migração. O backend deve aceitar:
 
@@ -72,10 +90,10 @@ O campo global `role` deve permanecer. Ele define poderes sistêmicos gerais:
 
 ```txt
 admin
- gestor
- operador
- auditor
- user
+gestor
+operador
+auditor
+user
 ```
 
 Esse papel não deve ser confundido com autorização por subsistema.
@@ -151,7 +169,7 @@ Estratégia:
 
 Se não houver registros para um usuário não admin, o backend pode aplicar fallback temporário baseado no role global, mas esse fallback deve ser removível depois.
 
-## 7. Backend — auth.login e auth.me
+## 7. Backend — `auth.login` e `auth.me`
 
 ### 7.1. Retorno esperado
 
@@ -188,15 +206,35 @@ Ele deve retornar os subsistemas já enriquecidos com título, descrição, íco
 
 ## 8. Hub pós-login
 
-### 8.1. Rota
+### 8.1. Onde implementar
 
-Criar página:
+A implementação atual já usa `SubsystemHome` para `/`. Portanto, o caminho preferencial é criar um componente de Hub e substituir este comportamento atual:
+
+```ts
+if (subsystem.key === "hub") {
+  return <DashboardPage />;
+}
+```
+
+por uma tela própria, por exemplo:
+
+```ts
+if (subsystem.key === "hub") {
+  return <HubHome user={user} />;
+}
+```
+
+Arquivo recomendado:
 
 ```txt
 client/src/pages/hub-page.tsx
 ```
 
-A rota `/` em `app.sirel.com.br` e `www.sirel.com.br` deve apontar para `HubPage`, não para Dashboard operacional genérico.
+ou, se fizer mais sentido manter coeso com as homes:
+
+```txt
+client/src/app/hub-home.tsx
+```
 
 ### 8.2. Layout do Hub
 
@@ -241,7 +279,7 @@ Criar componente:
 client/src/components/layout/subsystem-switcher.tsx
 ```
 
-Ele deve aparecer no header do shell autenticado.
+Ele deve aparecer no header do shell autenticado, preferencialmente antes da busca rápida.
 
 ### 9.2. Comportamento
 
@@ -349,14 +387,24 @@ A etapa estará concluída quando:
 
 ## 14. Observação para o Codex
 
-Se já existir algum arquivo de implementação local não visível no branch remoto, o Codex deve reconciliar este plano com a implementação atual, evitando duplicar conceitos. Procurar antes por:
+Não reimplementar a base de subsistemas já existente. Antes de criar arquivos, verificar e reutilizar:
 
 ```txt
 shared/src/subsystems.ts
 client/src/app/subsystem-context.tsx
 client/src/app/routes.tsx
-client/src/pages/hub-page.tsx
+client/src/app/subsystem-home.tsx
+client/src/components/layout/app-shell.tsx
 server/src/lib/subsystem-context.ts
+server/src/lib/request-auth.ts
+```
+
+Criar somente o que falta para esta etapa:
+
+```txt
+client/src/app/hub-home.tsx ou client/src/pages/hub-page.tsx
+client/src/components/layout/subsystem-switcher.tsx
+client/src/components/usuarios/subsystem-access-matrix.tsx
 server/src/lib/subsystem-access.ts
-user_subsystem_access
+migration user_subsystem_access
 ```
