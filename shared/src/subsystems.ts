@@ -89,7 +89,7 @@ const adminRoles = ["admin"] as const;
 export const subsystemDefinitions = [
   {
     key: "hub",
-    hostnames: ["sirel.com.br", "www.sirel.com.br", "app.sirel.com.br"],
+    hostnames: ["www.sirel.com.br", "app.sirel.com.br", "sirel.com.br"],
     localHostAliases: [
       "localhost",
       "127.0.0.1",

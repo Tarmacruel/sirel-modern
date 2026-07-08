@@ -285,6 +285,10 @@ DATABASE_URL=<definir-localmente>
 - origem oficial não gera erro de CORS;
 - origem desconhecida continua bloqueada.
 
+### 5.4. Host canônico do Hub
+
+Na operação atual, `www.sirel.com.br` é o host canônico do Hub. O domínio raiz `sirel.com.br` sem `www` não resolveu DNS durante a validação operacional; por isso o registry usa `www.sirel.com.br` como primeiro hostname do subsistema `hub`, mantendo `sirel.com.br` apenas como hostname reconhecido caso o DNS raiz seja configurado depois.
+
 ## 6. Validações executadas nesta consolidação
 
 ```txt
