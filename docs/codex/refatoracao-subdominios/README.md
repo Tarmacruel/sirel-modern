@@ -64,6 +64,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 10. [`09-registro-implementacao-operacao-local.md`](./09-registro-implementacao-operacao-local.md)
     Registro final da implementação, ajustes fora do plano inicial, validações executadas, contexto operacional local e próximos passos.
 
+11. [`10-hub-login-e-permissoes-por-subsistema.md`](./10-hub-login-e-permissoes-por-subsistema.md)
+    Próxima fase: Hub pós-login, sessão única entre subdomínios, matriz de permissões por usuário e alternância de subsistemas sem novo login.
+
+12. [`11-prompt-codex-hub-login-permissoes.md`](./11-prompt-codex-hub-login-permissoes.md)
+    Prompt operacional para o Codex implementar o Hub, o login único e as permissões por subsistema.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -76,6 +82,10 @@ Durante os testes em ambiente oficial, foram registrados ajustes adicionais ao p
 - `Cadastros` e `Relatórios` foram liberados como módulos transversais em todos os subsistemas;
 - `Importações` foi liberado também no subsistema de Licitação;
 - a rota `/cadastros` foi aberta no guard frontend para todos os subsistemas, mantendo as permissões reais de consulta, edição e remoção nas procedures do backend.
+
+## Próxima fase crítica
+
+A sessão ainda permanece isolada por subdomínio enquanto depender apenas de `localStorage`. A próxima etapa deve implementar Hub pós-login e sessão compartilhada por cookie seguro, além de permissões por subsistema para que o administrador controle, usuário por usuário, quais ambientes podem ser acessados.
 
 ## Regra de ouro
 
