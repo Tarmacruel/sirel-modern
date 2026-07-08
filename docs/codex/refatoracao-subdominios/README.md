@@ -76,6 +76,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 14. [`13-prompt-codex-licitacao-processo-ux.md`](./13-prompt-codex-licitacao-processo-ux.md)
     Prompt operacional para o Codex executar a refatoração da página `/licitacao/:processoId?fase=...`.
 
+15. [`14-licitacao-hub-modalidades.md`](./14-licitacao-hub-modalidades.md)
+    Plano do Hub de modalidades da Licitação, com entrada compacta por equipe/modalidade e redirecionamento para filas filtradas.
+
+16. [`15-prompt-codex-licitacao-hub-modalidades.md`](./15-prompt-codex-licitacao-hub-modalidades.md)
+    Prompt operacional para o Codex implementar a tela inicial de Licitação por modalidade.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -107,6 +113,10 @@ O `localStorage` e o header `Authorization: Bearer` foram preservados como fallb
 ## Nova frente: UX interna do processo licitatório
 
 Após a separação por subsistemas e o Hub, a próxima frente é reduzir a complexidade interna da página do processo licitatório. A rota `/licitacao/:processoId?fase=...` deve evoluir para um posto de comando guiado por etapa, com cabeçalho compacto, stepper legal, próxima ação evidente, assistente contextual e área de trabalho focada apenas na fase ativa.
+
+## Nova frente: Hub de modalidades da Licitação
+
+A entrada `/licitacao` deve funcionar como um hub de trabalho por modalidade/equipe, antes de abrir a listagem. O usuário deve escolher entre Credenciamentos, Dispensas, Inexigibilidades, Pregões, Concorrências, Atas/Adesões ou Todos, e então visualizar a fila já filtrada.
 
 ## Regra de ouro
 
