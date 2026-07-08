@@ -70,6 +70,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 12. [`11-prompt-codex-hub-login-permissoes.md`](./11-prompt-codex-hub-login-permissoes.md)
     Prompt operacional para o Codex implementar o Hub, o login único e as permissões por subsistema.
 
+13. [`12-licitacao-processo-ux-guiado.md`](./12-licitacao-processo-ux-guiado.md)
+    Plano de refatoração UX da página interna do processo licitatório, com foco em fluxo guiado, próxima ação e redução de carga cognitiva.
+
+14. [`13-prompt-codex-licitacao-processo-ux.md`](./13-prompt-codex-licitacao-processo-ux.md)
+    Prompt operacional para o Codex executar a refatoração da página `/licitacao/:processoId?fase=...`.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -97,6 +103,10 @@ Arquivos principais adicionados ou alterados nesta fase:
 - `drizzle/migrations/0051_user_subsystem_access.sql`.
 
 O `localStorage` e o header `Authorization: Bearer` foram preservados como fallback de transição, mas o backend também aceita o cookie HttpOnly. Em produção, o cookie usa `Secure`, `SameSite=Lax` e `Domain=.sirel.com.br` quando a request vem de `sirel.com.br` ou subdomínios oficiais. Em ambiente local, o cookie é emitido sem `Domain` e compatível com HTTP.
+
+## Nova frente: UX interna do processo licitatório
+
+Após a separação por subsistemas e o Hub, a próxima frente é reduzir a complexidade interna da página do processo licitatório. A rota `/licitacao/:processoId?fase=...` deve evoluir para um posto de comando guiado por etapa, com cabeçalho compacto, stepper legal, próxima ação evidente, assistente contextual e área de trabalho focada apenas na fase ativa.
 
 ## Regra de ouro
 
