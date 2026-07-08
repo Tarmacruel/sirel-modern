@@ -51,12 +51,16 @@ const iconMap: Record<EntryActionIconKey, typeof LayoutDashboard> = {
 interface CommandPaletteProps {
   open: boolean;
   userRole: string;
+  allowedModuleKeys?: readonly string[];
   onClose: () => void;
   onNavigate: (href: string) => void;
   onRestartTour: () => void;
 }
 
-function buildStaticItems(userRole: string): CommandPaletteItem[] {
+function buildStaticItems(
+  userRole: string,
+  allowedModuleKeys: readonly string[] = [],
+): CommandPaletteItem[] {
   const common: CommandPaletteItem[] = [
     {
       id: "module-dashboard",
@@ -231,14 +235,27 @@ function buildStaticItems(userRole: string): CommandPaletteItem[] {
     ],
   };
 
-  return [...(byRole[userRole] ?? byRole.user), ...common];
+  const allowedKeys = new Set(["dashboard", ...allowedModuleKeys]);
+  return [...(byRole[userRole] ?? byRole.user), ...common].filter((item) =>
+    allowedKeys.has(item.iconKey),
+  );
 }
 
-export function CommandPalette({ open, userRole, onClose, onNavigate, onRestartTour }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  userRole,
+  allowedModuleKeys,
+  onClose,
+  onNavigate,
+  onRestartTour,
+}: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
-  const staticItems = useMemo(() => buildStaticItems(userRole), [userRole]);
+  const staticItems = useMemo(
+    () => buildStaticItems(userRole, allowedModuleKeys),
+    [allowedModuleKeys, userRole],
+  );
 
   const searchQuery = trpc.consultas.search.useQuery(
     {
@@ -294,7 +311,7 @@ export function CommandPalette({ open, userRole, onClose, onNavigate, onRestartT
       open={open}
       onClose={onClose}
       size="md"
-      title="Palette de comando"
+      title="Paleta de comando"
       description={`Navegue mais rápido pelo SIREL. Use Ctrl+K para abrir e pesquise processos, módulos e atalhos do perfil ${roleLabel(userRole).toLowerCase()}.`}
     >
       <div className="space-y-5">

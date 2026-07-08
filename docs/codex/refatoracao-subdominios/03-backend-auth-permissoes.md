@@ -177,6 +177,21 @@ origin(origin, callback) {
 }
 ```
 
+### 5.4. Implementação consolidada
+
+A implementação final centraliza a regra em `server/src/lib/cors-origins.ts`.
+
+Comportamento atual:
+
+- `resolveAllowedOrigins(clientUrl)` continua aceitando `CLIENT_URL` como lista separada por vírgula;
+- `resolveSubsystemProductionOrigins()` deriva origens HTTPS dos `hostnames` de `shared/src/subsystems.ts`;
+- `isAllowedCorsOrigin()` permite origem declarada em `CLIENT_URL` ou origem oficial derivada do registry;
+- em desenvolvimento, `localhost`, `127.0.0.1`, `0.0.0.0`, `::1` e quick tunnels `*.trycloudflare.com` são aceitos;
+- em produção, quick tunnels e origens locais continuam bloqueados;
+- a falha `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` no login foi diagnosticada como CORS rejeitando a origem oficial e devolvendo HTML de erro do Express.
+
+Essa regra evita wildcard em produção e reduz o risco de deploy com `CLIENT_URL` incompleto para os subdomínios oficiais.
+
 ## 6. API URL no frontend
 
 O frontend deve continuar usando:

@@ -1,5 +1,6 @@
 export * from "./const.js";
 export * from "./types.js";
+export * from "./subsystems.js";
 export * from "./schemas/processos.js";
 export * from "./schemas/dashboard.js";
 export * from "./schemas/planejamento.js";

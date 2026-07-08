@@ -218,6 +218,16 @@ A rota `/` não deve significar sempre Dashboard geral. Ela deve resolver para u
 / em admin.sirel.com.br          -> AdminHomePage
 ```
 
+### 5.5. Módulos transversais consolidados
+
+Após validação operacional, alguns módulos deixaram de ser tratados como exclusivos de um único subsistema:
+
+- `Cadastros` é transversal e deve estar disponível em todos os subsistemas pela rota `/cadastros`;
+- `Relatórios` é transversal e deve estar disponível em todos os subsistemas pela rota `/relatorios`;
+- `Importações` permanece disponível para `hub`, `compras` e `admin`, e foi acrescentado ao subsistema `licitacao`.
+
+Essa liberação é de navegação e rota. As permissões de ação continuam sendo aplicadas pelo backend: consultas de Cadastros usam procedures protegidas, edições usam perfil de gestão e remoções continuam restritas a admin.
+
 ## 6. Estratégia de login
 
 Cada subdomínio deve renderizar a mesma base de `LoginPage`, mas com conteúdo vindo do `SubsystemDefinition`.

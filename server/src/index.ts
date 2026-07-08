@@ -33,7 +33,6 @@ import {
   processos,
   propostasLicitacao,
 } from "./db/schema.js";
-import { verifySessionToken } from "./lib/auth-session.js";
 import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
 import {
   applyAtaSessaoPreview,
@@ -46,13 +45,20 @@ import {
   stopBllLocalScheduler,
 } from "./lib/bll-sync-local.js";
 import { startImportacoesScheduler } from "./lib/importacoes-bll.js";
+import {
+  isAllowedCorsOrigin,
+  resolveAllowedOrigins,
+} from "./lib/cors-origins.js";
+import { resolveRequestUser } from "./lib/request-auth.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3030);
 const host = process.env.HOST ?? "0.0.0.0";
-const clientUrl = process.env.CLIENT_URL ?? "http://localhost:5173";
+const isProduction = process.env.NODE_ENV === "production";
+const clientUrl =
+  process.env.CLIENT_URL ?? (isProduction ? "" : "http://localhost:5173");
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const uploadsRoot = resolve(currentDir, "../../storage/uploads");
 const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
@@ -64,6 +70,8 @@ const ataSessaoReportsRoot = resolve(
 const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
 const sdReportsRoot = resolve(currentDir, "../../storage/reports/sd");
 const sdUploadsRoot = join(sdReportsRoot, "uploads");
+const clientDistRoot = resolveClientDistRoot();
+const clientIndexHtml = join(clientDistRoot, "index.html");
 
 if (!existsSync(uploadsRoot)) {
   mkdirSync(uploadsRoot, { recursive: true });
@@ -133,44 +141,35 @@ function parseStringArrayField(value: unknown) {
     .filter(Boolean);
 }
 
-function resolveRequestUser(req: express.Request) {
-  const authHeader = String(req.headers.authorization ?? "").trim();
-  const bearerToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : "";
-  const sessionPayload = verifySessionToken(bearerToken);
-  const roleHeader = String(req.headers["x-sirel-role"] ?? "").trim();
-  const userId = Number(req.headers["x-sirel-user-id"] ?? 0) || 1;
-  const secretariaId =
-    Number(req.headers["x-sirel-secretaria-id"] ?? 0) || null;
+function resolveClientDistRoot() {
+  const candidates = [
+    resolve(currentDir, "../../client/dist"),
+    resolve(currentDir, "../../../client/dist"),
+    resolve(currentDir, "../../../../client/dist"),
+    resolve(process.cwd(), "client/dist"),
+    resolve(process.cwd(), "../client/dist"),
+  ];
 
-  return sessionPayload
-    ? {
-        id: sessionPayload.sub,
-        username: sessionPayload.username,
-        name: sessionPayload.name,
-        email: sessionPayload.email ?? "",
-        role: sessionPayload.role,
-        secretariaId: sessionPayload.secretariaId,
-      }
-    : roleHeader
-      ? {
-          id: userId,
-          username: String(req.headers["x-sirel-username"] ?? "demo"),
-          name: String(req.headers["x-sirel-user-name"] ?? "Usuario demo"),
-          email: String(
-            req.headers["x-sirel-user-email"] ?? "demo@sirel.local",
-          ),
-          role: roleHeader,
-          secretariaId,
-        }
-      : null;
+  return (
+    candidates.find((candidate) => existsSync(join(candidate, "index.html"))) ??
+    candidates[0]
+  );
+}
+
+function shouldServeSpaFallback(req: express.Request) {
+  const method = req.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+  if (req.path === "/api" || req.path.startsWith("/api/")) return false;
+  if (req.path === "/healthz") return false;
+  if (extname(req.path)) return false;
+
+  return existsSync(clientIndexHtml);
 }
 
 function requireUploadUser(req: express.Request, res: express.Response) {
   const user = resolveRequestUser(req);
   if (!user) {
-    res.status(401).json({ message: "Login obrigatorio." });
+    res.status(401).json({ message: "Login obrigatório." });
     return null;
   }
   if (!["admin", "gestor", "operador"].includes(user.role)) {
@@ -690,23 +689,30 @@ function handleSdDownloadRequest(req: express.Request, res: express.Response) {
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin) {
+      if (
+        isAllowedCorsOrigin(origin, {
+          clientUrl,
+          nodeEnv: process.env.NODE_ENV,
+        })
+      ) {
         callback(null, true);
         return;
       }
 
-      const configuredOrigins = clientUrl
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-
-      if (!configuredOrigins.length || configuredOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(null, true);
+      callback(new Error("Origem não autorizada pelo SIREL"));
     },
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "X-Sirel-Role",
+      "X-Sirel-User-Id",
+      "X-Sirel-Secretaria-Id",
+      "X-Sirel-Username",
+      "X-Sirel-User-Name",
+      "X-Sirel-User-Email",
+      "X-Sirel-Subsystem",
+      "X-Forwarded-Host",
+    ],
     credentials: true,
   }),
 );
@@ -718,6 +724,8 @@ app.get("/healthz", (_req, res) => {
     ok: true,
     service: "sirel-modern-server",
     timestamp: new Date().toISOString(),
+    corsAllowedOrigins: resolveAllowedOrigins(clientUrl).length,
+    subdomainsEnabled: true,
   });
 });
 
@@ -1613,6 +1621,28 @@ app.use(
   "/api/trpc",
   createExpressMiddleware({ router: appRouter, createContext }),
 );
+
+if (existsSync(clientIndexHtml)) {
+  app.use(
+    express.static(clientDistRoot, {
+      index: false,
+      maxAge: isProduction ? "1h" : 0,
+    }),
+  );
+
+  app.get("*", (req, res, next) => {
+    if (!shouldServeSpaFallback(req)) {
+      next();
+      return;
+    }
+
+    res.sendFile(clientIndexHtml);
+  });
+} else if (isProduction) {
+  console.warn(
+    `Client build not found at ${clientIndexHtml}; SPA routes will not be served by Express.`,
+  );
+}
 
 const server = app.listen(port, host, () => {
   startImportacoesScheduler();

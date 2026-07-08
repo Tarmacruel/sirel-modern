@@ -98,11 +98,13 @@ Menu esperado:
 ```txt
 Início
 Licitações
+Importações
 Documentos
 Prazos
 Dossiês
 Consultas
-Notificações
+Cadastros
+Relatórios
 ```
 
 Validar:
@@ -110,10 +112,13 @@ Validar:
 - abrir `/`;
 - abrir `/licitacao`;
 - abrir `/licitacao/:processoId`;
+- abrir `/importacoes`;
 - abrir `/documentos` se autorizado;
 - abrir `/prazos`;
 - abrir `/dossie/:processoId`;
 - abrir `/consultas`.
+- abrir `/cadastros`;
+- abrir `/relatorios`.
 
 ### 5.2. Planejamento
 
@@ -149,6 +154,23 @@ Validar:
 - `/cadastros`.
 
 Critério: usuário não admin não deve acessar telas administrativas, mesmo por URL direta.
+
+Observação: `Cadastros` foi liberado como módulo transversal. Acesso à rota não significa permissão para todas as ações: edição exige perfil de gestão e remoção continua restrita a admin no backend.
+
+### 5.5. Módulos transversais
+
+Validar em todos os subsistemas:
+
+- `/cadastros` abre sem cair em `NotFoundOrDeniedPage`;
+- `/relatorios` abre sem cair em `NotFoundOrDeniedPage`;
+- sidebar e command palette exibem Cadastros e Relatórios;
+- permissões de ação continuam respeitando as procedures do backend.
+
+Validar em Licitação:
+
+- `/importacoes` abre sem cair em `NotFoundOrDeniedPage`;
+- sidebar e command palette exibem Importações;
+- rotas de importação continuam exigindo usuário autenticado e papel adequado quando o backend solicitar.
 
 ## 6. Testes de rotas proibidas
 
@@ -220,6 +242,13 @@ Se API estiver em host separado:
 - testar todos os subdomínios em `CLIENT_URL`;
 - testar origem não permitida;
 - garantir bloqueio de origem indevida.
+
+Testes adicionais do CORS consolidado:
+
+- origem oficial versionada, como `https://licitacao.sirel.com.br`, deve responder JSON no `auth.login`;
+- `*.trycloudflare.com` deve ser aceito apenas fora de produção;
+- origem desconhecida em produção deve continuar bloqueada;
+- erro de CORS não deve retornar HTML para chamadas tRPC esperadas pelo browser.
 
 ## 10. Testes de responsividade
 

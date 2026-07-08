@@ -228,6 +228,17 @@ Garantir que a reorganização não quebrou fluxos existentes.
 - documentação atualizada;
 - branch pronta para PR.
 
+## Ajustes adicionais pós-plano
+
+Após a execução das etapas, foram incorporadas decisões operacionais que não estavam explícitas no plano inicial:
+
+1. `Cadastros` e `Relatórios` passaram a ser módulos transversais disponíveis em todos os subsistemas.
+2. `Importações` foi liberado também no subsistema de Licitação.
+3. A rota `/cadastros` foi aberta no guard frontend para todos os subsistemas, mas as ações continuam protegidas pelas procedures do backend.
+4. O CORS passou a aceitar as origens HTTPS oficiais derivadas do registry `shared/src/subsystems.ts`, além das origens configuradas em `CLIENT_URL`.
+5. Quick tunnels `*.trycloudflare.com` foram liberados apenas em desenvolvimento para viabilizar testes manuais.
+6. A validação no domínio oficial indicou que o endpoint estava respondendo via Vite dev server; o deploy final deve apontar para o Express servindo `client/dist`.
+
 ## Regras para o Codex
 
 1. Não implementar múltiplas arquiteturas ao mesmo tempo.

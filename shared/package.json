@@ -18,6 +18,10 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./subsystems": {
+      "types": "./dist/subsystems.d.ts",
+      "import": "./dist/subsystems.js"
+    },
     "./schemas/processos": {
       "types": "./dist/schemas/processos.d.ts",
       "import": "./dist/schemas/processos.js"
@@ -74,9 +78,17 @@
       "types": "./dist/schemas/relatorios.d.ts",
       "import": "./dist/schemas/relatorios.js"
     },
+    "./schemas/ata-sessao": {
+      "types": "./dist/schemas/ata-sessao.d.ts",
+      "import": "./dist/schemas/ata-sessao.js"
+    },
     "./schemas/notificacoes": {
       "types": "./dist/schemas/notificacoes.d.ts",
       "import": "./dist/schemas/notificacoes.js"
+    },
+    "./schemas/parametros": {
+      "types": "./dist/schemas/parametros.d.ts",
+      "import": "./dist/schemas/parametros.js"
     },
     "./prazos-legais": {
       "types": "./dist/prazos-legais.d.ts",

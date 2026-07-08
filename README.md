@@ -40,6 +40,24 @@ Entraram nesta revisao:
 - ambiente publicado: `https://www.sirel.com.br`
 - operacao local continua suportada para manutencao, backup, migracao e recuperacao
 
+## Publicacao por subdominios
+
+A aplicacao segue o modelo de SPA unica sensivel ao host. Todos os subdominios podem apontar para o mesmo servico, e o frontend resolve o subsistema pelo hostname.
+
+Origens esperadas para CORS em producao:
+
+```env
+CLIENT_URL=https://www.sirel.com.br,https://app.sirel.com.br,https://planejamento.sirel.com.br,https://compras.sirel.com.br,https://licitacao.sirel.com.br,https://contratos.sirel.com.br,https://documentos.sirel.com.br,https://workflow.sirel.com.br,https://consultas.sirel.com.br,https://admin.sirel.com.br
+```
+
+Para deploy com frontend e API no mesmo host, preferir endpoint relativo:
+
+```env
+VITE_API_URL=/api/trpc
+```
+
+No desenvolvimento local, `npm run start:local` usa backend em `http://localhost:3030` e frontend em `http://localhost:5173`; `npm run start:tunnel` publica o Vite em `5173` e preserva o proxy de `/api`. No build de producao, o Express serve `client/dist` e aplica fallback de SPA para refresh em rotas profundas.
+
 ## Documentacao operacional local
 
 Informacoes sensiveis, credenciais, URLs internas, comandos frequentes e observacoes de recuperacao devem ficar apenas em um arquivo local nao versionado:
@@ -291,8 +309,8 @@ Exemplo de `.env`:
 DATABASE_URL=postgresql://sirel_user:senha_segura@localhost:5432/sirel_db
 HOST=0.0.0.0
 PORT=3030
-CLIENT_URL=http://localhost:5174
-VITE_API_URL=http://localhost:3030/api/trpc
+CLIENT_URL=http://localhost:5173
+VITE_API_URL=/api/trpc
 JWT_SECRET=troque_esta_chave
 SIREL_DEFAULT_PASSWORD=defina_localmente
 SIREL_ADMIN_USERNAME=usuario_admin

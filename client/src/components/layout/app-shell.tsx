@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PropsWithChildren } from "react";
 import { Link, useLocation } from "wouter";
 import {
   BarChart3,
@@ -32,9 +32,15 @@ import {
 } from "lucide-react";
 
 import { appModules } from "@sirel/shared/const";
+import {
+  getDefaultSubsystem,
+  type SubsystemDefinition,
+} from "@sirel/shared/subsystems";
+import type { UserRole } from "@sirel/shared/types";
+import { useSubsystem } from "@/app/subsystem-context";
 import type { AuthUser } from "@/lib/auth-session";
 import { useRuntimeBranding } from "@/lib/branding";
-import { buildGuidedTourSteps, pageSubtitleForLocation, resolveGuidedTourRoleTemplate, roleLabel } from "@/lib/entry-experience";
+import { buildGuidedTourSteps, resolveGuidedTourRoleTemplate, roleLabel } from "@/lib/entry-experience";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -63,13 +69,23 @@ const icons: Record<string, typeof LayoutDashboard> = {
   usuarios: Users,
 };
 
-const navGroups = [
-  { title: "Visão geral", keys: ["dashboard", "notificacoes"] },
-  { title: "Ciclo principal", keys: ["planejamento", "pca", "compras", "licitacao", "contratos", "processos", "dossie", "workflow"] },
-  { title: "Cadastros e base", keys: ["itens", "importacoes", "cadastros"] },
-  { title: "Gestão", keys: ["consultas", "relatorios", "prazos", "auditoria", "documentos"] },
-  { title: "Administração", keys: ["usuarios", "parametros"] },
-] as const;
+const subsystemIcons: Record<string, typeof LayoutDashboard> = {
+  LayoutDashboard,
+  FolderKanban,
+  ShoppingCart,
+  ScrollText,
+  Landmark,
+  FileText,
+  Workflow,
+  Search,
+  ShieldCheck,
+  Settings2,
+};
+
+type SidebarNavGroup = {
+  title: string;
+  keys: readonly string[];
+};
 
 type ThemeMode = "light" | "dark";
 const themeStorageKey = "sirel-theme";
@@ -84,8 +100,9 @@ interface SidebarProps {
   collapsed: boolean;
   expandedGroups: Record<string, boolean>;
   location: string;
+  navGroups: readonly SidebarNavGroup[];
   unreadNotifications: number;
-  systemName: string;
+  subsystem: SubsystemDefinition;
   user: AuthUser;
   onToggleGroup: (groupTitle: string) => void;
   onToggleCollapse: () => void;
@@ -106,44 +123,58 @@ function resolveStoredTheme(): ThemeMode {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function buildDefaultGroupState() {
-  return Object.fromEntries(navGroups.map((group) => [group.title, true])) as Record<string, boolean>;
+function buildSubsystemNavGroups(subsystem: SubsystemDefinition): SidebarNavGroup[] {
+  return [
+    {
+      title: subsystem.key === "hub" ? "Visão geral" : "Navegação",
+      keys: subsystem.navigationKeys,
+    },
+  ];
 }
 
-function resolveStoredSidebarGroups() {
-  if (typeof window === "undefined") return buildDefaultGroupState();
+function buildDefaultGroupState(groups: readonly SidebarNavGroup[]) {
+  return Object.fromEntries(groups.map((group) => [group.title, true])) as Record<string, boolean>;
+}
+
+function resolveStoredSidebarGroups(groups: readonly SidebarNavGroup[]) {
+  if (typeof window === "undefined") return buildDefaultGroupState(groups);
   const saved = window.localStorage.getItem(sidebarGroupsStorageKey);
-  if (!saved) return buildDefaultGroupState();
+  if (!saved) return buildDefaultGroupState(groups);
 
   try {
     const parsed = JSON.parse(saved) as Record<string, boolean>;
-    return { ...buildDefaultGroupState(), ...parsed };
+    return { ...buildDefaultGroupState(groups), ...parsed };
   } catch {
-    return buildDefaultGroupState();
+    return buildDefaultGroupState(groups);
   }
 }
 
-function resolvePageTitle(location: string) {
-  const current = appModules.find((item) => {
-    if (item.href === "/") return location === "/";
-    return location === item.href || location.startsWith(`${item.href}/`);
-  });
+function resolveSubsystemIcon(icon: string) {
+  return subsystemIcons[icon] ?? LayoutDashboard;
+}
 
-  return current?.label ?? "SIREL";
+function hasSubsystemAccess(subsystem: SubsystemDefinition, role: string) {
+  return subsystem.allowedRoles.includes(role as UserRole);
 }
 
 function Sidebar({
   collapsed,
   expandedGroups,
   location,
+  navGroups,
   unreadNotifications,
-  systemName,
+  subsystem,
   user,
   onToggleGroup,
   onToggleCollapse,
   onNavigate,
 }: SidebarProps) {
-  const moduleMap = useMemo(() => new Map(appModules.map((item) => [item.key, item])), []);
+  const moduleMap = useMemo(
+    () => new Map<string, (typeof appModules)[number]>(appModules.map((item) => [item.key, item])),
+    [],
+  );
+  const SubsystemIcon = resolveSubsystemIcon(subsystem.icon);
+  const sidebarInitials = subsystem.shortTitle.slice(0, 2).toUpperCase();
 
   return (
     <aside
@@ -157,12 +188,15 @@ function Sidebar({
         {!collapsed ? (
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--text-muted)]">Ambiente SIREL</p>
-            <h2 className="mt-1 text-lg font-black tracking-tight text-[var(--text-primary)]">{systemName}</h2>
+            <div className="mt-1 flex min-w-0 items-center gap-2">
+              <SubsystemIcon className="h-4 w-4 shrink-0 text-[var(--accent-color)]" />
+              <h2 className="truncate text-lg font-black tracking-tight text-[var(--text-primary)]">{subsystem.shortTitle}</h2>
+            </div>
             <small className="text-[11px] text-[var(--text-secondary)]">Teixeira de Freitas</small>
           </div>
         ) : (
           <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-sm font-black tracking-[0.2em] text-[var(--accent-color)]">
-            SI
+            {sidebarInitials}
           </div>
         )}
         <button
@@ -170,6 +204,7 @@ function Sidebar({
           onClick={onToggleCollapse}
           className="inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--sidebar-border)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--accent-color)]"
           title={collapsed ? "Expandir menu" : "Recolher menu"}
+          aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
@@ -216,9 +251,10 @@ function Sidebar({
                           : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--sidebar-hover)]",
                       ].join(" ")}
                       title={collapsed ? entry.label : undefined}
+                      aria-label={collapsed ? entry.label : undefined}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-                      {!collapsed ? <span className="flex-1">{entry.label}</span> : null}
+                      {!collapsed ? <span className="flex-1">{entry.key === "dashboard" ? "Início" : entry.label}</span> : null}
                       {isNotification ? (
                         <span className="inline-flex min-w-[1.3rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           {formatBadgeCount(unreadNotifications)}
@@ -260,12 +296,24 @@ function Sidebar({
 
 export function AppShell({ children, user, onLogout }: AppShellProps) {
   const branding = useRuntimeBranding();
+  const requestedSubsystem = useSubsystem();
+  const subsystem = useMemo(
+    () =>
+      hasSubsystemAccess(requestedSubsystem, user.role)
+        ? requestedSubsystem
+        : getDefaultSubsystem(),
+    [requestedSubsystem, user.role],
+  );
+  const navGroups = useMemo(() => buildSubsystemNavGroups(subsystem), [subsystem]);
+  const SubsystemIcon = resolveSubsystemIcon(subsystem.icon);
   const [location, setLocation] = useLocation();
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("sirel-sidebar-collapsed") === "1";
   });
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(resolveStoredSidebarGroups);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
+    resolveStoredSidebarGroups(navGroups),
+  );
   const [theme, setTheme] = useState<ThemeMode>(resolveStoredTheme);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -284,6 +332,20 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
   });
 
   const unreadNotifications = notificationsSummary.data?.unread ?? 0;
+  const shellStyle = useMemo(
+    () =>
+      ({
+        "--accent-color": subsystem.accent,
+      }) as CSSProperties,
+    [subsystem.accent],
+  );
+
+  useEffect(() => {
+    setExpandedGroups((current) => ({
+      ...buildDefaultGroupState(navGroups),
+      ...current,
+    }));
+  }, [navGroups]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -357,21 +419,20 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [userMenuOpen]);
 
-  const pageTitle = resolvePageTitle(location);
-  const pageSubtitle = pageSubtitleForLocation(location);
-  const headerActions = dashboardEntryQuery.data?.recommendedActions.slice(0, 2) ?? [];
+  const headerActions = subsystem.recommendedActions.slice(0, 2);
   const guidedTourSteps = buildGuidedTourSteps(location, resolveGuidedTourRoleTemplate(user.role));
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--bg-body)] text-[var(--text-primary)]">
+    <div className="h-screen overflow-hidden bg-[var(--bg-body)] text-[var(--text-primary)]" style={shellStyle}>
       <div className="flex h-screen w-full overflow-hidden">
         <div className="hidden h-screen shrink-0 lg:sticky lg:top-0 lg:block">
           <Sidebar
             collapsed={collapsed}
             expandedGroups={expandedGroups}
             location={location}
+            navGroups={navGroups}
             unreadNotifications={unreadNotifications}
-            systemName={branding.systemName}
+            subsystem={subsystem}
             user={user}
             onToggleGroup={(groupTitle) => setExpandedGroups((current) => ({ ...current, [groupTitle]: !current[groupTitle] }))}
             onToggleCollapse={() => setCollapsed((value) => !value)}
@@ -386,8 +447,9 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                 collapsed={false}
                 expandedGroups={expandedGroups}
                 location={location}
+                navGroups={navGroups}
                 unreadNotifications={unreadNotifications}
-                systemName={branding.systemName}
+                subsystem={subsystem}
                 user={user}
                 onToggleGroup={(groupTitle) => setExpandedGroups((current) => ({ ...current, [groupTitle]: !current[groupTitle] }))}
                 onToggleCollapse={() => setCollapsed(false)}
@@ -395,6 +457,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
               />
               <button
                 type="button"
+                aria-label="Fechar menu"
                 className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--sidebar-border)] bg-[var(--bg-surface)] text-[var(--text-secondary)]"
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -410,15 +473,21 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
               <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
+                  aria-label="Abrir menu"
                   className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] lg:hidden"
                   onClick={() => setMobileMenuOpen(true)}
                 >
                   <Menu className="h-4 w-4" />
                 </button>
                 <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">Acompanhamento operacional</p>
-                  <h1 className="mt-1 text-xl font-black tracking-[-0.03em] text-[var(--text-primary)]">{pageTitle}</h1>
-                  <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{pageSubtitle}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                    {branding.systemName}
+                  </p>
+                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                    <SubsystemIcon className="h-5 w-5 shrink-0 text-[var(--accent-color)]" />
+                    <h1 className="truncate text-xl font-black tracking-[-0.03em] text-[var(--text-primary)]">{subsystem.shortTitle}</h1>
+                  </div>
+                  <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{subsystem.description}</p>
                 </div>
               </div>
 
@@ -427,7 +496,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                   {headerActions.map((action) => (
                     <Button
                       key={action.id}
-                      variant={action.tone === "accent" ? "default" : "outline"}
+                      variant={action.tone === "primary" ? "default" : "outline"}
                       size="sm"
                       onClick={() => setLocation(action.href)}
                     >
@@ -443,7 +512,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                     onClick={() => setCommandPaletteOpen(true)}
                     icon={<Search className="h-4 w-4" />}
                   >
-                    Busca rapida
+                    Busca rápida
                   </Button>
                 </div>
                 <div className="md:hidden" data-tour-id="shell-command">
@@ -451,6 +520,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                     variant="outline"
                     size="icon"
                     onClick={() => setCommandPaletteOpen(true)}
+                    aria-label="Abrir busca rápida"
                   >
                     <Search className="h-4 w-4" />
                   </Button>
@@ -460,6 +530,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                   href="/notificacoes"
                   className="relative inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--accent-color)]"
                   title="Notificações"
+                  aria-label="Abrir notificações"
                   data-tour-id="shell-notifications"
                 >
                   <BellRing className="h-4 w-4" />
@@ -476,6 +547,9 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                     onClick={() => setUserMenuOpen((current) => !current)}
                     className="inline-flex h-10 items-center gap-2 rounded-[18px] border border-[var(--border-color)] bg-[var(--bg-surface)] px-3 text-sm font-semibold text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                     data-tour-id="shell-user-menu"
+                    aria-haspopup="menu"
+                    aria-expanded={userMenuOpen}
+                    aria-label="Abrir menu do usuário"
                   >
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-[14px] bg-[var(--accent-color)] text-[11px] font-black text-[var(--text-inverse)]">
                       {user.name.slice(0, 2).toUpperCase()}
@@ -536,6 +610,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
       <CommandPalette
         open={commandPaletteOpen}
         userRole={user.role}
+        allowedModuleKeys={subsystem.commandPaletteKeys}
         onClose={() => setCommandPaletteOpen(false)}
         onNavigate={setLocation}
         onRestartTour={() => setTourRestartSignal((current) => current + 1)}

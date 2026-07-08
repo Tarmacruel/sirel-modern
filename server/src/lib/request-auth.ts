@@ -1,0 +1,54 @@
+import type { Request } from "express";
+
+import { verifySessionToken } from "./auth-session.js";
+
+export type RequestUser = {
+  id: number;
+  username: string;
+  name: string;
+  email: string;
+  role: string;
+  secretariaId: number | null;
+};
+
+function readHeaderValue(req: Request, headerName: string) {
+  const value = req.headers[headerName.toLowerCase()];
+
+  return Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
+}
+
+export function resolveRequestUser(req: Request): RequestUser | null {
+  const authHeader = readHeaderValue(req, "authorization").trim();
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+  const sessionPayload = verifySessionToken(bearerToken);
+  const roleHeader = readHeaderValue(req, "x-sirel-role").trim();
+  const userId = Number(readHeaderValue(req, "x-sirel-user-id") || 0) || 1;
+  const secretariaId =
+    Number(readHeaderValue(req, "x-sirel-secretaria-id") || 0) || null;
+
+  if (sessionPayload) {
+    return {
+      id: sessionPayload.sub,
+      username: sessionPayload.username,
+      name: sessionPayload.name,
+      email: sessionPayload.email ?? "",
+      role: sessionPayload.role,
+      secretariaId: sessionPayload.secretariaId,
+    };
+  }
+
+  if (!roleHeader) {
+    return null;
+  }
+
+  return {
+    id: userId,
+    username: readHeaderValue(req, "x-sirel-username") || "demo",
+    name: readHeaderValue(req, "x-sirel-user-name") || "Usuario demo",
+    email: readHeaderValue(req, "x-sirel-user-email") || "demo@sirel.local",
+    role: roleHeader,
+    secretariaId,
+  };
+}

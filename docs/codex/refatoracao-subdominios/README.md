@@ -61,6 +61,22 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 9. [`08-prompts-codex.md`](./08-prompts-codex.md)  
    Prompts prontos para orientar o Codex em cada fase.
 
+10. [`09-registro-implementacao-operacao-local.md`](./09-registro-implementacao-operacao-local.md)
+    Registro final da implementação, ajustes fora do plano inicial, validações executadas, contexto operacional local e próximos passos.
+
+## Estado implementado e ajustes pós-plano
+
+A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
+
+Durante os testes em ambiente oficial, foram registrados ajustes adicionais ao plano original:
+
+- o CORS de produção passou a aceitar, sem wildcard, as origens HTTPS derivadas dos hostnames oficiais cadastrados no registry de subsistemas;
+- `CLIENT_URL` continua suportado como lista explícita de origens autorizadas, mas não é mais o único ponto de verdade para os subdomínios oficiais;
+- em desenvolvimento, `localhost` e quick tunnels `*.trycloudflare.com` são aceitos apenas fora de produção;
+- `Cadastros` e `Relatórios` foram liberados como módulos transversais em todos os subsistemas;
+- `Importações` foi liberado também no subsistema de Licitação;
+- a rota `/cadastros` foi aberta no guard frontend para todos os subsistemas, mantendo as permissões reais de consulta, edição e remoção nas procedures do backend.
+
 ## Regra de ouro
 
 A mudança deve ser feita por isolamento de contexto, não por duplicação de código. O mesmo backend pode continuar respondendo em `/api/trpc`; o mesmo pacote `shared` deve continuar concentrando tipos e constantes; os componentes genéricos devem ser reutilizados; e as páginas existentes devem ser gradualmente encapsuladas por subsistema.

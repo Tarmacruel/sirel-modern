@@ -1,5 +1,7 @@
 import webpush from "web-push";
 
+import { resolvePrimaryClientOrigin } from "./cors-origins.js";
+
 type PushSendResult = {
   status: "ENVIADO" | "FALHA" | "IGNORADO" | "REMOVER_ASSINATURA";
   error?: string | null;
@@ -30,7 +32,7 @@ function ensureVapidConfig() {
 function resolveLink(href?: string) {
   if (!href) return null;
   if (href.startsWith("http://") || href.startsWith("https://")) return href;
-  const baseUrl = process.env.CLIENT_URL ?? "http://localhost:5173";
+  const baseUrl = resolvePrimaryClientOrigin(process.env.CLIENT_URL);
   const trimmed = href.startsWith("/") ? href : `/${href}`;
   return `${baseUrl}${trimmed}`;
 }

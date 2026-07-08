@@ -161,6 +161,23 @@ Algumas rotas são úteis para vários subsistemas:
 
 Elas devem ser marcadas com `crossSubsystem: true` e só exibidas se listadas no `routePolicy.crossRoutes` do subsistema.
 
+### 5.3. Estado implementado
+
+O registry real foi criado em `client/src/app/routes.tsx` com lazy imports centralizados, tipo `AppRouteDefinition`, helper `useAllowedRoutes` e página `NotFoundOrDeniedPage`. A filtragem combina:
+
+1. `subsystemKeys` declarados na rota;
+2. `routePolicy.primaryRoutes` e `routePolicy.crossRoutes` do subsistema atual;
+3. `requiredRoles`, quando a tela exige perfil específico;
+4. fallback para o hub quando o usuário não tem papel permitido no subsistema atual.
+
+As exceções operacionais consolidadas são:
+
+- `/cadastros` usa `subsystemKeys: allSubsystemKeys`;
+- `/relatorios` usa `subsystemKeys: allSubsystemKeys`;
+- `/importacoes` inclui `hub`, `compras`, `licitacao` e `admin`.
+
+Essas exceções também precisam existir em `shared/src/subsystems.ts`, dentro de `routePolicy`, `navigationKeys` e `commandPaletteKeys`, para que URL direta, sidebar e command palette se comportem de forma consistente.
+
 ## 6. Login contextual por subsistema
 
 ### 6.1. Refatorar `LoginPage`

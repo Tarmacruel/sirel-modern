@@ -2,6 +2,12 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 
+import {
+  NotFoundOrDeniedPage,
+  renderAppRoute,
+  useAllowedRoutes,
+} from "@/app/routes";
+import { SubsystemProvider } from "@/app/subsystem-context";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionSkeleton } from "@/components/shared/section-skeleton";
 import {
@@ -13,149 +19,9 @@ import {
 import { queryClient } from "@/lib/query-client";
 import { trpc, trpcClient } from "@/lib/trpc";
 
-const AuditoriaPage = lazy(() =>
-  import("@/pages/auditoria-page").then((module) => ({
-    default: module.AuditoriaPage,
-  })),
-);
-const CadastrosPage = lazy(() =>
-  import("@/pages/cadastros-page").then((module) => ({
-    default: module.CadastrosPage,
-  })),
-);
-const ComprasPage = lazy(() =>
-  import("@/pages/compras-page").then((module) => ({
-    default: module.ComprasPage,
-  })),
-);
-const ContratosPage = lazy(() =>
-  import("@/pages/contratos-page").then((module) => ({
-    default: module.ContratosPage,
-  })),
-);
-const ConsultasPage = lazy(() =>
-  import("@/pages/consultas-page").then((module) => ({
-    default: module.ConsultasPage,
-  })),
-);
-const DashboardPage = lazy(() =>
-  import("@/pages/dashboard-page").then((module) => ({
-    default: module.DashboardPage,
-  })),
-);
-const DossiePage = lazy(() =>
-  import("@/pages/dossie-page").then((module) => ({
-    default: module.DossiePage,
-  })),
-);
-const DossieItemPage = lazy(() =>
-  import("@/pages/dossie-item-page").then((module) => ({
-    default: module.DossieItemPage,
-  })),
-);
-const DossieFornecedorPage = lazy(() =>
-  import("@/pages/dossie-fornecedor-page").then((module) => ({
-    default: module.DossieFornecedorPage,
-  })),
-);
-const DocumentosPage = lazy(() =>
-  import("@/pages/documentos-page").then((module) => ({
-    default: module.DocumentosPage,
-  })),
-);
-const ImportacoesPage = lazy(() =>
-  import("@/pages/importacoes-page").then((module) => ({
-    default: module.ImportacoesPage,
-  })),
-);
-const ItensPage = lazy(() =>
-  import("@/pages/itens-page").then((module) => ({
-    default: module.ItensPage,
-  })),
-);
 const LoginPage = lazy(() =>
   import("@/pages/login-page").then((module) => ({
     default: module.LoginPage,
-  })),
-);
-const LicitacaoPage = lazy(() =>
-  import("@/pages/licitacao-page").then((module) => ({
-    default: module.LicitacaoPage,
-  })),
-);
-const LicitacaoProcessoPage = lazy(() =>
-  import("@/pages/licitacao-processo-page").then((module) => ({
-    default: module.LicitacaoProcessoPage,
-  })),
-);
-const NotificacoesPage = lazy(() =>
-  import("@/pages/notificacoes-page").then((module) => ({
-    default: module.NotificacoesPage,
-  })),
-);
-const NotFoundPage = lazy(() =>
-  import("@/pages/not-found-page").then((module) => ({
-    default: module.NotFoundPage,
-  })),
-);
-const ParametrosPage = lazy(() =>
-  import("@/pages/parametros-page").then((module) => ({
-    default: module.ParametrosPage,
-  })),
-);
-const PlanejamentoCotacoesPage = lazy(() =>
-  import("@/pages/planejamento-cotacoes-page").then((module) => ({
-    default: module.PlanejamentoCotacoesPage,
-  })),
-);
-const PlanejamentoDfdPage = lazy(() =>
-  import("@/pages/planejamento-dfd-page").then((module) => ({
-    default: module.PlanejamentoDfdPage,
-  })),
-);
-const PlanejamentoEtpPage = lazy(() =>
-  import("@/pages/planejamento-etp-page").then((module) => ({
-    default: module.PlanejamentoEtpPage,
-  })),
-);
-const PlanejamentoTrPage = lazy(() =>
-  import("@/pages/planejamento-tr-page").then((module) => ({
-    default: module.PlanejamentoTrPage,
-  })),
-);
-const PlanejamentoPage = lazy(() =>
-  import("@/pages/planejamento-page").then((module) => ({
-    default: module.PlanejamentoPage,
-  })),
-);
-const PlanejamentoPcaPage = lazy(() =>
-  import("@/pages/planejamento-pca-page").then((module) => ({
-    default: module.PlanejamentoPcaPage,
-  })),
-);
-const PrazosPage = lazy(() =>
-  import("@/pages/prazos-page").then((module) => ({
-    default: module.PrazosPage,
-  })),
-);
-const ProcessosPage = lazy(() =>
-  import("@/pages/processos-page").then((module) => ({
-    default: module.ProcessosPage,
-  })),
-);
-const RelatoriosPage = lazy(() =>
-  import("@/pages/relatorios-page").then((module) => ({
-    default: module.RelatoriosPage,
-  })),
-);
-const UsuariosPage = lazy(() =>
-  import("@/pages/usuarios-page").then((module) => ({
-    default: module.UsuariosPage,
-  })),
-);
-const WorkflowPage = lazy(() =>
-  import("@/pages/workflow-page").then((module) => ({
-    default: module.WorkflowPage,
   })),
 );
 
@@ -205,6 +71,8 @@ function AuthenticatedApp({
     retry: false,
     staleTime: 30_000,
   });
+  const user = meQuery.data?.user ?? session.user;
+  const allowedRoutes = useAllowedRoutes({ user });
 
   useEffect(() => {
     if (meQuery.error) {
@@ -223,82 +91,16 @@ function AuthenticatedApp({
     );
   }
 
-  const user = meQuery.data?.user ?? session.user;
-
   return (
     <AppShell user={user} onLogout={onLogout}>
       <Suspense fallback={<RouteFallback />}>
         <Switch>
-          <Route path="/" component={DashboardPage} />
-          <Route path="/dossie/item/:itemId">
-            {(params) => <DossieItemPage itemId={Number(params.itemId)} />}
-          </Route>
-          <Route path="/dossie/item">{() => <DossieItemPage />}</Route>
-          <Route path="/dossie/fornecedor/:fornecedorId">
-            {(params) => (
-              <DossieFornecedorPage
-                fornecedorId={Number(params.fornecedorId)}
-              />
-            )}
-          </Route>
-          <Route path="/dossie/fornecedor">
-            {() => <DossieFornecedorPage />}
-          </Route>
-          <Route path="/dossie/:processoId">
-            {(params) => <DossiePage processoId={Number(params.processoId)} />}
-          </Route>
-          <Route path="/dossie">{() => <DossiePage />}</Route>
-          <Route path="/notificacoes" component={NotificacoesPage} />
-          <Route path="/consultas" component={ConsultasPage} />
-          <Route path="/relatorios" component={RelatoriosPage} />
-          <Route path="/prazos" component={PrazosPage} />
-          <Route path="/importacoes" component={ImportacoesPage} />
-          <Route path="/cadastros" component={CadastrosPage} />
-          <Route path="/planejamento/dfd/:processoId">
-            {(params) => (
-              <PlanejamentoDfdPage processoId={Number(params.processoId)} />
-            )}
-          </Route>
-          <Route path="/planejamento/etp/:processoId">
-            {(params) => (
-              <PlanejamentoEtpPage processoId={Number(params.processoId)} />
-            )}
-          </Route>
-          <Route path="/planejamento/cotacoes/:processoId">
-            {(params) => (
-              <PlanejamentoCotacoesPage
-                processoId={Number(params.processoId)}
-              />
-            )}
-          </Route>
-          <Route path="/planejamento/tr/:processoId">
-            {(params) => (
-              <PlanejamentoTrPage processoId={Number(params.processoId)} />
-            )}
-          </Route>
-          <Route path="/planejamento/pca" component={PlanejamentoPcaPage} />
-          <Route path="/itens" component={ItensPage} />
-          <Route path="/planejamento" component={PlanejamentoPage} />
-          <Route path="/compras" component={ComprasPage} />
-          <Route path="/processos/:processoId">
-            {(params) => (
-              <ProcessosPage processoId={Number(params.processoId)} />
-            )}
-          </Route>
-          <Route path="/processos">{() => <ProcessosPage />}</Route>
-          <Route path="/licitacao/:processoId">
-            {(params) => (
-              <LicitacaoProcessoPage processoId={Number(params.processoId)} />
-            )}
-          </Route>
-          <Route path="/licitacao" component={LicitacaoPage} />
-          <Route path="/documentos" component={DocumentosPage} />
-          <Route path="/contratos" component={ContratosPage} />
-          <Route path="/workflow" component={WorkflowPage} />
-          <Route path="/auditoria" component={AuditoriaPage} />
-          <Route path="/parametros" component={ParametrosPage} />
-          <Route path="/usuarios" component={UsuariosPage} />
-          <Route component={NotFoundPage} />
+          {allowedRoutes.map((route) => (
+            <Route key={route.id} path={route.path}>
+              {(params) => renderAppRoute(route, params, { user })}
+            </Route>
+          ))}
+          <Route component={NotFoundOrDeniedPage} />
         </Switch>
       </Suspense>
     </AppShell>
@@ -350,7 +152,9 @@ export default function App() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <AppContent />
+        <SubsystemProvider>
+          <AppContent />
+        </SubsystemProvider>
       </QueryClientProvider>
     </trpc.Provider>
   );
