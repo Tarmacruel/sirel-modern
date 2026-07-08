@@ -22,6 +22,12 @@ export const userRoleEnum = pgEnum("user_role", [
   "operador",
   "auditor",
 ]);
+export const subsystemAccessLevelEnum = pgEnum("subsystem_access_level", [
+  "VIEWER",
+  "OPERATOR",
+  "MANAGER",
+  "ADMIN",
+]);
 export const escopoDisputaEnum = pgEnum("escopo_disputa", [
   "ITEM",
   "LOTE",
@@ -392,6 +398,43 @@ export const users = pgTable(
   },
   (table) => ({
     idxSecretaria: index("users_secretaria_idx").on(table.secretariaId),
+  }),
+);
+
+export const userSubsystemAccess = pgTable(
+  "user_subsystem_access",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subsystemKey: varchar("subsystem_key", { length: 64 }).notNull(),
+    accessLevel: subsystemAccessLevelEnum("access_level")
+      .notNull()
+      .default("VIEWER"),
+    isDefault: boolean("is_default").notNull().default(false),
+    ativo: boolean("ativo").notNull().default(true),
+    observacao: text("observacao"),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqUserSubsystem: uniqueIndex("user_subsystem_access_user_subsystem_uq").on(
+      table.userId,
+      table.subsystemKey,
+    ),
+    idxUser: index("user_subsystem_access_user_idx").on(table.userId),
+    idxSubsystem: index("user_subsystem_access_subsystem_idx").on(
+      table.subsystemKey,
+    ),
+    idxAtivo: index("user_subsystem_access_ativo_idx").on(table.ativo),
   }),
 );
 

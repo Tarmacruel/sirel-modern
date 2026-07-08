@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+import {
+  subsystemAccessLevelValues,
+  subsystemKeyValues,
+} from "../subsystems.js";
+
+export const usuarioSubsystemAccessInputSchema = z.object({
+  subsystemKey: z.enum(subsystemKeyValues),
+  accessLevel: z.enum(subsystemAccessLevelValues).default("VIEWER"),
+  isDefault: z.boolean().default(false),
+  ativo: z.boolean().default(true),
+  observacao: z.string().trim().max(500).nullable().optional(),
+});
+
 export const usuarioListInputSchema = z.object({
   search: z.string().trim().optional(),
   secretariaId: z.number().int().positive().optional(),
@@ -14,6 +27,7 @@ export const usuarioCreateInputSchema = z.object({
   secretariaId: z.number().int().positive().optional(),
   ativo: z.boolean().default(true),
   password: z.string().min(8).max(120),
+  subsystemAccess: z.array(usuarioSubsystemAccessInputSchema).optional(),
 });
 
 export const usuarioUpdateInputSchema = z.object({
@@ -23,6 +37,7 @@ export const usuarioUpdateInputSchema = z.object({
   role: z.enum(["user", "admin", "gestor", "operador", "auditor"]),
   secretariaId: z.number().int().positive().nullable().optional(),
   ativo: z.boolean(),
+  subsystemAccess: z.array(usuarioSubsystemAccessInputSchema).optional(),
 });
 
 export const usuarioResetPasswordInputSchema = z.object({
@@ -47,6 +62,9 @@ export const usuarioChangePasswordInputSchema = z
   });
 
 export type UsuarioListInput = z.infer<typeof usuarioListInputSchema>;
+export type UsuarioSubsystemAccessInput = z.infer<
+  typeof usuarioSubsystemAccessInputSchema
+>;
 export type UsuarioCreateInput = z.infer<typeof usuarioCreateInputSchema>;
 export type UsuarioUpdateInput = z.infer<typeof usuarioUpdateInputSchema>;
 export type UsuarioResetPasswordInput = z.infer<typeof usuarioResetPasswordInputSchema>;

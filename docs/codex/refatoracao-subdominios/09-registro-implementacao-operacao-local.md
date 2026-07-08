@@ -168,6 +168,43 @@ Durante validação, o domínio oficial respondeu:
 
 Isso indica serviço público apontando para Vite em `5173`. Para produção final, apontar para o Express servindo `client/dist`, normalmente em `3030`, após `npm run build`.
 
+### 3.5. Hub pós-login, sessão entre subdomínios e matriz de acesso
+
+Fase adicional implementada após o plano inicial:
+
+- `SubsystemHome` renderiza `client/src/pages/hub-page.tsx` quando o subsistema atual é `hub`;
+- o Hub lista somente subsistemas autorizados pela matriz retornada em `auth.me`;
+- `client/src/components/layout/subsystem-switcher.tsx` permite alternar entre subsistemas autorizados no header autenticado;
+- `client/src/lib/subsystem-navigation.ts` centraliza a navegação local por `?subsystem=` e a navegação oficial por hostname;
+- `client/src/components/usuarios/subsystem-access-matrix.tsx` permite administrar, por usuário, subsistemas ativos, nível de acesso e subsistema padrão;
+- `server/src/lib/auth-session.ts` emite e limpa o cookie `sirel_session`;
+- `server/src/lib/request-auth.ts` aceita cookie `sirel_session` antes do fallback `Authorization: Bearer`;
+- `server/src/lib/subsystem-access.ts` centraliza fallback por papel global, consulta de matriz, lista de subsistemas autorizados e `requireSubsystemAccess`;
+- `server/src/trpc.ts` aplica `requireSubsystemAccess` nas procedures protegidas, exceto `auth.me`, para evitar acesso backend em subdomínio não autorizado;
+- `server/src/routers/auth.ts` retorna `subsystemAccess`, `availableSubsystems` e `defaultSubsystemKey`;
+- `server/src/routers/usuarios.ts` lista e grava a matriz por usuário.
+
+Migration criada:
+
+```txt
+drizzle/migrations/0051_user_subsystem_access.sql
+```
+
+Modelo criado:
+
+```txt
+user_subsystem_access
+subsystem_access_level = VIEWER | OPERATOR | MANAGER | ADMIN
+```
+
+Backfill inicial:
+
+- `admin`: todos os subsistemas com `ADMIN`;
+- `gestor`: subsistemas operacionais com `MANAGER`;
+- `operador`: subsistemas operacionais com `OPERATOR`;
+- `auditor`: subsistemas operacionais/consulta com `VIEWER`;
+- `user`: Hub com `VIEWER`.
+
 ## 4. Operação local
 
 ### 4.1. Scripts principais
@@ -270,12 +307,12 @@ Também foi validado com Playwright no domínio oficial:
 5. Validar `/importacoes` em Licitação.
 6. Testar uploads REST com token `Authorization`.
 7. Confirmar refresh em rotas profundas atrás do Cloudflare.
-8. Revisar se a sessão por `localStorage` por subdomínio atende ao uso real ou se deve virar cookie HttpOnly compartilhado em etapa futura.
+8. Aplicar a migration `0051_user_subsystem_access.sql` antes de publicar a fase de Hub e validar cookie `sirel_session` nos subdomínios oficiais.
 
 ## 8. Riscos remanescentes
 
 - O domínio oficial ainda pode estar apontando para Vite dev server se o túnel/serviço não for ajustado.
 - A abertura de Cadastros para todos os subsistemas depende das permissões backend para impedir ações indevidas.
-- Sessões continuam isoladas por subdomínio enquanto o token permanecer em `localStorage`.
+- A sessão compartilhada depende de HTTPS oficial para cookie `Secure` e de todos os subdomínios apontarem para o mesmo backend Express.
 - Qualquer subdomínio novo precisa entrar no registry ou em `CLIENT_URL`.
 - O comportamento de uploads deve ser validado manualmente com arquivos reais e usuário autorizado.

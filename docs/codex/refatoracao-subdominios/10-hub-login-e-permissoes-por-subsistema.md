@@ -408,3 +408,61 @@ client/src/components/usuarios/subsystem-access-matrix.tsx
 server/src/lib/subsystem-access.ts
 migration user_subsystem_access
 ```
+
+## 15. Status implementado na branch
+
+Esta fase foi implementada mantendo a base host-aware existente.
+
+Arquivos criados:
+
+```txt
+client/src/pages/hub-page.tsx
+client/src/components/layout/subsystem-switcher.tsx
+client/src/components/usuarios/subsystem-access-matrix.tsx
+client/src/lib/subsystem-navigation.ts
+server/src/lib/subsystem-access.ts
+server/src/lib/subsystem-access.test.ts
+drizzle/migrations/0051_user_subsystem_access.sql
+```
+
+Arquivos principais alterados:
+
+```txt
+shared/src/subsystems.ts
+shared/src/schemas/usuarios.ts
+client/src/App.tsx
+client/src/app/routes.tsx
+client/src/app/subsystem-home.tsx
+client/src/components/layout/app-shell.tsx
+client/src/lib/auth-session.ts
+client/src/lib/trpc.ts
+client/src/pages/usuarios-page.tsx
+server/src/lib/auth-session.ts
+server/src/lib/request-auth.ts
+server/src/routers/auth.ts
+server/src/routers/usuarios.ts
+server/src/trpc.ts
+server/src/db/schema.ts
+drizzle/schema.ts
+```
+
+Decisões efetivas:
+
+- `auth.login` emite cookie `sirel_session` e continua retornando token para o fallback legado;
+- `auth.me` funciona mesmo quando a sessão veio somente do cookie;
+- o backend aceita cookie antes de `Authorization: Bearer`;
+- `localStorage` permanece apenas como transição e cache local da sessão retornada;
+- a rota `/` no Hub renderiza `HubPage`, não mais o dashboard geral;
+- o header autenticado tem `SubsystemSwitcher`;
+- `useAllowedRoutes` filtra por matriz de acesso, `routePolicy` e papel global;
+- `protectedProcedure` aplica `requireSubsystemAccess`, exceto em `auth.me`;
+- admin global recebe todos os subsistemas com `ADMIN`;
+- a tela de usuários administra a matriz por usuário.
+
+Validações executadas durante a implementação:
+
+```txt
+npm run check
+npm run test:all
+npm run build
+```

@@ -1,5 +1,7 @@
 # 11 — Prompt Codex: Hub, login único e permissões por subsistema
 
+> Status: prompt executado nesta branch. A implementacao criou Hub pos-login, cookie `sirel_session`, matriz `user_subsystem_access`, seletor de subsistemas e administracao de permissoes por usuario. Manter este arquivo como historico do pedido e usar o documento 10 para conferir o status real da implementacao.
+
 ## Prompt principal
 
 ```txt

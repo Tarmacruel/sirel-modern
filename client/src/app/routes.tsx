@@ -9,6 +9,10 @@ import {
 import type { UserRole } from "@sirel/shared/types";
 import { ContextEmptyState } from "@/components/shared/context-empty-state";
 import type { AuthUser } from "@/lib/auth-session";
+import {
+  buildSubsystemHref,
+  hasUserSubsystemAccess,
+} from "@/lib/subsystem-navigation";
 import { SubsystemHome } from "@/app/subsystem-home";
 import { useSubsystem } from "@/app/subsystem-context";
 
@@ -145,7 +149,7 @@ const WorkflowPage = lazy(() =>
 
 export type AppRouteParams = Record<string, string | undefined>;
 export type AppRouteRenderContext = {
-  readonly user: Pick<AuthUser, "role">;
+  readonly user: AuthUser;
 };
 
 export type AppRouteDefinition = {
@@ -241,9 +245,11 @@ function isPathInRoutePolicy(
 
 function resolveSubsystemForUser(
   subsystem: SubsystemDefinition,
-  role: UserRole,
+  user: AuthUser,
 ) {
-  return subsystem.allowedRoles.includes(role) ? subsystem : getDefaultSubsystem();
+  return hasUserSubsystemAccess(user, subsystem.key)
+    ? subsystem
+    : getDefaultSubsystem();
 }
 
 export const appRoutes: readonly AppRouteDefinition[] = [
@@ -487,10 +493,15 @@ export function getAllowedRoutes({
   user,
 }: {
   subsystem: SubsystemDefinition;
-  user: Pick<AuthUser, "role">;
+  user: AuthUser;
 }): readonly AppRouteDefinition[] {
   const role = normalizeUserRole(user.role);
-  const accessibleSubsystem = resolveSubsystemForUser(subsystem, role);
+  const hasRequestedSubsystemAccess = hasUserSubsystemAccess(user, subsystem.key);
+  const accessibleSubsystem = resolveSubsystemForUser(subsystem, user);
+
+  if (subsystem.key !== "hub" && !hasRequestedSubsystemAccess) {
+    return [];
+  }
 
   return appRoutes.filter((route) => {
     if (!hasRoleAccess(route.requiredRoles, role)) {
@@ -514,14 +525,14 @@ export function useAllowedRoutes({
   user,
 }: {
   subsystem?: SubsystemDefinition;
-  user: Pick<AuthUser, "role">;
+  user: AuthUser;
 }) {
   const currentSubsystem = useSubsystem();
   const selectedSubsystem = subsystem ?? currentSubsystem;
 
   return useMemo(
     () => getAllowedRoutes({ subsystem: selectedSubsystem, user }),
-    [selectedSubsystem, user.role],
+    [selectedSubsystem, user],
   );
 }
 
@@ -541,8 +552,8 @@ export function NotFoundOrDeniedPage() {
       <ContextEmptyState
         title="Rota indisponível"
         description={`Esta tela não está disponível no ambiente ${subsystem.shortTitle} ou seu perfil não tem permissão para acessá-la.`}
-        actionLabel="Voltar ao dashboard"
-        actionHref={subsystem.routePolicy.deniedRedirect ?? "/"}
+        actionLabel="Voltar ao Hub"
+        actionHref={buildSubsystemHref("hub", "/")}
       />
     </div>
   );

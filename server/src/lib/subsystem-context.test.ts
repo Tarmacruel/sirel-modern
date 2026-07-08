@@ -2,7 +2,6 @@ import type { Request } from "express";
 import { describe, expect, it } from "vitest";
 
 import {
-  requireSubsystemAccess,
   resolveRequestMeta,
   resolveSubsystemFromRequest,
 } from "./subsystem-context.js";
@@ -72,31 +71,5 @@ describe("resolveRequestMeta", () => {
       origin: "http://localhost:5173",
       userAgent: "vitest",
     });
-  });
-});
-
-describe("requireSubsystemAccess", () => {
-  it("permite admin independente do subsistema atual", () => {
-    expect(() =>
-      requireSubsystemAccess(
-        {
-          user: { role: "admin" },
-          subsystem: { key: "admin" },
-        } as any,
-        ["licitacao"],
-      ),
-    ).not.toThrow();
-  });
-
-  it("bloqueia usuario fora do subsistema permitido", () => {
-    expect(() =>
-      requireSubsystemAccess(
-        {
-          user: { role: "gestor" },
-          subsystem: { key: "compras" },
-        } as any,
-        ["licitacao"],
-      ),
-    ).toThrow("Recurso indisponível neste subsistema");
   });
 });

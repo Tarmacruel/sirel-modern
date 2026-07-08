@@ -1,15 +1,42 @@
 import type { UserRole } from "./types.js";
 
-export type SubsystemKey =
-  | "hub"
-  | "planejamento"
-  | "compras"
-  | "licitacao"
-  | "contratos"
-  | "documentos"
-  | "workflow"
-  | "consultas"
-  | "admin";
+export const subsystemKeyValues = [
+  "hub",
+  "planejamento",
+  "compras",
+  "licitacao",
+  "contratos",
+  "documentos",
+  "workflow",
+  "consultas",
+  "admin",
+] as const;
+
+export type SubsystemKey = (typeof subsystemKeyValues)[number];
+
+export const subsystemAccessLevelValues = [
+  "VIEWER",
+  "OPERATOR",
+  "MANAGER",
+  "ADMIN",
+] as const;
+
+export type SubsystemAccessLevel =
+  (typeof subsystemAccessLevelValues)[number];
+
+export const subsystemAccessLevelLabels = {
+  VIEWER: "Consulta",
+  OPERATOR: "Operacao",
+  MANAGER: "Gestao",
+  ADMIN: "Administracao",
+} as const satisfies Record<SubsystemAccessLevel, string>;
+
+export const subsystemAccessLevelRank = {
+  VIEWER: 1,
+  OPERATOR: 2,
+  MANAGER: 3,
+  ADMIN: 4,
+} as const satisfies Record<SubsystemAccessLevel, number>;
 
 export type SubsystemRoutePolicy = {
   readonly primaryRoutes: readonly string[];

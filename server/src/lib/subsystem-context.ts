@@ -1,4 +1,3 @@
-import { TRPCError } from "@trpc/server";
 import type { Request } from "express";
 
 import {
@@ -8,7 +7,6 @@ import {
   type SubsystemDefinition,
   type SubsystemKey,
 } from "@sirel/shared/subsystems";
-import type { AppContext } from "../_core/context.js";
 
 export type RequestMeta = {
   readonly host: string;
@@ -52,27 +50,4 @@ export function resolveSubsystemFromRequest(req: Request): SubsystemDefinition {
   const host = requestMeta.forwardedHost || requestMeta.host;
 
   return host ? resolveSubsystemByHost(host) : getDefaultSubsystem();
-}
-
-export function requireSubsystemAccess(
-  ctx: AppContext,
-  subsystemKeys: readonly SubsystemKey[],
-) {
-  if (!ctx.user) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Login obrigatório",
-    });
-  }
-
-  if (ctx.user.role === "admin") {
-    return;
-  }
-
-  if (!subsystemKeys.includes(ctx.subsystem.key)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Recurso indisponível neste subsistema",
-    });
-  }
 }

@@ -83,9 +83,20 @@ Durante os testes em ambiente oficial, foram registrados ajustes adicionais ao p
 - `Importações` foi liberado também no subsistema de Licitação;
 - a rota `/cadastros` foi aberta no guard frontend para todos os subsistemas, mantendo as permissões reais de consulta, edição e remoção nas procedures do backend.
 
-## Próxima fase crítica
+## Fase adicional implementada: Hub, sessão única e permissões
 
-A sessão ainda permanece isolada por subdomínio enquanto depender apenas de `localStorage`. A próxima etapa deve implementar Hub pós-login e sessão compartilhada por cookie seguro, além de permissões por subsistema para que o administrador controle, usuário por usuário, quais ambientes podem ser acessados.
+A fase de Hub pós-login e permissões por subsistema foi incorporada ao plano original. O login no Hub passa a abrir uma grade de subsistemas autorizados, a sessão pode atravessar subdomínios por cookie `sirel_session`, e `auth.login`/`auth.me` retornam a matriz de acesso do usuário.
+
+Arquivos principais adicionados ou alterados nesta fase:
+
+- `client/src/pages/hub-page.tsx`;
+- `client/src/components/layout/subsystem-switcher.tsx`;
+- `client/src/components/usuarios/subsystem-access-matrix.tsx`;
+- `client/src/lib/subsystem-navigation.ts`;
+- `server/src/lib/subsystem-access.ts`;
+- `drizzle/migrations/0051_user_subsystem_access.sql`.
+
+O `localStorage` e o header `Authorization: Bearer` foram preservados como fallback de transição, mas o backend também aceita o cookie HttpOnly. Em produção, o cookie usa `Secure`, `SameSite=Lax` e `Domain=.sirel.com.br` quando a request vem de `sirel.com.br` ou subdomínios oficiais. Em ambiente local, o cookie é emitido sem `Domain` e compatível com HTTP.
 
 ## Regra de ouro
 

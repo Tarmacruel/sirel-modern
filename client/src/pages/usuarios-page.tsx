@@ -2,6 +2,11 @@
 import { KeyRound, Shield, UserCog, Users } from "lucide-react";
 
 import { SectionCard } from "@/components/shared/section-card";
+import {
+  SubsystemAccessMatrix,
+  buildDefaultSubsystemAccessDraft,
+  type SubsystemAccessDraft,
+} from "@/components/usuarios/subsystem-access-matrix";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,6 +71,10 @@ export function UsuariosPage() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [createForm, setCreateForm] = useState(initialCreateForm);
   const [editForm, setEditForm] = useState({ name: "", email: "", role: "operador", secretariaId: "", ativo: true });
+  const [createSubsystemAccess, setCreateSubsystemAccess] = useState<SubsystemAccessDraft[]>(() =>
+    buildDefaultSubsystemAccessDraft(initialCreateForm.role),
+  );
+  const [editSubsystemAccess, setEditSubsystemAccess] = useState<SubsystemAccessDraft[]>([]);
   const [resetPassword, setResetPassword] = useState("");
   const [ownPasswordForm, setOwnPasswordForm] = useState(initialPasswordForm);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
@@ -113,6 +122,11 @@ export function UsuariosPage() {
       secretariaId: selectedUser.secretariaId ? String(selectedUser.secretariaId) : "",
       ativo: selectedUser.ativo,
     });
+    setEditSubsystemAccess(
+      selectedUser.subsystemAccess?.length
+        ? selectedUser.subsystemAccess
+        : buildDefaultSubsystemAccessDraft(selectedUser.role),
+    );
   }, [selectedUser]);
 
   useEffect(() => {
@@ -128,6 +142,7 @@ export function UsuariosPage() {
     onSuccess: async () => {
       await Promise.all([utils.usuarios.list.invalidate(), utils.usuarios.accessLog.invalidate()]);
       setCreateForm((current) => ({ ...initialCreateForm, role: current.role, secretariaId: current.secretariaId }));
+      setCreateSubsystemAccess(buildDefaultSubsystemAccessDraft(createForm.role));
       setCreateErrors({});
       setAdminError(null);
       setAdminMessage("Usuário criado com sucesso.");
@@ -192,6 +207,7 @@ export function UsuariosPage() {
       secretariaId: toOptionalId(createForm.secretariaId),
       ativo: createForm.ativo,
       password: createForm.password,
+      subsystemAccess: createSubsystemAccess,
     });
 
     if (!parsed.success) {
@@ -217,6 +233,7 @@ export function UsuariosPage() {
       role: editForm.role,
       secretariaId: toOptionalId(editForm.secretariaId) ?? null,
       ativo: editForm.ativo,
+      subsystemAccess: editSubsystemAccess,
     });
 
     if (!parsed.success) {
@@ -493,7 +510,11 @@ export function UsuariosPage() {
                         <Select
                           value={createForm.role}
                           error={Boolean(createErrors.role)}
-                          onChange={(event) => setCreateForm((current) => ({ ...current, role: event.target.value }))}
+                          onChange={(event) => {
+                            const role = event.target.value;
+                            setCreateForm((current) => ({ ...current, role }));
+                            setCreateSubsystemAccess(buildDefaultSubsystemAccessDraft(role));
+                          }}
                         >
                           <option value="admin">Administrador</option>
                           <option value="gestor">Gestor</option>
@@ -525,6 +546,19 @@ export function UsuariosPage() {
                       />
                       Usuário ativo
                     </label>
+
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-950">Permissões por subsistema</p>
+                        <p className="text-xs leading-5 text-slate-500">
+                          Defina os ambientes disponíveis e o nível operacional de acesso.
+                        </p>
+                      </div>
+                      <SubsystemAccessMatrix
+                        value={createSubsystemAccess}
+                        onChange={setCreateSubsystemAccess}
+                      />
+                    </div>
 
                     {adminMessage ? <Alert variant="success">{adminMessage}</Alert> : null}
                     {adminError ? <Alert variant="error">{adminError}</Alert> : null}
@@ -571,7 +605,11 @@ export function UsuariosPage() {
                             <Select
                               value={editForm.role}
                               error={Boolean(editErrors.role)}
-                              onChange={(event) => setEditForm((current) => ({ ...current, role: event.target.value }))}
+                              onChange={(event) => {
+                                const role = event.target.value;
+                                setEditForm((current) => ({ ...current, role }));
+                                setEditSubsystemAccess(buildDefaultSubsystemAccessDraft(role));
+                              }}
                             >
                               <option value="admin">Administrador</option>
                               <option value="gestor">Gestor</option>
@@ -603,6 +641,20 @@ export function UsuariosPage() {
                           />
                           Usuário ativo
                         </label>
+
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm font-bold text-slate-950">Permissões por subsistema</p>
+                            <p className="text-xs leading-5 text-slate-500">
+                              O papel global continua válido; a matriz restringe quais ambientes aparecem no Hub e nas rotas diretas.
+                            </p>
+                          </div>
+                          <SubsystemAccessMatrix
+                            value={editSubsystemAccess}
+                            onChange={setEditSubsystemAccess}
+                            lockAdminAccess={selectedUser.id === meQuery.data?.user.id}
+                          />
+                        </div>
 
                         <Button type="submit" disabled={updateMutation.isPending}>
                           {updateMutation.isPending ? "Salvando alterações..." : "Salvar alterações"}

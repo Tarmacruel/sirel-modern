@@ -1,4 +1,4 @@
-import { lazy, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
 import {
   Activity,
   ArrowRight,
@@ -25,11 +25,9 @@ import {
 import { Link } from "wouter";
 
 import {
-  getDefaultSubsystem,
   type SubsystemDefinition,
   type SubsystemKey,
 } from "@sirel/shared/subsystems";
-import type { UserRole } from "@sirel/shared/types";
 import { ContextEmptyState } from "@/components/shared/context-empty-state";
 import { PageIntro } from "@/components/shared/page-intro";
 import { Button } from "@/components/ui/button";
@@ -39,14 +37,9 @@ import type { AuthUser } from "@/lib/auth-session";
 import { cleanDisplayText } from "@/lib/text";
 import { trpc } from "@/lib/trpc";
 import { useSubsystem } from "@/app/subsystem-context";
+import { HubPage } from "@/pages/hub-page";
 
-const DashboardPage = lazy(() =>
-  import("@/pages/dashboard-page").then((module) => ({
-    default: module.DashboardPage,
-  })),
-);
-
-type HomeUser = Pick<AuthUser, "role">;
+type HomeUser = AuthUser;
 
 type HomeMetric = {
   readonly id: string;
@@ -256,19 +249,6 @@ const homeActionsBySubsystem: Partial<Record<SubsystemKey, readonly HomeAction[]
     },
   ],
 };
-
-function hasSubsystemAccess(subsystem: SubsystemDefinition, role: string) {
-  return subsystem.allowedRoles.includes(role as UserRole);
-}
-
-function resolveAccessibleSubsystem(
-  subsystem: SubsystemDefinition,
-  user: HomeUser,
-) {
-  return hasSubsystemAccess(subsystem, user.role)
-    ? subsystem
-    : getDefaultSubsystem();
-}
 
 function resolveIcon(icon: string): LucideIcon {
   return subsystemIconMap[icon] ?? LayoutDashboard;
@@ -900,11 +880,10 @@ const homeComponents: Partial<
 };
 
 export function SubsystemHome({ user }: { user: HomeUser }) {
-  const requestedSubsystem = useSubsystem();
-  const subsystem = resolveAccessibleSubsystem(requestedSubsystem, user);
+  const subsystem = useSubsystem();
 
   if (subsystem.key === "hub") {
-    return <DashboardPage />;
+    return <HubPage user={user} />;
   }
 
   const HomeComponent = homeComponents[subsystem.key] ?? GenericSubsystemHome;

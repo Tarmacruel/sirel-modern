@@ -25,6 +25,12 @@ export const trpcClient = trpc.createClient({
     httpBatchLink({
       url: apiUrl,
       transformer: superjson,
+      fetch(url, options) {
+        return globalThis.fetch(url, {
+          ...options,
+          credentials: "include",
+        });
+      },
       headers() {
         const token = getStoredAuthToken();
         return token ? { authorization: `Bearer ${token}` } : {};

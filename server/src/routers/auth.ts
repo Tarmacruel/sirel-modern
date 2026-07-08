@@ -5,8 +5,16 @@ import { z } from "zod";
 import { authLog, users } from "../db/schema.js";
 import { logAuthEvent } from "../db/auth-log.js";
 import { requireDb } from "../db/client.js";
-import { createSessionToken } from "../lib/auth-session.js";
+import {
+  clearSessionCookie,
+  createSessionToken,
+  setSessionCookie,
+} from "../lib/auth-session.js";
 import { verifyPassword } from "../lib/auth-password.js";
+import {
+  getAuthorizedSubsystemsFromMatrix,
+  getUserSubsystemAccess,
+} from "../lib/subsystem-access.js";
 import { protectedProcedure, publicProcedure, router } from "../trpc.js";
 
 const LOGIN_WINDOW_MINUTES = 15;
@@ -25,6 +33,24 @@ function toSessionUser(row: typeof users.$inferSelect) {
     email: row.email ?? null,
     role: row.role,
     secretariaId: row.secretariaId ?? null,
+  };
+}
+
+async function toAuthResponseUser(row: typeof users.$inferSelect) {
+  const sessionUser = toSessionUser(row);
+  const subsystemAccess = await getUserSubsystemAccess(sessionUser);
+  const availableSubsystems = getAuthorizedSubsystemsFromMatrix(subsystemAccess);
+  const defaultSubsystemKey =
+    subsystemAccess.find((access) => access.ativo && access.isDefault)
+      ?.subsystemKey ??
+    availableSubsystems[0]?.key ??
+    "hub";
+
+  return {
+    ...sessionUser,
+    subsystemAccess,
+    availableSubsystems,
+    defaultSubsystemKey,
   };
 }
 
@@ -101,8 +127,9 @@ export const authRouter = router({
       });
     }
 
-    const sessionUser = toSessionUser(user);
-    const token = createSessionToken(sessionUser);
+    const responseUser = await toAuthResponseUser(user);
+    const token = createSessionToken(responseUser);
+    setSessionCookie(ctx.res, ctx.req, token);
 
     await db
       .update(users)
@@ -123,18 +150,30 @@ export const authRouter = router({
 
     return {
       token,
-      user: sessionUser,
+      user: responseUser,
     };
   }),
 
-  me: protectedProcedure.query(({ ctx }) => ({
-    user: {
-      id: ctx.user!.id,
-      username: ctx.user!.username,
-      name: ctx.user!.name,
-      email: ctx.user!.email,
-      role: ctx.user!.role,
-      secretariaId: ctx.user!.secretariaId ?? null,
-    },
-  })),
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const db = requireDb();
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, ctx.user!.id), eq(users.ativo, true)))
+      .limit(1);
+
+    if (!user) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Sessao invalida ou usuario inativo.",
+      });
+    }
+
+    return { user: await toAuthResponseUser(user) };
+  }),
+
+  logout: publicProcedure.mutation(({ ctx }) => {
+    clearSessionCookie(ctx.res, ctx.req);
+    return { success: true };
+  }),
 });

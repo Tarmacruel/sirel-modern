@@ -14,6 +14,12 @@ import { requireDb } from "../db/client.js";
 import { logAuthEvent } from "../db/auth-log.js";
 import { authLog, secretarias, users } from "../db/schema.js";
 import { hashPassword, verifyPassword } from "../lib/auth-password.js";
+import {
+  assertSelfAdminAccessPreserved,
+  getUsersSubsystemAccessMap,
+  resolveDefaultSubsystemAccessForRole,
+  saveUserSubsystemAccess,
+} from "../lib/subsystem-access.js";
 import { adminProcedure, auditorProcedure, protectedProcedure, router } from "../trpc.js";
 
 export const usuariosRouter = router({
@@ -59,7 +65,7 @@ export const usuariosRouter = router({
 
     const whereClause = filters.length ? and(...filters) : undefined;
 
-    return db
+    const rows = await db
       .select({
         id: users.id,
         username: users.username,
@@ -77,9 +83,19 @@ export const usuariosRouter = router({
       .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
       .where(whereClause)
       .orderBy(asc(users.name));
+
+    const accessByUser = await getUsersSubsystemAccessMap(
+      rows.map((user) => ({ id: user.id, role: user.role })),
+    );
+
+    return rows.map((user) => ({
+      ...user,
+      subsystemAccess:
+        accessByUser.get(user.id) ?? resolveDefaultSubsystemAccessForRole(user.role),
+    }));
   }),
 
-  create: adminProcedure.input(usuarioCreateInputSchema).mutation(async ({ input }) => {
+  create: adminProcedure.input(usuarioCreateInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
     const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, input.username)).limit(1);
     if (existing.length) {
@@ -110,10 +126,24 @@ export const usuariosRouter = router({
         secretariaId: users.secretariaId,
       });
 
-    return created;
+    const subsystemAccess = await saveUserSubsystemAccess({
+      userId: created.id,
+      role: created.role,
+      access: input.subsystemAccess,
+      actorId: ctx.user?.id,
+    });
+
+    return { ...created, subsystemAccess };
   }),
 
-  update: adminProcedure.input(usuarioUpdateInputSchema).mutation(async ({ input }) => {
+  update: adminProcedure.input(usuarioUpdateInputSchema).mutation(async ({ ctx, input }) => {
+    assertSelfAdminAccessPreserved({
+      actorId: ctx.user?.id,
+      targetUserId: input.userId,
+      targetRole: input.role,
+      subsystemAccess: input.subsystemAccess,
+    });
+
     const db = requireDb();
     const [updated] = await db
       .update(users)
@@ -140,7 +170,14 @@ export const usuariosRouter = router({
       throw new TRPCError({ code: "NOT_FOUND", message: "Usuario nao encontrado." });
     }
 
-    return updated;
+    const subsystemAccess = await saveUserSubsystemAccess({
+      userId: updated.id,
+      role: updated.role,
+      access: input.subsystemAccess,
+      actorId: ctx.user?.id,
+    });
+
+    return { ...updated, subsystemAccess };
   }),
 
   resetPassword: adminProcedure.input(usuarioResetPasswordInputSchema).mutation(async ({ input }) => {

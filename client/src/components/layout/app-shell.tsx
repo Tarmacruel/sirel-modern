@@ -32,19 +32,17 @@ import {
 } from "lucide-react";
 
 import { appModules } from "@sirel/shared/const";
-import {
-  getDefaultSubsystem,
-  type SubsystemDefinition,
-} from "@sirel/shared/subsystems";
-import type { UserRole } from "@sirel/shared/types";
+import { type SubsystemDefinition } from "@sirel/shared/subsystems";
 import { useSubsystem } from "@/app/subsystem-context";
 import type { AuthUser } from "@/lib/auth-session";
 import { useRuntimeBranding } from "@/lib/branding";
 import { buildGuidedTourSteps, resolveGuidedTourRoleTemplate, roleLabel } from "@/lib/entry-experience";
+import { hasUserSubsystemAccess } from "@/lib/subsystem-navigation";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { GuidedTour } from "@/components/layout/guided-tour";
+import { SubsystemSwitcher } from "@/components/layout/subsystem-switcher";
 
 const icons: Record<string, typeof LayoutDashboard> = {
   dashboard: LayoutDashboard,
@@ -151,10 +149,6 @@ function resolveStoredSidebarGroups(groups: readonly SidebarNavGroup[]) {
 
 function resolveSubsystemIcon(icon: string) {
   return subsystemIcons[icon] ?? LayoutDashboard;
-}
-
-function hasSubsystemAccess(subsystem: SubsystemDefinition, role: string) {
-  return subsystem.allowedRoles.includes(role as UserRole);
 }
 
 function Sidebar({
@@ -297,14 +291,12 @@ function Sidebar({
 export function AppShell({ children, user, onLogout }: AppShellProps) {
   const branding = useRuntimeBranding();
   const requestedSubsystem = useSubsystem();
-  const subsystem = useMemo(
-    () =>
-      hasSubsystemAccess(requestedSubsystem, user.role)
-        ? requestedSubsystem
-        : getDefaultSubsystem(),
-    [requestedSubsystem, user.role],
+  const userCanAccessSubsystem = hasUserSubsystemAccess(user, requestedSubsystem.key);
+  const subsystem = requestedSubsystem;
+  const navGroups = useMemo(
+    () => (userCanAccessSubsystem ? buildSubsystemNavGroups(subsystem) : []),
+    [subsystem, userCanAccessSubsystem],
   );
-  const navGroups = useMemo(() => buildSubsystemNavGroups(subsystem), [subsystem]);
   const SubsystemIcon = resolveSubsystemIcon(subsystem.icon);
   const [location, setLocation] = useLocation();
   const [collapsed, setCollapsed] = useState(() => {
@@ -419,7 +411,9 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [userMenuOpen]);
 
-  const headerActions = subsystem.recommendedActions.slice(0, 2);
+  const headerActions = userCanAccessSubsystem
+    ? subsystem.recommendedActions.slice(0, 2)
+    : [];
   const guidedTourSteps = buildGuidedTourSteps(location, resolveGuidedTourRoleTemplate(user.role));
 
   return (
@@ -492,6 +486,8 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <SubsystemSwitcher currentSubsystem={subsystem} user={user} />
+
                 <div className="hidden xl:flex items-center gap-2">
                   {headerActions.map((action) => (
                     <Button
@@ -610,7 +606,9 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
       <CommandPalette
         open={commandPaletteOpen}
         userRole={user.role}
-        allowedModuleKeys={subsystem.commandPaletteKeys}
+        allowedModuleKeys={
+          userCanAccessSubsystem ? subsystem.commandPaletteKeys : []
+        }
         onClose={() => setCommandPaletteOpen(false)}
         onNavigate={setLocation}
         onRestartTour={() => setTourRestartSignal((current) => current + 1)}

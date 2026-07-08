@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { getAllowedRoutes } from "@/app/routes";
+import type { AuthUser } from "@/lib/auth-session";
 import {
   getSubsystemByKey,
+  subsystemDefinitions,
   type SubsystemKey,
 } from "@sirel/shared/subsystems";
 
@@ -13,9 +15,50 @@ function allowedPathsFor(subsystemKey: SubsystemKey, role = "gestor") {
     throw new Error(`Subsystem ${subsystemKey} not found`);
   }
 
-  return getAllowedRoutes({ subsystem, user: { role } }).map(
+  return getAllowedRoutes({ subsystem, user: userWithAccess(role, subsystemKey) }).map(
     (route) => route.path,
   );
+}
+
+function userWithAccess(role: string, subsystemKey: SubsystemKey): AuthUser {
+  const subsystemAccess =
+    role === "admin"
+      ? subsystemDefinitions.map((subsystem, index) => ({
+          subsystemKey: subsystem.key,
+          accessLevel: "ADMIN" as const,
+          isDefault: index === 0,
+          ativo: true,
+        }))
+      : [
+          {
+            subsystemKey: "hub" as const,
+            accessLevel: "VIEWER" as const,
+            isDefault: subsystemKey === "hub",
+            ativo: true,
+          },
+          ...(subsystemKey === "hub"
+            ? []
+            : [
+                {
+                  subsystemKey,
+                  accessLevel: "MANAGER" as const,
+                  isDefault: true,
+                  ativo: true,
+                },
+              ]),
+        ];
+
+  return {
+    id: 1,
+    username: "teste",
+    name: "Usuario Teste",
+    email: null,
+    role,
+    secretariaId: null,
+    subsystemAccess,
+    availableSubsystems: [],
+    defaultSubsystemKey: "hub",
+  };
 }
 
 describe("getAllowedRoutes", () => {

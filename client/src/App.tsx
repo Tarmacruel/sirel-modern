@@ -13,6 +13,7 @@ import { SectionSkeleton } from "@/components/shared/section-skeleton";
 import {
   clearStoredSession,
   loadStoredSession,
+  normalizeAuthSession,
   saveStoredSession,
   type AuthSession,
 } from "@/lib/auth-session";
@@ -112,19 +113,41 @@ function AppContent() {
     loadStoredSession(),
   );
   const [preparingLogin, setPreparingLogin] = useState(false);
+  const cookieSessionQuery = trpc.auth.me.useQuery(undefined, {
+    enabled: !session,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const logoutMutation = trpc.auth.logout.useMutation();
 
   function handleLogin(nextSession: AuthSession) {
-    saveStoredSession(nextSession);
+    saveStoredSession(normalizeAuthSession(nextSession));
     setPreparingLogin(true);
-    setSession(nextSession);
+    setSession(normalizeAuthSession(nextSession));
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await logoutMutation.mutateAsync();
+    } catch {
+      // A limpeza local continua mesmo se a chamada remota falhar.
+    }
     clearStoredSession();
     queryClient.clear();
     setPreparingLogin(false);
     setSession(null);
   }
+
+  useEffect(() => {
+    if (session || !cookieSessionQuery.data?.user) return;
+
+    const nextSession = normalizeAuthSession({
+      token: "",
+      user: cookieSessionQuery.data.user,
+    });
+    saveStoredSession(nextSession);
+    setSession(nextSession);
+  }, [cookieSessionQuery.data, session]);
 
   useEffect(() => {
     if (session) {
@@ -133,7 +156,7 @@ function AppContent() {
   }, [session]);
 
   if (!session) {
-    if (preparingLogin) {
+    if (preparingLogin || cookieSessionQuery.isLoading) {
       return (
         <PreparingSessionScreen label="Autenticando e organizando seu ambiente inicial antes de liberar o acesso ao SIREL." />
       );
