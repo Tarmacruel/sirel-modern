@@ -88,6 +88,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 18. [`17-prompt-codex-licitacao-compactacao-dark-mode.md`](./17-prompt-codex-licitacao-compactacao-dark-mode.md)
     Prompt operacional para implementar a compactação das fases e os novos tokens semânticos de contraste.
 
+19. [`18-licitacao-fluxo-documental-por-fase.md`](./18-licitacao-fluxo-documental-por-fase.md)
+    Reorganização funcional dos documentos por fase e modalidade, novas etapas, ordem sequencial e modo orientativo temporário.
+
+20. [`19-prompt-codex-licitacao-fluxo-documental.md`](./19-prompt-codex-licitacao-fluxo-documental.md)
+    Prompt operacional para implementar o novo fluxo documental, publicação contextual, parser de ata e avanço sem bloqueios.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -127,6 +133,10 @@ A entrada `/licitacao` deve funcionar como um hub de trabalho por modalidade/equ
 ## Nova frente: compactação operacional e modo escuro
 
 A segunda rodada da página interna deve reduzir o empilhamento de painéis, transformar a trilha de fases em um rail compacto, substituir formulários repetidos por fila de evidências com editor único e corrigir os estados visuais do modo escuro por meio de tokens semânticos próprios.
+
+## Nova frente: fluxo documental por fase e modalidade
+
+O catálogo atual que mistura todos os documentos na fase externa deve ser substituído por requisitos vinculados a fases específicas. Publicação deve variar por modalidade; Disputa deve concentrar a ata provisória e o parser; Julgamento, Habilitação, Recursos, Controle Interno e Homologação passam a possuir filas próprias. Durante a implantação, o fluxo funcionará em modo orientativo, permitindo avanço com pendências e sem justificativa obrigatória.
 
 ## Regra de ouro
 
