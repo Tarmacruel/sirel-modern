@@ -10,7 +10,6 @@ import {
   type RefObject,
 } from "react";
 import {
-  ArrowLeft,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -45,6 +44,11 @@ import { calcularPrazoLegalMinimo } from "@sirel/shared/prazos-legais";
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
 import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal";
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
+import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-audit-drawer";
+import { LicitacaoContextAssistant } from "@/components/licitacao/processo/licitacao-context-assistant";
+import { LicitacaoNextActionCard } from "@/components/licitacao/processo/licitacao-next-action-card";
+import { LicitacaoPhaseStepper } from "@/components/licitacao/processo/licitacao-phase-stepper";
+import { LicitacaoProcessHeader } from "@/components/licitacao/processo/licitacao-process-header";
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
@@ -95,6 +99,7 @@ import {
   getCriticalStatusKind,
   getCriticalStatusKindLabel,
 } from "@/lib/process-status-critical";
+import { buildLicitacaoProcessoViewModel } from "@/lib/licitacao-processo-view-model";
 import { cleanDisplayText } from "@/lib/text";
 import { trpc } from "@/lib/trpc";
 
@@ -602,8 +607,9 @@ export function LicitacaoProcessoPage({
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [ataSyncPreview, setAtaSyncPreview] =
-    useState<AtaSessaoPreview | null>(null);
+  const [ataSyncPreview, setAtaSyncPreview] = useState<AtaSessaoPreview | null>(
+    null,
+  );
   const [ataSyncApplyLoading, setAtaSyncApplyLoading] = useState(false);
   const [toastItems, setToastItems] = useState<ToastStackItem[]>([]);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
@@ -618,8 +624,8 @@ export function LicitacaoProcessoPage({
     Record<string, UploadFormState>
   >({});
   const [sectionOpen, setSectionOpen] = useState({
-    overview: true,
-    internal: false,
+    overview: false,
+    internal: true,
     external: false,
     docs: false,
     publication: false,
@@ -1253,63 +1259,57 @@ export function LicitacaoProcessoPage({
     return map;
   }, [blueprint.internal]);
 
-  const checklistItems = useMemo<ChecklistCardItem[]>(
-    () => {
-      const serverItems = detalhe?.checklistInterno.itens ?? [];
-      const sourceItems =
-        serverItems.length > 0
-          ? serverItems.map((serverItem) => {
-              const blueprintItem = internalBlueprintMap.get(
-                serverItem.category,
-              );
-              return {
-                category: serverItem.category,
-                label: blueprintItem?.label ?? serverItem.label,
-                description:
-                  blueprintItem?.description ?? serverItem.description,
-                obrigatorio: blueprintItem?.obrigatorio ?? serverItem.obrigatorio,
-                baseLegal: blueprintItem?.baseLegal,
-                condicional: blueprintItem?.condicional,
-                completionHint: blueprintItem?.completionHint,
-              };
-            })
-          : blueprint.internal;
+  const checklistItems = useMemo<ChecklistCardItem[]>(() => {
+    const serverItems = detalhe?.checklistInterno.itens ?? [];
+    const sourceItems =
+      serverItems.length > 0
+        ? serverItems.map((serverItem) => {
+            const blueprintItem = internalBlueprintMap.get(serverItem.category);
+            return {
+              category: serverItem.category,
+              label: blueprintItem?.label ?? serverItem.label,
+              description: blueprintItem?.description ?? serverItem.description,
+              obrigatorio: blueprintItem?.obrigatorio ?? serverItem.obrigatorio,
+              baseLegal: blueprintItem?.baseLegal,
+              condicional: blueprintItem?.condicional,
+              completionHint: blueprintItem?.completionHint,
+            };
+          })
+        : blueprint.internal;
 
-      return sourceItems.map((item) => {
-        const serverItem = serverChecklistMap.get(item.category);
-        const documentosCategoria =
-          docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
-        const statusFlexivel =
-          serverItem?.statusFlexivel ??
-          (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO");
-        const concluido =
-          (serverItem?.concluido ?? false) ||
-          documentosCategoria.length > 0 ||
-          statusFlexivel !== "PADRAO";
-        return {
-          ...item,
-          concluido,
-          naoAplicavel: serverItem?.naoAplicavel ?? false,
-          statusFlexivel,
-          justificativaNaoAplicavel:
-            serverItem?.justificativaNaoAplicavel ?? null,
-          departamentoResponsavel: serverItem?.departamentoResponsavel ?? null,
-          previsaoRecebimento: serverItem?.previsaoRecebimento ?? null,
-          processoFisicoNumero: serverItem?.processoFisicoNumero ?? null,
-          localArquivamento: serverItem?.localArquivamento ?? null,
-          digitalizarDepois: serverItem?.digitalizarDepois ?? false,
-          documentos: documentosCategoria,
-        };
-      });
-    },
-    [
-      blueprint.internal,
-      detalhe?.checklistInterno.itens,
-      docsByCategory,
-      internalBlueprintMap,
-      serverChecklistMap,
-    ],
-  );
+    return sourceItems.map((item) => {
+      const serverItem = serverChecklistMap.get(item.category);
+      const documentosCategoria =
+        docsByCategory.get(item.category) ?? serverItem?.documentos ?? [];
+      const statusFlexivel =
+        serverItem?.statusFlexivel ??
+        (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO");
+      const concluido =
+        (serverItem?.concluido ?? false) ||
+        documentosCategoria.length > 0 ||
+        statusFlexivel !== "PADRAO";
+      return {
+        ...item,
+        concluido,
+        naoAplicavel: serverItem?.naoAplicavel ?? false,
+        statusFlexivel,
+        justificativaNaoAplicavel:
+          serverItem?.justificativaNaoAplicavel ?? null,
+        departamentoResponsavel: serverItem?.departamentoResponsavel ?? null,
+        previsaoRecebimento: serverItem?.previsaoRecebimento ?? null,
+        processoFisicoNumero: serverItem?.processoFisicoNumero ?? null,
+        localArquivamento: serverItem?.localArquivamento ?? null,
+        digitalizarDepois: serverItem?.digitalizarDepois ?? false,
+        documentos: documentosCategoria,
+      };
+    });
+  }, [
+    blueprint.internal,
+    detalhe?.checklistInterno.itens,
+    docsByCategory,
+    internalBlueprintMap,
+    serverChecklistMap,
+  ]);
 
   const pendingRequired = checklistItems.filter(
     (item) => item.obrigatorio && !isChecklistItemAddressed(item),
@@ -1863,7 +1863,9 @@ export function LicitacaoProcessoPage({
           documentoId: createdDocumento.id,
         });
         setAtaSyncPreview(preview);
-        setFeedback(`${item.label} anexado com sucesso. Revise a prévia da sincronização da ata.`);
+        setFeedback(
+          `${item.label} anexado com sucesso. Revise a prévia da sincronização da ata.`,
+        );
       } else {
         setFeedback(`${item.label} anexado com sucesso.`);
       }
@@ -1888,7 +1890,9 @@ export function LicitacaoProcessoPage({
       await applyAtaSessaoSyncPreview(ataSyncPreview.runId);
       await refreshAll();
       setAtaSyncPreview(null);
-      setFeedback("Ata aplicada com sucesso e processo atualizado na tela de licitação.");
+      setFeedback(
+        "Ata aplicada com sucesso e processo atualizado na tela de licitação.",
+      );
       setErrorMessage(null);
     } catch (error) {
       setFeedback(null);
@@ -2378,7 +2382,7 @@ export function LicitacaoProcessoPage({
   const habilitacaoPrimeiroColocadoConcluida = showCompetitivoSteps
     ? Boolean(
         licitantePrimeiroColocado &&
-          licitantePrimeiroColocado.statusHabilitacao !== "PENDENTE",
+        licitantePrimeiroColocado.statusHabilitacao !== "PENDENTE",
       )
     : (detalhe?.licitantes.some(
         (item) => item.statusHabilitacao !== "PENDENTE",
@@ -2607,7 +2611,8 @@ export function LicitacaoProcessoPage({
     ref: RefObject<HTMLElement | null>;
   }) => {
     const phase = legalPhaseBySection[item.key];
-    if (!canAccessLegalPhase(phase)) return;
+    const isTraceSection = item.key === "auditoria" || item.key === "history";
+    if (!canAccessLegalPhase(phase) && !isTraceSection) return;
     setCurrentPhase(phase);
     setSectionOpen((current) => ({
       ...current,
@@ -2690,7 +2695,6 @@ export function LicitacaoProcessoPage({
   );
   const selectedPhaseInfo = phaseCatalog[currentPhase];
   const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
-  const SelectedPhaseIcon = selectedPhaseInfo.icon;
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
   const selectedPhaseLeadSection = getDefaultSectionForPhase(currentPhase);
   const stickyColumnHeaderClass =
@@ -2791,6 +2795,86 @@ export function LicitacaoProcessoPage({
   })();
   const isLegalSectionVisible = (sectionKey: SectionKey) =>
     getSectionsForPhase(currentPhase).includes(sectionKey);
+  const selectedPhaseLeadSectionLabel =
+    navItems.find((item) => item.key === selectedPhaseLeadSection)?.label ??
+    selectedPhaseLeadSection.replaceAll("_", " ");
+  const guidedProcessModel = buildLicitacaoProcessoViewModel({
+    processoNumero: detalhe?.processo.numeroSirel,
+    modalidade: detalhe?.processo.modalidade,
+    secretaria: detalhe?.processo.secretaria,
+    activePhase: currentPhase,
+    activePhaseLabel: selectedPhaseInfo.label,
+    currentProcessPhase,
+    currentProcessPhaseLabel: runtimePhaseInfo.label,
+    responsavel: responsavelAtual,
+    isForaDoFluxo,
+    checklistDoneCount: progressCount,
+    checklistTotalCount: checklistItems.length,
+    documentCount: documentos.length,
+    phases: licitacaoLinearPhaseOrder.map((phaseKey) => ({
+      key: phaseKey,
+      label: phaseCatalog[phaseKey].label,
+      shortLabel: phaseCatalog[phaseKey].shortLabel,
+      description: phaseCatalog[phaseKey].description,
+      pendingCount: phasePendingCounts[phaseKey],
+      completed: phaseCompletedBySystem[phaseKey],
+      accessible: canAccessLegalPhase(phaseKey),
+    })),
+    selectedPhasePendingItems: [...selectedPhasePendingItems],
+    selectedPhaseLeadSectionLabel,
+    nextPendingChecklistLabel: selectedInternalChecklistItem?.label,
+    primaryActionLabel: primaryPhaseAction.label,
+    primaryActionHelper: primaryPhaseAction.helper,
+    primaryActionDisabled: primaryPhaseAction.disabled,
+    flowLabel: licitacaoFluxoLabels[fluxoLicitacao],
+    disputeLabel: showCompetitivoSteps
+      ? showLances
+        ? "Com disputa"
+        : "Sem disputa"
+      : "Nao se aplica",
+    modalidadeHelp,
+  });
+  const openSelectedPhaseLeadSection = () =>
+    jumpToSection({
+      key: selectedPhaseLeadSection,
+      ref: sectionRefs[selectedPhaseLeadSection],
+    });
+  const handleGuidedPrimaryAction = () => {
+    if (guidedProcessModel.nextAction.intent === "focus_pending") {
+      if (selectedInternalChecklistItem) {
+        setSelectedInternalChecklistCategory(
+          selectedInternalChecklistItem.category,
+        );
+      }
+      jumpToSection({ key: "internal", ref: internalRef });
+      return;
+    }
+
+    if (guidedProcessModel.nextAction.intent === "focus_section") {
+      openSelectedPhaseLeadSection();
+      return;
+    }
+
+    if ("formId" in primaryPhaseAction && primaryPhaseAction.formId) {
+      if (typeof document !== "undefined") {
+        const form = document.getElementById(primaryPhaseAction.formId);
+        if (form instanceof HTMLFormElement) {
+          form.requestSubmit();
+        }
+      }
+      return;
+    }
+
+    if ("onClick" in primaryPhaseAction) {
+      primaryPhaseAction.onClick?.();
+    }
+  };
+  const handleSelectAssistantNavItem = (sectionKey: string) => {
+    const navItem = selectedPhaseNavItems.find(
+      (item) => item.key === sectionKey,
+    );
+    if (navItem) jumpToSection(navItem);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2999,377 +3083,55 @@ export function LicitacaoProcessoPage({
       />
 
       <SectionCard
-        title={`Licitacao do processo ${detalhe.processo.numeroSirel}`}
-        description="Tela operacional da fase licitatoria com checklist documental interno, acervo completo do processo e cronograma automatico de publicacao."
-        action={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setLocation(`/dossie/${processoId}`)}
-            >
-              <FileCheck2 className="h-4 w-4" />
-              Dossiê do processo
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowAllDocsModal(true)}
-            >
-              <FileStack className="h-4 w-4" />
-              Documentos do processo
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setLocation("/licitacao")}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Voltar a fila
-            </Button>
-          </div>
-        }
+        title="Painel guiado da licitacao"
+        description="Fluxo operacional por fase, com foco na proxima acao segura do processo."
       >
-        <div className="sticky top-4 z-30 mb-6 space-y-3">
-          {isForaDoFluxo ? (
-            <div className="rounded-[24px] border border-amber-200 bg-amber-50/95 px-4 py-4 backdrop-blur">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div className="max-w-2xl">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">
-                    Barra de auditoria
-                  </div>
-                  <p className="mt-1 text-sm leading-6 text-amber-900">
-                    A justificativa desta barra acompanha as acoes sensiveis do
-                    processo fora do fluxo e evita repeticao em cada checklist.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-950">
-                  Reaproveitada nas proximas acoes criticas
-                </div>
-              </div>
-              <div className="mt-3">
-                <FormField label="Justificativa de auditoria (obrigatoria)">
-                  <Textarea
-                    rows={2}
-                    value={auditJustification}
-                    onChange={(event) =>
-                      setAuditJustification(event.target.value)
-                    }
-                    placeholder="Explique o motivo das alteracoes extemporaneas."
-                  />
-                </FormField>
-              </div>
-            </div>
-          ) : null}
+        <div className="z-30 mb-6 space-y-3 xl:sticky xl:top-4">
+          <LicitacaoAuditDrawer
+            visible={isForaDoFluxo}
+            value={auditJustification}
+            onChange={setAuditJustification}
+          />
 
-          <div className="overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[var(--shadow-card)]">
-            <div className="border-b border-[var(--border-subtle)] px-5 py-5 xl:px-6">
-              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                <div className="max-w-3xl">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-[var(--text-primary)]">
-                      Fluxo linear da Lei 14.133
-                    </span>
-                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1">
-                      {runtimePhaseInfo.label}
-                    </span>
-                    {inversaoFasesAtiva ? (
-                      <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
-                        Inversao de fases ativa
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <h2 className="text-3xl font-black tracking-tight text-[var(--text-primary)]">
-                      {detalhe.processo.numeroSirel}
-                    </h2>
-                    <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-sm font-semibold text-[var(--text-secondary)]">
-                      {detalhe.processo.modalidade ?? "Modalidade em definicao"}
-                    </span>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-                    {licitacaoStatusLabels[
-                      detalhe.licitacao
-                        .statusLicitacao as keyof typeof licitacaoStatusLabels
-                    ] ?? detalhe.licitacao.statusLicitacao}
-                  </p>
-                </div>
+          <LicitacaoProcessHeader
+            model={guidedProcessModel.header}
+            onOpenDossie={() => setLocation(`/dossie/${processoId}`)}
+            onOpenDocumentos={() => setShowAllDocsModal(true)}
+            onOpenHistory={() =>
+              jumpToSection({ key: "history", ref: historyRef })
+            }
+            onBackToQueue={() => setLocation("/licitacao")}
+          />
 
-                <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Responsavel
-                    </div>
-                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
-                      {responsavelAtual}
-                    </div>
-                  </div>
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Pendencias da etapa
-                    </div>
-                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
-                      {phasePendingCounts[currentProcessPhase]}
-                    </div>
-                  </div>
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Checklist interno
-                    </div>
-                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
-                      {progressCount}/{checklistItems.length} concluidos
-                    </div>
-                  </div>
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Documentos vinculados
-                    </div>
-                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
-                      {documentos.length}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-4 py-4 xl:px-6">
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {licitacaoLinearPhaseOrder.map((phaseKey) => {
-                  const phase = phaseCatalog[phaseKey];
-                  const isCurrent = phaseKey === currentProcessPhase;
-                  const isSelected = phaseKey === currentPhase;
-                  const isDone = phaseCompletedBySystem[phaseKey];
-                  const isLocked = !canAccessLegalPhase(phaseKey);
-                  const statusLabel = isCurrent
-                    ? "Em andamento"
-                    : isDone
-                      ? "Concluida"
-                      : isLocked
-                        ? "Bloqueada"
-                        : "Pendente";
-                  const Icon = phase.icon;
-
-                  return (
-                    <button
-                      key={phaseKey}
-                      type="button"
-                      onClick={() => selectLegalPhase(phaseKey)}
-                      disabled={isLocked}
-                      className={[
-                        "min-w-[210px] rounded-[24px] border px-4 py-4 text-left transition",
-                        isSelected
-                          ? "border-[var(--border-strong)] bg-[var(--surface-highlight)]"
-                          : isDone
-                            ? "border-emerald-200 bg-emerald-50/80"
-                            : isLocked
-                              ? "border-[var(--border-subtle)] bg-[var(--surface-soft)] opacity-70"
-                              : "border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)]",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--accent-color)]">
-                          <Icon className="h-4 w-4" />
-                        </div>
-                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                          {statusLabel}
-                        </span>
-                      </div>
-                      <div className="mt-4 text-sm font-black text-[var(--text-primary)]">
-                        {phase.label}
-                      </div>
-                      <div className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-                        {phasePendingCounts[phaseKey] === 0
-                          ? "Sem pendencias abertas"
-                          : `${phasePendingCounts[phaseKey]} pendencia(s) ou validacao(oes) abertas`}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <LicitacaoPhaseStepper
+            phases={guidedProcessModel.phases}
+            onSelectPhase={selectLegalPhase}
+          />
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <aside className="space-y-4 xl:sticky xl:top-[220px] xl:self-start xl:order-2">
-            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
-              <div className="flex items-center gap-3">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--accent-color)]">
-                  <SelectedPhaseIcon className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                    Etapa selecionada
-                  </p>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">
-                    {selectedPhaseInfo.label}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2">
-                {selectedPhaseNavItems.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => jumpToSection(item)}
-                    className={[
-                      "flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition",
-                      item.key === selectedPhaseLeadSection ||
-                      sectionOpen[item.key]
-                        ? "border-[var(--border-strong)] bg-[var(--surface-highlight)] text-[var(--text-primary)]"
-                        : "border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
-                    ].join(" ")}
-                  >
-                    <span>{item.label}</span>
-                    <ChevronRight className="h-4 w-4 flex-none" />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Bloqueios legais
-              </p>
-              {selectedPhasePendingItems.length ? (
-                <ul className="mt-3 space-y-3 text-sm text-[var(--text-secondary)]">
-                  {selectedPhasePendingItems.slice(0, 5).map((item) => (
-                    <li
-                      key={item.category}
-                      className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3"
-                    >
-                      <div className="font-semibold text-[var(--text-primary)]">
-                        {item.label}
-                      </div>
-                      {item.detalhe ? (
-                        <div className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
-                          {item.detalhe}
-                        </div>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-3 rounded-2xl bg-emerald-50 px-4 py-4 text-sm font-semibold text-emerald-700">
-                  Sem bloqueios abertos para a etapa selecionada.
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 shadow-[var(--shadow-card)]">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                Contexto operacional
-              </p>
-              <div className="mt-3 grid gap-2 text-sm text-[var(--text-secondary)]">
-                <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                    Fluxo
-                  </div>
-                  <div className="mt-1 font-bold text-[var(--text-primary)]">
-                    {licitacaoFluxoLabels[fluxoLicitacao]}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3">
-                  <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                    Disputa
-                  </div>
-                  <div className="mt-1 font-bold text-[var(--text-primary)]">
-                    {showCompetitivoSteps
-                      ? showLances
-                        ? "Com disputa"
-                        : "Sem disputa"
-                      : "Nao se aplica"}
-                  </div>
-                </div>
-                {modalidadeHelp ? (
-                  <div className="rounded-2xl bg-[var(--surface-soft)] px-3 py-3 text-sm leading-6 text-[var(--text-secondary)]">
-                    {modalidadeHelp}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </aside>
+          <div className="xl:sticky xl:top-[220px] xl:self-start xl:order-2">
+            <LicitacaoContextAssistant
+              model={guidedProcessModel.assistant}
+              navItems={selectedPhaseNavItems.map((item) => ({
+                key: item.key,
+                label: item.label,
+                active:
+                  item.key === selectedPhaseLeadSection ||
+                  sectionOpen[item.key],
+              }))}
+              onSelectNavItem={handleSelectAssistantNavItem}
+              onOpenDocuments={() => setShowAllDocsModal(true)}
+            />
+          </div>
 
           <div className="space-y-6 xl:order-1">
-            <div className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-5 py-5 shadow-[var(--shadow-card)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
-                  <div className="flex items-center gap-3">
-                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-[20px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] text-[var(--accent-color)]">
-                      <SelectedPhaseIcon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                        {selectedPhaseInfo.eyebrow}
-                      </div>
-                      <h3 className="text-2xl font-black text-[var(--text-primary)]">
-                        {selectedPhaseInfo.label}
-                      </h3>
-                    </div>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-                    {selectedPhaseInfo.description}
-                  </p>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3 text-sm">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Etapa em execucao
-                    </div>
-                    <div className="mt-1 font-semibold text-[var(--text-primary)]">
-                      {runtimePhaseInfo.shortLabel}
-                    </div>
-                  </div>
-                  <div className="rounded-[22px] bg-[var(--surface-soft)] px-4 py-3 text-sm">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                      Secao principal
-                    </div>
-                    <div className="mt-1 font-semibold capitalize text-[var(--text-primary)]">
-                      {selectedPhaseLeadSection.replaceAll("_", " ")}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="sticky bottom-4 z-20 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4 shadow-[var(--shadow-card)]">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                    Acao principal da etapa
-                  </div>
-                  <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                    {primaryPhaseAction.helper}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() =>
-                      jumpToSection({
-                        key: selectedPhaseLeadSection,
-                        ref: sectionRefs[selectedPhaseLeadSection],
-                      })
-                    }
-                  >
-                    Ir para secao principal
-                  </Button>
-                  <Button
-                    type={primaryPhaseAction.formId ? "submit" : "button"}
-                    form={primaryPhaseAction.formId}
-                    onClick={
-                      primaryPhaseAction.formId
-                        ? undefined
-                        : primaryPhaseAction.onClick
-                    }
-                    disabled={primaryPhaseAction.disabled}
-                  >
-                    {primaryPhaseAction.label}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <LicitacaoNextActionCard
+              model={guidedProcessModel.nextAction}
+              preparation={guidedProcessModel.preparation}
+              onPrimaryAction={handleGuidedPrimaryAction}
+              onOpenLeadSection={openSelectedPhaseLeadSection}
+            />
             <section
               ref={overviewRef}
               className={isLegalSectionVisible("overview") ? "" : "hidden"}
