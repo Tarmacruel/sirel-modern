@@ -82,6 +82,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 16. [`15-prompt-codex-licitacao-hub-modalidades.md`](./15-prompt-codex-licitacao-hub-modalidades.md)
     Prompt operacional para o Codex implementar a tela inicial de Licitação por modalidade.
 
+17. [`16-licitacao-fases-compactacao-dark-mode.md`](./16-licitacao-fases-compactacao-dark-mode.md)
+    Segunda rodada de UX da página do processo, com compactação das fases, fila de evidências, publicação progressiva e revisão do modo escuro.
+
+18. [`17-prompt-codex-licitacao-compactacao-dark-mode.md`](./17-prompt-codex-licitacao-compactacao-dark-mode.md)
+    Prompt operacional para implementar a compactação das fases e os novos tokens semânticos de contraste.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -117,6 +123,10 @@ Após a separação por subsistemas e o Hub, a próxima frente é reduzir a comp
 ## Nova frente: Hub de modalidades da Licitação
 
 A entrada `/licitacao` deve funcionar como um hub de trabalho por modalidade/equipe, antes de abrir a listagem. O usuário deve escolher entre Credenciamentos, Dispensas, Inexigibilidades, Pregões, Concorrências, Atas/Adesões ou Todos, e então visualizar a fila já filtrada.
+
+## Nova frente: compactação operacional e modo escuro
+
+A segunda rodada da página interna deve reduzir o empilhamento de painéis, transformar a trilha de fases em um rail compacto, substituir formulários repetidos por fila de evidências com editor único e corrigir os estados visuais do modo escuro por meio de tokens semânticos próprios.
 
 ## Regra de ouro
 
