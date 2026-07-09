@@ -7,7 +7,8 @@ export type LicitacaoProcessoPhaseKey =
   | "FECHAMENTO";
 
 export type LicitacaoGuidedPhaseStatus =
-  | "active"
+  | "current"
+  | "viewing"
   | "completed"
   | "available"
   | "blocked";
@@ -129,8 +130,13 @@ function normalizeText(value: string | null | undefined, fallback: string) {
 function getPhaseStatus(
   phase: LicitacaoGuidedPhaseSource,
   activePhase: LicitacaoProcessoPhaseKey,
+  currentProcessPhase: LicitacaoProcessoPhaseKey,
 ): LicitacaoGuidedPhaseStatus {
-  if (phase.key === activePhase) return "active";
+  if (phase.key === activePhase && phase.key === currentProcessPhase) {
+    return "current";
+  }
+  if (phase.key === activePhase) return "viewing";
+  if (phase.key === currentProcessPhase) return "current";
   if (phase.completed) return "completed";
   if (!phase.accessible) return "blocked";
   return "available";
@@ -138,8 +144,10 @@ function getPhaseStatus(
 
 function getPhaseStatusLabel(status: LicitacaoGuidedPhaseStatus) {
   switch (status) {
-    case "active":
-      return "Selecionada";
+    case "current":
+      return "Atual";
+    case "viewing":
+      return "Visualizando";
     case "completed":
       return "Concluida";
     case "blocked":
@@ -186,7 +194,11 @@ export function buildLicitacaoProcessoViewModel(
         )}`;
 
   const phases = input.phases.map((phase) => {
-    const status = getPhaseStatus(phase, input.activePhase);
+    const status = getPhaseStatus(
+      phase,
+      input.activePhase,
+      input.currentProcessPhase,
+    );
     return {
       ...phase,
       status,
@@ -204,16 +216,20 @@ export function buildLicitacaoProcessoViewModel(
     };
   });
 
-  const isPreparation = input.activePhase === "PREPARACAO";
-  const preparationBlocked =
-    isPreparation && input.selectedPhasePendingItems.length > 0;
+  const hasSelectedPhasePendings = input.selectedPhasePendingItems.length > 0;
 
-  const nextAction: LicitacaoNextActionModel = preparationBlocked
+  const nextAction: LicitacaoNextActionModel = hasSelectedPhasePendings
     ? {
-        title: "Resolver proxima pendencia interna",
+        title: `Resolver ${selectedPendingCount} ${pluralize(
+          selectedPendingCount,
+          "pendencia",
+          "pendencias",
+        )}`,
         objective:
-          "A publicacao fica bloqueada ate que os atos obrigatorios da fase interna estejam tratados.",
-        primaryLabel: "Abrir pendencia",
+          input.activePhase === "PREPARACAO"
+            ? "A publicacao fica bloqueada ate que os atos obrigatorios da fase interna estejam tratados."
+            : "Trate a primeira pendencia aberta para liberar a sequencia operacional da etapa.",
+        primaryLabel: "Resolver primeira pendencia",
         primaryDisabled: false,
         intent: "focus_pending",
         blockedReason: input.primaryActionHelper,

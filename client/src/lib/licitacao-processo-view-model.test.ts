@@ -86,7 +86,7 @@ describe("buildLicitacaoProcessoViewModel", () => {
     expect(model.assistant.legalBlocksLabel).toBe("Sem pendencias abertas");
   });
 
-  it("classifica fases bloqueadas, concluidas e selecionadas", () => {
+  it("classifica fases bloqueadas, concluidas, atuais e visualizadas", () => {
     const model = buildLicitacaoProcessoViewModel({
       ...baseInput,
       activePhase: "PUBLICACAO",
@@ -110,8 +110,28 @@ describe("buildLicitacaoProcessoViewModel", () => {
 
     expect(model.phases.map((phase) => [phase.key, phase.status])).toEqual([
       ["PREPARACAO", "completed"],
-      ["PUBLICACAO", "active"],
+      ["PUBLICACAO", "current"],
       ["DISPUTA", "blocked"],
+    ]);
+  });
+
+  it("diferencia a fase atual da fase apenas visualizada", () => {
+    const model = buildLicitacaoProcessoViewModel({
+      ...baseInput,
+      activePhase: "PREPARACAO",
+      activePhaseLabel: "Preparacao Interna",
+      currentProcessPhase: "PUBLICACAO",
+      currentProcessPhaseLabel: "Publicacao",
+      selectedPhasePendingItems: [],
+      phases: [
+        { ...baseInput.phases[0], completed: true },
+        { ...baseInput.phases[1], accessible: true },
+      ],
+    });
+
+    expect(model.phases.map((phase) => [phase.key, phase.status])).toEqual([
+      ["PREPARACAO", "viewing"],
+      ["PUBLICACAO", "current"],
     ]);
   });
 });

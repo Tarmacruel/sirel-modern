@@ -67,10 +67,10 @@ export function DatePickerLegal({
   acrescimoMunicipal = 1,
   feriadosLocais = [],
   comparisonDate,
-  comparisonLabel = "Sessão / disputa",
+  comparisonLabel = "Sessao / disputa",
   justificationValue = "",
   onJustificationChange,
-  label = "Data de publicação no PNCP",
+  label = "Data de publicacao no PNCP",
 }: DatePickerLegalProps) {
   const dataPublicacao = useMemo(() => parseFlexibleDate(value), [value]);
   const comparison = useMemo(
@@ -107,8 +107,8 @@ export function DatePickerLegal({
 
   const comparisonBeforeMinimum = Boolean(
     regra &&
-    comparison &&
-    startOfDay(comparison).getTime() < regra.dataMinima.getTime(),
+      comparison &&
+      startOfDay(comparison).getTime() < regra.dataMinima.getTime(),
   );
   const diasAposMinimo =
     regra && comparison
@@ -127,70 +127,70 @@ export function DatePickerLegal({
 
       {!regra ? (
         <Alert variant="info">
-          Selecione a data de publicação para o SIREL calcular automaticamente o
-          prazo mínimo legal conforme o Art. 55 e a regra de contagem do Art.
-          183 da Lei 14.133/2021.
+          Selecione a data de publicacao para o SIREL calcular automaticamente o
+          prazo minimo legal conforme a Lei 14.133/2021.
         </Alert>
       ) : (
         <>
           <div
-            className={`rounded-2xl border px-4 py-3 text-sm ${
+            className={[
+              "rounded-[14px] border px-3 py-2 text-sm",
               comparisonBeforeMinimum
-                ? "border-amber-300 bg-amber-50 text-amber-900"
-                : diasAposMinimo > 10
-                  ? "border-sky-200 bg-sky-50 text-sky-900"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
-            }`}
+                ? "border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]"
+                : "border-[var(--notice-success-border)] bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]",
+            ].join(" ")}
           >
             <div className="font-semibold">
               {comparison
                 ? comparisonBeforeMinimum
-                  ? "Fora do prazo mínimo legal"
+                  ? "Fora do prazo minimo legal"
                   : diasAposMinimo > 10
-                    ? `Prazo estendido em ${diasAposMinimo} dia(s) útil(eis)`
-                    : "Dentro do prazo legal"
-                : `Prazo mínimo calculado para ${comparisonLabel.toLowerCase()}`}
+                    ? `Prazo estendido em ${diasAposMinimo} dia(s) util(eis)`
+                    : "Prazo legal valido"
+                : `Prazo minimo calculado para ${comparisonLabel.toLowerCase()}`}
             </div>
             <div className="mt-1">
               {comparison
-                ? `${comparisonLabel}: ${formatShortDateTimeBR(comparison)} · mínima legal: ${formatShortDateBR(regra.dataMinima)}`
-                : `Mínima legal: ${formatShortDateBR(regra.dataMinima)}`}
+                ? `${comparisonLabel}: ${formatShortDateTimeBR(comparison)} - minima legal: ${formatShortDateBR(regra.dataMinima)}`
+                : `Minima legal: ${formatShortDateBR(regra.dataMinima)}`}
             </div>
           </div>
 
-          <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-4 py-4 text-sm text-[var(--text-secondary)] shadow-[0_14px_30px_-28px_rgba(15,26,109,0.35)]">
-            <div className="font-semibold text-[var(--text-primary)]">
-              Regra aplicada
-            </div>
-            <div className="mt-2">
-              {regra.regraAplicada.baseLegal}
-              {regra.regraAplicada.observacao
-                ? ` · ${regra.regraAplicada.observacao}`
-                : ""}
-            </div>
-            <div className="mt-2 text-[var(--text-muted)]">
-              Publicação: {formatShortDateBR(dataPublicacao)} · Início da
-              contagem: {formatShortDateBR(regra.dataInicioContagem)} · Prazo:{" "}
-              {regra.diasUteisTotais} dia(s) útil(eis)
-            </div>
-            <div className="mt-1 text-[var(--text-muted)]">
-              Modalidade: {getModalidadeNome(modalidadeCodigo)} · Mínima legal:{" "}
-              {formatShortDateBR(regra.dataMinima)}
-            </div>
-            {holidayDates.length ? (
-              <div className="mt-1 text-[var(--text-muted)]">
-                Feriados locais considerados: {holidayDates.length}
+          <details className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+            <summary className="cursor-pointer font-semibold text-[var(--text-primary)]">
+              Ver calculo legal
+            </summary>
+            <div className="mt-2 space-y-1">
+              <div>
+                {regra.regraAplicada.baseLegal}
+                {regra.regraAplicada.observacao
+                  ? ` - ${regra.regraAplicada.observacao}`
+                  : ""}
               </div>
-            ) : null}
-          </div>
+              <div className="text-[var(--text-muted)]">
+                Publicacao: {formatShortDateBR(dataPublicacao)} - Inicio da
+                contagem: {formatShortDateBR(regra.dataInicioContagem)} - Prazo:{" "}
+                {regra.diasUteisTotais} dia(s) util(eis)
+              </div>
+              <div className="text-[var(--text-muted)]">
+                Modalidade: {getModalidadeNome(modalidadeCodigo)} - Minima
+                legal: {formatShortDateBR(regra.dataMinima)}
+              </div>
+              {holidayDates.length ? (
+                <div className="text-[var(--text-muted)]">
+                  Feriados locais considerados: {holidayDates.length}
+                </div>
+              ) : null}
+            </div>
+          </details>
 
           {foraDoFluxo && comparisonBeforeMinimum && onJustificationChange ? (
-            <FormField label="Justificativa de prazo extemporâneo">
+            <FormField label="Justificativa de prazo extemporaneo">
               <Textarea
                 rows={3}
                 value={justificationValue}
                 onChange={(event) => onJustificationChange(event.target.value)}
-                placeholder="Explique por que a agenda manual ficou anterior ao prazo mínimo legal. Essa justificativa será somada ao rastreio de auditoria."
+                placeholder="Explique por que a agenda manual ficou anterior ao prazo minimo legal."
               />
             </FormField>
           ) : null}

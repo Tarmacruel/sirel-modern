@@ -1,11 +1,5 @@
-import {
-  AlertTriangle,
-  ArrowLeft,
-  FileCheck2,
-  FileStack,
-  History,
-  UserRound,
-} from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowLeft, FileCheck2, FileStack, History, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { LicitacaoProcessHeaderModel } from "@/lib/licitacao-processo-view-model";
@@ -16,6 +10,7 @@ interface LicitacaoProcessHeaderProps {
   onOpenDocumentos: () => void;
   onOpenHistory: () => void;
   onBackToQueue: () => void;
+  auditAction?: ReactNode;
 }
 
 export function LicitacaoProcessHeader({
@@ -24,6 +19,7 @@ export function LicitacaoProcessHeader({
   onOpenDocumentos,
   onOpenHistory,
   onBackToQueue,
+  auditAction,
 }: LicitacaoProcessHeaderProps) {
   const stats = [
     { label: "Fase atual", value: model.currentPhaseLabel },
@@ -33,74 +29,60 @@ export function LicitacaoProcessHeader({
   ];
 
   return (
-    <section className="rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-5 py-5 shadow-[var(--shadow-card)]">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-            <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1">
+    <section className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-3 shadow-[var(--shadow-card)]">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
               Licitacao
             </span>
-            {model.isForaDoFluxo ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-amber-800">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Fora do fluxo
-              </span>
-            ) : null}
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-end gap-3">
-            <h1 className="text-2xl font-black tracking-tight text-[var(--text-primary)] sm:text-3xl">
+            <h1 className="text-xl font-black tracking-tight text-[var(--text-primary)] sm:text-2xl">
               {model.numero}
             </h1>
-            <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-sm font-semibold text-[var(--text-secondary)]">
+            <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-1 text-xs font-bold text-[var(--text-secondary)]">
               {model.modalidade}
             </span>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--text-secondary)]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-[var(--text-secondary)]">
             <span>{model.secretaria}</span>
             <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
               <UserRound className="h-4 w-4 text-[var(--accent-color)]" />
               {model.responsavel}
             </span>
+            {stats.map((item) => (
+              <span key={item.label} className="text-xs">
+                <span className="font-bold text-[var(--text-muted)]">
+                  {item.label}:{" "}
+                </span>
+                <span className="font-semibold text-[var(--text-primary)]">
+                  {item.value}
+                </span>
+              </span>
+            ))}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 xl:justify-end">
-          <Button type="button" variant="outline" onClick={onOpenDossie}>
+          <Button type="button" size="sm" variant="outline" onClick={onOpenDossie}>
             <FileCheck2 className="h-4 w-4" />
             Dossie
           </Button>
-          <Button type="button" variant="outline" onClick={onOpenDocumentos}>
+          <Button type="button" size="sm" variant="outline" onClick={onOpenDocumentos}>
             <FileStack className="h-4 w-4" />
             Documentos
           </Button>
-          <Button type="button" variant="outline" onClick={onOpenHistory}>
+          <Button type="button" size="sm" variant="outline" onClick={onOpenHistory}>
             <History className="h-4 w-4" />
             Historico
           </Button>
-          <Button type="button" variant="ghost" onClick={onBackToQueue}>
+          {auditAction}
+          <Button type="button" size="sm" variant="ghost" onClick={onBackToQueue}>
             <ArrowLeft className="h-4 w-4" />
             Voltar a fila
           </Button>
         </div>
       </div>
-
-      <dl className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((item) => (
-          <div
-            key={item.label}
-            className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3"
-          >
-            <dt className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              {item.label}
-            </dt>
-            <dd className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-              {item.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
     </section>
   );
 }

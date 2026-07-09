@@ -85,8 +85,12 @@
   --color-info: var(--info-color);
 
   --surface-base: var(--bg-body);
+  --surface-shell: #f7fbff;
   --surface-panel: var(--bg-surface);
   --surface-card: var(--bg-surface);
+  --surface-raised: #f8fbff;
+  --surface-hover: #edf5ff;
+  --surface-selected: #e7f1ff;
   --surface-elevated: var(--bg-surface);
   --surface-soft: var(--bg-surface-2);
   --surface-interactive: #f1f5f9;
@@ -111,6 +115,29 @@
   --chart-4: #5dade2;
   --chart-5: #192d8a;
   --chart-6: #7c3aed;
+
+  --phase-current-bg: #e7f1ff;
+  --phase-current-border: #2f79b9;
+  --phase-current-text: #17263a;
+  --phase-completed-bg: #e6f7ee;
+  --phase-completed-border: #1f8752;
+  --phase-completed-text: #135c35;
+  --phase-viewing-bg: #fff4db;
+  --phase-viewing-border: #a15c00;
+  --phase-viewing-text: #553900;
+  --phase-available-bg: #ffffff;
+  --phase-available-border: #7ea7cc;
+  --phase-available-text: #17263a;
+  --phase-blocked-bg: #eef2f6;
+  --phase-blocked-border: #77889c;
+  --phase-blocked-text: #30465f;
+
+  --notice-warning-bg: #fff4db;
+  --notice-warning-border: #a15c00;
+  --notice-warning-text: #5b3300;
+  --notice-success-bg: #e6f7ee;
+  --notice-success-border: #1f8752;
+  --notice-success-text: #135c35;
 }
 
 /* ============================================
@@ -183,8 +210,12 @@
   --color-neutral-900: var(--text-primary);
 
   --surface-base: var(--bg-body);
+  --surface-shell: #111a29;
   --surface-panel: var(--bg-surface);
   --surface-card: var(--bg-surface);
+  --surface-raised: #24344d;
+  --surface-hover: #2a3c58;
+  --surface-selected: #17365c;
   --surface-elevated: var(--bg-surface-2);
   --surface-soft: #1f2b40;
   --surface-interactive: #21324b;
@@ -209,6 +240,29 @@
   --chart-4: #8b5cf6;
   --chart-5: #2ecc71;
   --chart-6: #f6ad55;
+
+  --phase-current-bg: #17365c;
+  --phase-current-border: #73bdf0;
+  --phase-current-text: #f5f8fc;
+  --phase-completed-bg: #123425;
+  --phase-completed-border: #3ddc84;
+  --phase-completed-text: #d9fbe7;
+  --phase-viewing-bg: #3b2a12;
+  --phase-viewing-border: #f6ad55;
+  --phase-viewing-text: #ffe0ad;
+  --phase-available-bg: #1d2a40;
+  --phase-available-border: #526a8a;
+  --phase-available-text: #e5eef8;
+  --phase-blocked-bg: #151f30;
+  --phase-blocked-border: #526a8a;
+  --phase-blocked-text: #c8d5e4;
+
+  --notice-warning-bg: #3b2a12;
+  --notice-warning-border: #f6ad55;
+  --notice-warning-text: #ffe0ad;
+  --notice-success-bg: #123425;
+  --notice-success-border: #3ddc84;
+  --notice-success-text: #d9fbe7;
 }
 
 html {
@@ -257,6 +311,7 @@ a {
 }
 
 [data-theme="dark"] .bg-white,
+[data-theme="dark"] .bg-white\/80,
 [data-theme="dark"] .bg-white\/90,
 [data-theme="dark"] .bg-white\/95 {
   background-color: var(--surface-card) !important;

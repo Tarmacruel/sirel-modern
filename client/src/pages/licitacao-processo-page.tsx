@@ -46,12 +46,13 @@ import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-audit-drawer";
 import { LicitacaoContextAssistant } from "@/components/licitacao/processo/licitacao-context-assistant";
+import { LicitacaoEvidenceQueue } from "@/components/licitacao/processo/licitacao-evidence-queue";
+import type { LicitacaoEvidenceItem } from "@/components/licitacao/processo/licitacao-evidence-row";
 import { LicitacaoNextActionCard } from "@/components/licitacao/processo/licitacao-next-action-card";
 import { LicitacaoPhaseStepper } from "@/components/licitacao/processo/licitacao-phase-stepper";
 import { LicitacaoProcessHeader } from "@/components/licitacao/processo/licitacao-process-header";
 import { MacroTransitionModal } from "@/components/shared/macro-transition-modal";
 import { Modal } from "@/components/shared/modal";
-import { SectionCard } from "@/components/shared/section-card";
 import {
   getLicitacaoDocumentBlueprint,
   type LicitacaoDocumentRequirement,
@@ -560,22 +561,22 @@ function getChecklistItemStatusLabel(item: ChecklistCardItem) {
 
 function getChecklistItemStatusClassName(item: ChecklistCardItem) {
   if (item.statusFlexivel === "OUTRO_SETOR") {
-    return "border-sky-200 bg-sky-50 text-sky-700";
+    return "border-[var(--phase-viewing-border)] bg-[var(--phase-viewing-bg)] text-[var(--phase-viewing-text)]";
   }
 
   if (item.statusFlexivel === "CONCLUIDO_FISICO") {
-    return "border-violet-200 bg-violet-50 text-violet-700";
+    return "border-[var(--phase-current-border)] bg-[var(--phase-current-bg)] text-[var(--phase-current-text)]";
   }
 
   if (item.naoAplicavel) {
-    return "border-slate-200 bg-slate-100 text-slate-700";
+    return "border-[var(--phase-blocked-border)] bg-[var(--phase-blocked-bg)] text-[var(--phase-blocked-text)]";
   }
 
   if (item.concluido) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-[var(--notice-success-border)] bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]";
   }
 
-  return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]";
 }
 
 export function LicitacaoProcessoPage({
@@ -674,6 +675,11 @@ export function LicitacaoProcessoPage({
     useState(3);
   const [showResolvedInternalChecklist, setShowResolvedInternalChecklist] =
     useState(false);
+  const [activeExternalEvidenceCategory, setActiveExternalEvidenceCategory] =
+    useState<string | null>(null);
+  const [publicationChannelsOpen, setPublicationChannelsOpen] =
+    useState(false);
+  const [publicationScheduleOpen, setPublicationScheduleOpen] = useState(false);
   const [publishForm, setPublishForm] = useState({
     condutorProcessoId: "",
     statusId: "",
@@ -1748,6 +1754,18 @@ export function LicitacaoProcessoPage({
       ...current,
       arquivo: nextFile,
       titulo: current.titulo || nextFile?.name || suggestedTitle,
+    }));
+  }
+
+  function handleEvidenceFileSelect(
+    category: string,
+    file: File | null,
+    suggestedTitle: string,
+  ) {
+    setUploadState(category, (current) => ({
+      ...current,
+      arquivo: file,
+      titulo: current.titulo || file?.name || suggestedTitle,
     }));
   }
 
@@ -2841,12 +2859,21 @@ export function LicitacaoProcessoPage({
     });
   const handleGuidedPrimaryAction = () => {
     if (guidedProcessModel.nextAction.intent === "focus_pending") {
-      if (selectedInternalChecklistItem) {
-        setSelectedInternalChecklistCategory(
-          selectedInternalChecklistItem.category,
-        );
+      if (currentPhase === "PREPARACAO" && selectedInternalChecklistItem) {
+        setSelectedInternalChecklistCategory(selectedInternalChecklistItem.category);
+        jumpToSection({ key: "internal", ref: internalRef });
+        return;
       }
-      jumpToSection({ key: "internal", ref: internalRef });
+
+      if (currentPhase === "DISPUTA") {
+        const targetEvidence =
+          externalPendingRequired[0] ?? externalChecklistItems[0] ?? null;
+        setActiveExternalEvidenceCategory(targetEvidence?.category ?? null);
+        jumpToSection({ key: "external", ref: externalRef });
+        return;
+      }
+
+      openSelectedPhaseLeadSection();
       return;
     }
 
@@ -2926,6 +2953,24 @@ export function LicitacaoProcessoPage({
       `${url.pathname}${url.search}${url.hash}`,
     );
   }, [currentPhase, maxAccessiblePhaseIndex, processoId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const storageKey = `sirel:licitacao-evidence:${processoId}:DISPUTA`;
+    if (activeExternalEvidenceCategory) {
+      window.localStorage.setItem(storageKey, activeExternalEvidenceCategory);
+      return;
+    }
+
+    const savedCategory = window.localStorage.getItem(storageKey);
+    if (
+      savedCategory &&
+      externalChecklistItems.some((item) => item.category === savedCategory)
+    ) {
+      setActiveExternalEvidenceCategory(savedCategory);
+    }
+  }, [activeExternalEvidenceCategory, externalChecklistItems, processoId]);
 
   const habilitacaoSection = (
     <section
@@ -3072,7 +3117,7 @@ export function LicitacaoProcessoPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
 
       <Breadcrumb
@@ -3082,17 +3127,8 @@ export function LicitacaoProcessoPage({
         ]}
       />
 
-      <SectionCard
-        title="Painel guiado da licitacao"
-        description="Fluxo operacional por fase, com foco na proxima acao segura do processo."
-      >
-        <div className="z-30 mb-6 space-y-3 xl:sticky xl:top-4">
-          <LicitacaoAuditDrawer
-            visible={isForaDoFluxo}
-            value={auditJustification}
-            onChange={setAuditJustification}
-          />
-
+      <div className="space-y-4">
+        <div className="z-30 space-y-2 xl:sticky xl:top-3">
           <LicitacaoProcessHeader
             model={guidedProcessModel.header}
             onOpenDossie={() => setLocation(`/dossie/${processoId}`)}
@@ -3101,6 +3137,13 @@ export function LicitacaoProcessoPage({
               jumpToSection({ key: "history", ref: historyRef })
             }
             onBackToQueue={() => setLocation("/licitacao")}
+            auditAction={
+              <LicitacaoAuditDrawer
+                visible={isForaDoFluxo}
+                value={auditJustification}
+                onChange={setAuditJustification}
+              />
+            }
           />
 
           <LicitacaoPhaseStepper
@@ -3109,8 +3152,8 @@ export function LicitacaoProcessoPage({
           />
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="xl:sticky xl:top-[220px] xl:self-start xl:order-2">
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="2xl:sticky 2xl:top-[190px] 2xl:self-start 2xl:order-2">
             <LicitacaoContextAssistant
               model={guidedProcessModel.assistant}
               navItems={selectedPhaseNavItems.map((item) => ({
@@ -3125,7 +3168,7 @@ export function LicitacaoProcessoPage({
             />
           </div>
 
-          <div className="space-y-6 xl:order-1">
+          <div className="space-y-4 2xl:order-1">
             <LicitacaoNextActionCard
               model={guidedProcessModel.nextAction}
               preparation={guidedProcessModel.preparation}
@@ -3319,7 +3362,7 @@ export function LicitacaoProcessoPage({
                           current
                             ? "border-[rgba(102,165,255,0.9)] bg-[var(--color-primary-50)]"
                             : completed
-                              ? "border-emerald-200 bg-emerald-50"
+                              ? "border-[var(--notice-success-border)] bg-[var(--notice-success-bg)]"
                               : "border-[rgba(204,225,255,0.92)] bg-white",
                         ].join(" ")}
                       >
@@ -3328,7 +3371,7 @@ export function LicitacaoProcessoPage({
                             {item.label}
                           </p>
                           {completed ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            <CheckCircle2 className="h-4 w-4 text-[var(--notice-success-text)]" />
                           ) : null}
                         </div>
                         <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
@@ -4018,7 +4061,7 @@ export function LicitacaoProcessoPage({
                             <button
                               key={item.category}
                               type="button"
-                              className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:border-amber-300 hover:bg-amber-100"
+                              className="inline-flex items-center gap-2 rounded-full border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-3 py-1.5 text-xs font-medium text-[var(--notice-warning-text)] transition hover:border-[var(--border-strong)]"
                               onClick={() =>
                                 setSelectedInternalChecklistCategory(
                                   item.category,
@@ -4079,8 +4122,8 @@ export function LicitacaoProcessoPage({
                                 <div
                                   className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold ${
                                     isChecklistItemAddressed(item)
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-amber-100 text-amber-800"
+                                      ? "bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]"
+                                      : "bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]"
                                   }`}
                                 >
                                   {index + internalChecklistLeadIndex + 1}
@@ -4141,7 +4184,7 @@ export function LicitacaoProcessoPage({
                                 )
                               }
                             >
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--notice-success-text)]" />
                               {item.label}
                             </button>
                           ))}
@@ -4598,14 +4641,14 @@ export function LicitacaoProcessoPage({
                           : "Pendente";
                     const statusClass =
                       item.statusFlexivel === "OUTRO_SETOR"
-                        ? "bg-sky-100 text-sky-800"
+                        ? "bg-[var(--phase-viewing-bg)] text-[var(--phase-viewing-text)]"
                         : item.statusFlexivel === "CONCLUIDO_FISICO"
-                          ? "bg-violet-100 text-violet-800"
+                          ? "bg-[var(--phase-current-bg)] text-[var(--phase-current-text)]"
                           : item.naoAplicavel
-                            ? "bg-slate-100 text-slate-800"
+                            ? "bg-[var(--phase-blocked-bg)] text-[var(--phase-blocked-text)]"
                             : item.concluido
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800";
+                              ? "bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]"
+                              : "bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]";
 
                     return (
                       <article
@@ -4797,7 +4840,7 @@ export function LicitacaoProcessoPage({
                                     />
                                   </FormField>
                                   <div className="md:col-span-2">
-                                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white/80 px-3 py-3">
+                                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3">
                                       <Checkbox
                                         checked={
                                           naoAplicavelState.digitalizarDepois
@@ -4859,7 +4902,7 @@ export function LicitacaoProcessoPage({
                             {item.statusFlexivel &&
                             item.statusFlexivel !== "PADRAO" &&
                             item.justificativaNaoAplicavel ? (
-                              <div className="mt-3 rounded-2xl border border-dashed border-[rgba(15,26,109,0.12)] bg-white/80 px-3 py-2 text-xs text-[var(--color-neutral-600)]">
+                              <div className="mt-3 rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-xs text-[var(--text-secondary)]">
                                 Registro atual:{" "}
                                 {
                                   licitacaoChecklistFlexStatusLabels[
@@ -5006,234 +5049,61 @@ export function LicitacaoProcessoPage({
                   </div>
                 }
               >
-                <div className="grid gap-3 xl:grid-cols-4">
-                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Sessao oficial
-                    </div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.licitacao.dataAberturaPropostas
+                <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
+                  {[
+                    [
+                      "Sessao",
+                      detalhe.licitacao.dataAberturaPropostas
                         ? formatShortDateTimeBR(
                             detalhe.licitacao.dataAberturaPropostas,
                           )
-                        : "Ainda nao definida"}
+                        : "Sem data",
+                    ],
+                    ["Propostas", String(detalhe.propostas.length)],
+                    [
+                      "Habilitacao",
+                      `${detalhe.licitantes.filter((item) => item.statusHabilitacao !== "PENDENTE").length}/${detalhe.licitantes.length}`,
+                    ],
+                    [
+                      "Fechamento",
+                      detalhe.processo.homologado ? "Homologado" : "Em andamento",
+                    ],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2"
+                    >
+                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                        {label}
+                      </div>
+                      <div className="mt-0.5 truncate text-sm font-black text-[var(--text-primary)]">
+                        {value}
+                      </div>
                     </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Data da abertura e disputa vinculada ao processo.
-                    </p>
-                  </article>
-                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Propostas
-                    </div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.propostas.length}
-                    </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Registros operacionais ja associados a fase externa.
-                    </p>
-                  </article>
-                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Habilitacao
-                    </div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {
-                        detalhe.licitantes.filter(
-                          (item) => item.statusHabilitacao !== "PENDENTE",
-                        ).length
-                      }
-                      /{detalhe.licitantes.length}
-                    </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Licitantes com analise documental ja registrada.
-                    </p>
-                  </article>
-                  <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                      Fechamento
-                    </div>
-                    <div className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                      {detalhe.processo.homologado
-                        ? "Homologado"
-                        : "Em andamento"}
-                    </div>
-                    <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                      Ata, termo e envio a Controladoria para encerramento.
-                    </p>
-                  </article>
+                  ))}
                 </div>
 
-                {externalPendingRequired.length ? (
-                  <Alert variant="warning" title="Pendencias da fase externa">
-                    Ainda faltam evidencias obrigatorias para concluir a fase
-                    externa:{" "}
-                    {externalPendingRequired
-                      .map((item) => item.label)
-                      .join(", ")}
-                    .
-                  </Alert>
-                ) : (
-                  <Alert variant="success">
-                    A fase externa possui evidencias suficientes para seguir
-                    para contrato e fechamento administrativo.
-                  </Alert>
-                )}
-
-                <div className="grid gap-4 2xl:grid-cols-2">
-                  {externalChecklistItems.map((item) => {
-                    const uploadState = getUploadState(
-                      uploadForms,
-                      item.category,
-                    );
-                    const latestDocumento = item.documentos
-                      .slice()
-                      .sort(
-                        (left, right) =>
-                          new Date(right.criadoEm).getTime() -
-                          new Date(left.criadoEm).getTime(),
-                      )[0];
-                    const statusClass = item.concluido
-                      ? "bg-emerald-100 text-emerald-800"
-                      : item.obrigatorio
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-slate-100 text-slate-800";
-
-                    return (
-                      <article
-                        key={item.category}
-                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="text-base font-black text-[var(--color-primary-900)]">
-                                {item.label}
-                              </h4>
-                              <span
-                                className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}
-                              >
-                                {item.concluido
-                                  ? "Concluido"
-                                  : item.obrigatorio
-                                    ? "Obrigatorio"
-                                    : "Opcional"}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
-                              {item.description}
-                            </p>
-                            {item.baseLegal ? (
-                              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                                {item.baseLegal}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
-                            <FileCheck2 className="h-5 w-5" />
-                          </div>
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-3 text-sm text-[var(--color-neutral-700)]">
-                          {latestDocumento ? (
-                            <>
-                              <div className="font-semibold text-[var(--color-primary-900)]">
-                                {latestDocumento.titulo}
-                              </div>
-                              <div className="mt-1 text-[var(--color-neutral-600)]">
-                                Ultima evidencia anexada em{" "}
-                                {formatShortDateTimeBR(
-                                  latestDocumento.criadoEm,
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="font-semibold text-[var(--color-neutral-700)]">
-                              {item.statusOrigem ??
-                                "Sem evidencia anexada ate o momento."}
-                            </div>
-                          )}
-                          {item.completionHint ? (
-                            <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                              {item.completionHint}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        <div className="mt-4 grid gap-3 2xl:grid-cols-2">
-                          <FormField label="Titulo da evidencia">
-                            <Input
-                              value={uploadState.titulo}
-                              onChange={(event) =>
-                                setUploadState(item.category, (current) => ({
-                                  ...current,
-                                  titulo: event.target.value,
-                                }))
-                              }
-                              placeholder={item.label}
-                            />
-                          </FormField>
-                          <FormField label="Descricao">
-                            <Input
-                              value={uploadState.descricao}
-                              onChange={(event) =>
-                                setUploadState(item.category, (current) => ({
-                                  ...current,
-                                  descricao: event.target.value,
-                                }))
-                              }
-                              placeholder="Ex.: exportacao da plataforma, comprovante, ata assinada"
-                            />
-                          </FormField>
-                          <FormField label="Arquivo" className="2xl:col-span-2">
-                            <Input
-                              type="file"
-                              onChange={(event) =>
-                                handleFileChange(
-                                  item.category,
-                                  event,
-                                  item.label,
-                                )
-                              }
-                            />
-                          </FormField>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap justify-end gap-2">
-                          {latestDocumento ? (
-                            <a
-                              href={
-                                resolveServerAssetUrl(
-                                  latestDocumento.arquivoUrl,
-                                ) ?? "#"
-                              }
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={!latestDocumento.arquivoUrl}
-                              >
-                                Abrir evidencia
-                              </Button>
-                            </a>
-                          ) : null}
-                          <Button
-                            type="button"
-                            onClick={() =>
-                              void handleUploadChecklistDocumento(item)
-                            }
-                          >
-                            <Upload className="h-4 w-4" />
-                            Anexar evidencia
-                          </Button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
+                <LicitacaoEvidenceQueue
+                  items={externalChecklistItems as LicitacaoEvidenceItem[]}
+                  activeCategory={activeExternalEvidenceCategory}
+                  uploadStates={uploadForms}
+                  resolveDocumentUrl={resolveServerAssetUrl}
+                  onActiveCategoryChange={setActiveExternalEvidenceCategory}
+                  onTitleChange={(category, value) =>
+                    setUploadState(category, (current) => ({
+                      ...current,
+                      titulo: value,
+                    }))
+                  }
+                  onDescriptionChange={(category, value) =>
+                    setUploadState(category, (current) => ({
+                      ...current,
+                      descricao: value,
+                    }))
+                  }
+                  onFileSelect={handleEvidenceFileSelect}
+                  onUpload={(item) => void handleUploadChecklistDocumento(item)}
+                />
               </CollapsibleSectionCard>
             </section>
 
@@ -5365,8 +5235,8 @@ export function LicitacaoProcessoPage({
                 collapsedSummary={
                   isForaDoFluxo ? (
                     <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">
+                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--notice-warning-text)]">
                           {publishForm.dataPublicacaoEdital
                             ? formatShortDateBR(
                                 new Date(
@@ -5375,12 +5245,12 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-amber-700">
+                        <div className="text-[var(--notice-warning-text)]">
                           Publicacao (manual)
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">
+                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--notice-warning-text)]">
                           {manualScheduleForm.dataRecebimentoPropostasInicio
                             ? formatShortDateTimeBR(
                                 new Date(
@@ -5389,12 +5259,12 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-amber-700">
+                        <div className="text-[var(--notice-warning-text)]">
                           Recebimento inicial
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">
+                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--notice-warning-text)]">
                           {manualScheduleForm.dataRecebimentoPropostasFim
                             ? formatShortDateTimeBR(
                                 new Date(
@@ -5403,10 +5273,10 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-amber-700">Recebimento final</div>
+                        <div className="text-[var(--notice-warning-text)]">Recebimento final</div>
                       </div>
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-                        <span className="font-semibold text-amber-900">
+                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
+                        <span className="font-semibold text-[var(--notice-warning-text)]">
                           {manualScheduleForm.dataAberturaPropostas
                             ? formatShortDateTimeBR(
                                 new Date(
@@ -5415,7 +5285,7 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-amber-700">Disputa</div>
+                        <div className="text-[var(--notice-warning-text)]">Disputa</div>
                       </div>
                     </div>
                   ) : schedulePreview ? (
@@ -5585,277 +5455,6 @@ export function LicitacaoProcessoPage({
                     </FormField>
                   ) : null}
 
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Link publico da BLL">
-                      <div className="space-y-2">
-                        <Input
-                          type="url"
-                          placeholder="https://bllcompras.com/Process/..."
-                          value={publishForm.linkBllPublico}
-                          onChange={(event) =>
-                            setPublishForm((current) => ({
-                              ...current,
-                              linkBllPublico: event.target.value,
-                            }))
-                          }
-                        />
-                        {publishForm.linkBllPublico ? (
-                          <a
-                            href={publishForm.linkBllPublico}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir pagina publica da BLL
-                          </a>
-                        ) : null}
-                      </div>
-                    </FormField>
-                    <FormField label="Link publico do PNCP">
-                      <div className="space-y-2">
-                        <Input
-                          type="url"
-                          placeholder="https://pncp.gov.br/..."
-                          value={publishForm.linkPncpPublico}
-                          onChange={(event) =>
-                            setPublishForm((current) => ({
-                              ...current,
-                              linkPncpPublico: event.target.value,
-                            }))
-                          }
-                        />
-                        {publishForm.linkPncpPublico ? (
-                          <a
-                            href={publishForm.linkPncpPublico}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-primary-700)] hover:text-[var(--color-primary-900)]"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir publicacao do PNCP
-                          </a>
-                        ) : null}
-                      </div>
-                    </FormField>
-                  </div>
-
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FormField label="Descricao da movimentacao">
-                      <Input
-                        value={publishForm.descricao}
-                        onChange={(event) =>
-                          setPublishForm((current) => ({
-                            ...current,
-                            descricao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Observacao operacional">
-                      <Textarea
-                        rows={3}
-                        value={publishForm.observacao}
-                        onChange={(event) =>
-                          setPublishForm((current) => ({
-                            ...current,
-                            observacao: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                  </div>
-
-                  {inversaoFasesAtiva ? (
-                    <Alert variant="info">
-                      Inversao de fases ativa: a habilitacao e priorizada antes
-                      das etapas competitivas. Ajuste o cronograma conforme
-                      necessario.
-                    </Alert>
-                  ) : null}
-
-                  {isForaDoFluxo ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
-                        Cronograma manual
-                      </div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                        <FormField label="Recebimento inicial">
-                          <Input
-                            type="datetime-local"
-                            value={
-                              manualScheduleForm.dataRecebimentoPropostasInicio
-                            }
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataRecebimentoPropostasInicio:
-                                  event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Recebimento final">
-                          <Input
-                            type="datetime-local"
-                            value={
-                              manualScheduleForm.dataRecebimentoPropostasFim
-                            }
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataRecebimentoPropostasFim: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Abertura / disputa">
-                          <Input
-                            type="datetime-local"
-                            value={manualScheduleForm.dataAberturaPropostas}
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataAberturaPropostas: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Inicio dos lances">
-                          <Input
-                            type="datetime-local"
-                            value={manualScheduleForm.dataInicioLances}
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataInicioLances: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Fim dos lances">
-                          <Input
-                            type="datetime-local"
-                            value={manualScheduleForm.dataFimLances}
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataFimLances: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Julgamento">
-                          <Input
-                            type="datetime-local"
-                            value={manualScheduleForm.dataJulgamento}
-                            onChange={(event) =>
-                              setManualScheduleForm((current) => ({
-                                ...current,
-                                dataJulgamento: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                      </div>
-                    </div>
-                  ) : null}
-                  {isForaDoFluxo ? (
-                    <div className="space-y-3">
-                      <Alert variant="warning">
-                        Cronograma manual ativo. As datas acima serao usadas
-                        para auditoria e publicacao.
-                      </Alert>
-                      {manualScheduleViolatesLegalMinimum &&
-                      legalScheduleWindow ? (
-                        <Alert variant="warning">
-                          A sessao manual esta anterior ao minimo legal
-                          calculado para{" "}
-                          {formatShortDateBR(
-                            legalScheduleWindow.dataMinimaLegal,
-                          )}
-                          . O SIREL permitira o registro extemporaneo, mas
-                          exigira justificativa e mantera o rastreio reforcado.
-                        </Alert>
-                      ) : null}
-                    </div>
-                  ) : schedulePreview ? (
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-                      <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Publicacao
-                        </p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatShortDateBR(
-                            schedulePreview.dataPublicacaoEdital,
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Data base informada
-                        </p>
-                      </article>
-                      <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Recebimento inicial
-                        </p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataRecebimentoPropostasInicio,
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          {schedulePreview.startOffset} dias uteis apos a
-                          publicacao
-                        </p>
-                      </article>
-                      <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Recebimento final
-                        </p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataRecebimentoPropostasFim,
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Mesmo dia da disputa, 15 minutos antes
-                        </p>
-                      </article>
-                      <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Sessao / disputa
-                        </p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataAberturaPropostas,
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Horario definido para a disputa
-                        </p>
-                      </article>
-                      <article className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Acrescimos
-                        </p>
-                        <p className="mt-2 text-lg font-black text-[var(--color-primary-900)]">
-                          +{schedulePreview.municipioExtra}
-                          {schedulePreview.canaisExtra
-                            ? ` / +${schedulePreview.canaisExtra}`
-                            : ""}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                          Municipio / canais extras (DOU ou jornal)
-                        </p>
-                      </article>
-                    </div>
-                  ) : (
-                    <Alert variant="info">
-                      Defina a data prevista de publicacao e a hora da disputa
-                      para calcular automaticamente o cronograma.
-                    </Alert>
-                  )}
-
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       type="button"
@@ -5871,6 +5470,292 @@ export function LicitacaoProcessoPage({
                         : "Publicar processo"}
                     </Button>
                   </div>
+
+                  <details
+                    open={publicationChannelsOpen}
+                    onToggle={(event) =>
+                      setPublicationChannelsOpen(event.currentTarget.open)
+                    }
+                    className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-3 py-3"
+                  >
+                    <summary className="cursor-pointer text-sm font-bold text-[var(--text-primary)]">
+                      Canais, links e observacoes
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <FormField label="Link publico da BLL">
+                          <div className="space-y-2">
+                            <Input
+                              type="url"
+                              placeholder="https://bllcompras.com/Process/..."
+                              value={publishForm.linkBllPublico}
+                              onChange={(event) =>
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  linkBllPublico: event.target.value,
+                                }))
+                              }
+                            />
+                            {publishForm.linkBllPublico ? (
+                              <a
+                                href={publishForm.linkBllPublico}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Abrir pagina publica da BLL
+                              </a>
+                            ) : null}
+                          </div>
+                        </FormField>
+                        <FormField label="Link publico do PNCP">
+                          <div className="space-y-2">
+                            <Input
+                              type="url"
+                              placeholder="https://pncp.gov.br/..."
+                              value={publishForm.linkPncpPublico}
+                              onChange={(event) =>
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  linkPncpPublico: event.target.value,
+                                }))
+                              }
+                            />
+                            {publishForm.linkPncpPublico ? (
+                              <a
+                                href={publishForm.linkPncpPublico}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Abrir publicacao do PNCP
+                              </a>
+                            ) : null}
+                          </div>
+                        </FormField>
+                      </div>
+
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <FormField label="Descricao da movimentacao">
+                          <Input
+                            value={publishForm.descricao}
+                            onChange={(event) =>
+                              setPublishForm((current) => ({
+                                ...current,
+                                descricao: event.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                        <FormField label="Observacao operacional">
+                          <Textarea
+                            rows={3}
+                            value={publishForm.observacao}
+                            onChange={(event) =>
+                              setPublishForm((current) => ({
+                                ...current,
+                                observacao: event.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details
+                    open={publicationScheduleOpen}
+                    onToggle={(event) =>
+                      setPublicationScheduleOpen(event.currentTarget.open)
+                    }
+                    className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-3 py-3"
+                  >
+                    <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 text-sm font-bold text-[var(--text-primary)]">
+                      <span>Cronograma avancado e excecoes</span>
+                      {isForaDoFluxo || manualScheduleViolatesLegalMinimum ? (
+                        <span className="rounded-full border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-2.5 py-1 text-xs font-bold text-[var(--notice-warning-text)]">
+                          Revisao necessaria
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                          Fechado por padrao
+                        </span>
+                      )}
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      {inversaoFasesAtiva ? (
+                        <Alert variant="info">
+                          Inversao de fases ativa: a habilitacao e priorizada
+                          antes das etapas competitivas.
+                        </Alert>
+                      ) : null}
+
+                      {isForaDoFluxo ? (
+                        <div className="rounded-[14px] border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-3 py-3">
+                          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--notice-warning-text)]">
+                            Cronograma manual
+                          </div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                            <FormField label="Recebimento inicial">
+                              <Input
+                                type="datetime-local"
+                                value={
+                                  manualScheduleForm.dataRecebimentoPropostasInicio
+                                }
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataRecebimentoPropostasInicio:
+                                      event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Recebimento final">
+                              <Input
+                                type="datetime-local"
+                                value={
+                                  manualScheduleForm.dataRecebimentoPropostasFim
+                                }
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataRecebimentoPropostasFim:
+                                      event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Abertura / disputa">
+                              <Input
+                                type="datetime-local"
+                                value={manualScheduleForm.dataAberturaPropostas}
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataAberturaPropostas: event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Inicio dos lances">
+                              <Input
+                                type="datetime-local"
+                                value={manualScheduleForm.dataInicioLances}
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataInicioLances: event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Fim dos lances">
+                              <Input
+                                type="datetime-local"
+                                value={manualScheduleForm.dataFimLances}
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataFimLances: event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                            <FormField label="Julgamento">
+                              <Input
+                                type="datetime-local"
+                                value={manualScheduleForm.dataJulgamento}
+                                onChange={(event) =>
+                                  setManualScheduleForm((current) => ({
+                                    ...current,
+                                    dataJulgamento: event.target.value,
+                                  }))
+                                }
+                              />
+                            </FormField>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {isForaDoFluxo ? (
+                        <div className="space-y-3">
+                          <Alert variant="warning">
+                            Cronograma manual ativo. As datas acima serao usadas
+                            para auditoria e publicacao.
+                          </Alert>
+                          {manualScheduleViolatesLegalMinimum &&
+                          legalScheduleWindow ? (
+                            <Alert variant="warning">
+                              A sessao manual esta anterior ao minimo legal
+                              calculado para{" "}
+                              {formatShortDateBR(
+                                legalScheduleWindow.dataMinimaLegal,
+                              )}
+                              .
+                            </Alert>
+                          ) : null}
+                        </div>
+                      ) : schedulePreview ? (
+                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+                          {[
+                            [
+                              "Publicacao",
+                              formatShortDateBR(
+                                schedulePreview.dataPublicacaoEdital,
+                              ),
+                            ],
+                            [
+                              "Recebimento inicial",
+                              formatShortDateTimeBR(
+                                schedulePreview.dataRecebimentoPropostasInicio,
+                              ),
+                            ],
+                            [
+                              "Recebimento final",
+                              formatShortDateTimeBR(
+                                schedulePreview.dataRecebimentoPropostasFim,
+                              ),
+                            ],
+                            [
+                              "Sessao / disputa",
+                              formatShortDateTimeBR(
+                                schedulePreview.dataAberturaPropostas,
+                              ),
+                            ],
+                            [
+                              "Acrescimos",
+                              `+${schedulePreview.municipioExtra}${
+                                schedulePreview.canaisExtra
+                                  ? ` / +${schedulePreview.canaisExtra}`
+                                  : ""
+                              }`,
+                            ],
+                          ].map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2"
+                            >
+                              <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                                {label}
+                              </div>
+                              <div className="mt-0.5 text-sm font-black text-[var(--text-primary)]">
+                                {value}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <Alert variant="info">
+                          Defina a data prevista de publicacao e a hora da
+                          disputa para calcular automaticamente o cronograma.
+                        </Alert>
+                      )}
+                    </div>
+                  </details>
+
                 </form>
               </CollapsibleSectionCard>
             </section>
@@ -6773,7 +6658,7 @@ export function LicitacaoProcessoPage({
             </section>
           </div>
         </div>
-      </SectionCard>
+      </div>
 
       <MacroTransitionModal
         open={contractTransitionOpen}
