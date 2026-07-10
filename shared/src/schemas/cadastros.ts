@@ -82,10 +82,46 @@ export const secretariaCadastroSchema = z.object({
   ativo: z.boolean().default(true),
 });
 
+const dataNascimentoSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe a data de nascimento.")
+  .nullable()
+  .optional();
+
+function validateBirthDate(
+  value: string | null | undefined,
+  ctx: z.RefinementCtx,
+  path: string,
+) {
+  if (!value) return;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [path],
+      message: "Informe uma data valida.",
+    });
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  if (parsed > today) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [path],
+      message: "A data de nascimento nao pode estar no futuro.",
+    });
+  }
+}
+
 export const pessoaCadastroSchema = z.object({
   id: z.number().int().positive().optional(),
   nome: z.string().trim().min(3, "Informe o nome da pessoa."),
   cpf: z.string().trim().optional(),
+  matricula: z.string().trim().max(40).nullable().optional(),
+  dataNascimento: dataNascimentoSchema,
   cargo: z.string().trim().optional(),
   secretariaId: z.number().int().positive().optional().nullable(),
   ativo: z.boolean().default(true),
@@ -95,9 +131,10 @@ export const pessoaCadastroSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["cpf"],
-      message: "Informe um CPF válido com 11 dígitos.",
+      message: "Informe um CPF valido com 11 digitos.",
     });
   }
+  validateBirthDate(value.dataNascimento, ctx, "dataNascimento");
 });
 
 export const servidorCadastroSchema = pessoaCadastroSchema.superRefine((value, ctx) => {
@@ -106,6 +143,20 @@ export const servidorCadastroSchema = pessoaCadastroSchema.superRefine((value, c
       code: z.ZodIssueCode.custom,
       path: ["secretariaId"],
       message: "Vincule o servidor a uma secretaria.",
+    });
+  }
+  if (!value.matricula?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["matricula"],
+      message: "Informe a matricula do servidor.",
+    });
+  }
+  if (!value.dataNascimento) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dataNascimento"],
+      message: "Informe a data de nascimento do servidor.",
     });
   }
 });
@@ -127,6 +178,7 @@ export const usuarioCadastroSchema = z.object({
   email: z.string().trim().email("Informe um e-mail válido.").optional().or(z.literal("")),
   role: z.enum(["user", "admin", "gestor", "operador", "auditor"]),
   secretariaId: z.number().int().positive().optional().nullable(),
+  pessoaId: z.number().int().positive().optional().nullable(),
   ativo: z.boolean().default(true),
   password: z.string().min(8, "A senha deve ter pelo menos 8 caracteres.").max(120).optional(),
 }).superRefine((value, ctx) => {

@@ -50,4 +50,42 @@ describe("cadastros form", () => {
       expect(result.errors.secretariaId).toBeTruthy();
     }
   });
+
+  it("normaliza identidade funcional de servidor", () => {
+    const result = validateCadastroForm("servidores", {
+      nome: "Servidor Teste",
+      cpf: "123.456.789-01",
+      matricula: " MAT-001 ",
+      dataNascimento: "1990-05-12",
+      cargo: "Agente",
+      secretariaId: "2",
+      ativo: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toMatchObject({
+        matricula: "MAT-001",
+        dataNascimento: "1990-05-12",
+      });
+    }
+  });
+
+  it("inclui pessoa vinculada no payload de usuário", () => {
+    const payload = buildCadastroPayload("usuarios", {
+      username: "operador.teste",
+      name: "Operador Teste",
+      email: "operador@sirel.local",
+      role: "operador",
+      secretariaId: "3",
+      pessoaId: "7",
+      password: "Senha123",
+      ativo: true,
+    });
+
+    expect(payload).toMatchObject({
+      pessoaId: 7,
+      secretariaId: 3,
+    });
+  });
 });

@@ -8,6 +8,7 @@ import {
   useAllowedRoutes,
 } from "@/app/routes";
 import { SubsystemProvider } from "@/app/subsystem-context";
+import { IdentityProfileCompletionModal } from "@/components/auth/identity-profile-completion-modal";
 import { AppShell } from "@/components/layout/app-shell";
 import { SectionSkeleton } from "@/components/shared/section-skeleton";
 import {
@@ -52,10 +53,14 @@ function PreparingSessionScreen({ label }: { label: string }) {
 function AuthenticatedApp({
   session,
   onLogout,
+  onSessionUpdate,
 }: {
   session: AuthSession;
   onLogout: () => void;
+  onSessionUpdate: (session: AuthSession) => void;
 }) {
+  const utils = trpc.useUtils();
+  const [identityDismissed, setIdentityDismissed] = useState(false);
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     staleTime: 60_000,
@@ -74,6 +79,9 @@ function AuthenticatedApp({
   });
   const user = meQuery.data?.user ?? session.user;
   const allowedRoutes = useAllowedRoutes({ user });
+  const showIdentityModal =
+    Boolean(user.requiresIdentityCompletion) &&
+    (user.identityCompletionMode === "REQUIRED" || !identityDismissed);
 
   useEffect(() => {
     if (meQuery.error) {
@@ -93,18 +101,33 @@ function AuthenticatedApp({
   }
 
   return (
-    <AppShell user={user} onLogout={onLogout}>
-      <Suspense fallback={<RouteFallback />}>
-        <Switch>
-          {allowedRoutes.map((route) => (
-            <Route key={route.id} path={route.path}>
-              {(params) => renderAppRoute(route, params, { user })}
-            </Route>
-          ))}
-          <Route component={NotFoundOrDeniedPage} />
-        </Switch>
-      </Suspense>
-    </AppShell>
+    <>
+      <AppShell user={user} onLogout={onLogout}>
+        <Suspense fallback={<RouteFallback />}>
+          <Switch>
+            {allowedRoutes.map((route) => (
+              <Route key={route.id} path={route.path}>
+                {(params) => renderAppRoute(route, params, { user })}
+              </Route>
+            ))}
+            <Route component={NotFoundOrDeniedPage} />
+          </Switch>
+        </Suspense>
+      </AppShell>
+      <IdentityProfileCompletionModal
+        open={showIdentityModal}
+        user={user}
+        onDismiss={() => setIdentityDismissed(true)}
+        onLogout={onLogout}
+        onCompleted={(nextUser) => {
+          const nextSession = normalizeAuthSession({ ...session, user: nextUser });
+          saveStoredSession(nextSession);
+          onSessionUpdate(nextSession);
+          setIdentityDismissed(false);
+          void utils.auth.me.invalidate();
+        }}
+      />
+    </>
   );
 }
 
@@ -168,7 +191,7 @@ function AppContent() {
     );
   }
 
-  return <AuthenticatedApp session={session} onLogout={handleLogout} />;
+  return <AuthenticatedApp session={session} onLogout={handleLogout} onSessionUpdate={setSession} />;
 }
 
 export default function App() {

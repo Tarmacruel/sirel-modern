@@ -29,6 +29,7 @@ import {
   Landmark,
   Sparkles,
   LogOut,
+  KeyRound,
 } from "lucide-react";
 
 import { appModules } from "@sirel/shared/const";
@@ -40,6 +41,7 @@ import { buildGuidedTourSteps, resolveGuidedTourRoleTemplate, roleLabel } from "
 import { hasUserSubsystemAccess } from "@/lib/subsystem-navigation";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordDialog } from "@/components/auth/change-password-dialog";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { GuidedTour } from "@/components/layout/guided-tour";
 import { SubsystemSwitcher } from "@/components/layout/subsystem-switcher";
@@ -310,6 +312,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [tourRestartSignal, setTourRestartSignal] = useState(0);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -583,6 +586,17 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                         </button>
                         <button
                           type="button"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            setChangePasswordOpen(true);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3 text-left text-sm font-semibold text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)]"
+                        >
+                          <KeyRound className="h-4 w-4" />
+                          <span>Alterar minha senha</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={onLogout}
                           className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--danger-color)]/30 bg-[var(--danger-bg)] px-4 py-3 text-left text-sm font-semibold text-[var(--danger-color)] transition hover:border-[var(--danger-color)]/60"
                         >
@@ -619,6 +633,11 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
         version={dashboardEntryQuery.data?.tour.version ?? "entry-2026-04"}
         autoStart={Boolean(dashboardEntryQuery.data?.tour.shouldAutoStart) && location === "/"}
         restartSignal={tourRestartSignal}
+      />
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        onChanged={onLogout}
       />
     </div>
   );

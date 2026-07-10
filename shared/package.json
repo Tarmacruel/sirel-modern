@@ -66,6 +66,10 @@
       "types": "./dist/schemas/cadastros.d.ts",
       "import": "./dist/schemas/cadastros.js"
     },
+    "./schemas/auth-recovery": {
+      "types": "./dist/schemas/auth-recovery.d.ts",
+      "import": "./dist/schemas/auth-recovery.js"
+    },
     "./schemas/cadastros-institucionais": {
       "types": "./dist/schemas/cadastros-institucionais.d.ts",
       "import": "./dist/schemas/cadastros-institucionais.js"

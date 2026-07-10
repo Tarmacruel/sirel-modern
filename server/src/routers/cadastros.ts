@@ -85,6 +85,31 @@ function findPessoaByNormalizedCpf(normalizedCpf: string) {
   return sql<boolean>`regexp_replace(coalesce(${pessoas.cpf}, ''), '[^0-9]', '', 'g') = ${normalizedCpf}`;
 }
 
+function normalizePessoaMatricula(value: string | null | undefined) {
+  return (value ?? "").trim();
+}
+
+function findPessoaByNormalizedMatricula(normalizedMatricula: string) {
+  return sql<boolean>`lower(trim(coalesce(${pessoas.matricula}, ''))) = ${normalizedMatricula.toLowerCase()}`;
+}
+
+function toNullableDate(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function hasCompleteIdentityFields(row: {
+  cpf: string | null;
+  matricula: string | null;
+  dataNascimento: string | Date | null;
+}) {
+  return (
+    normalizePessoaCpf(row.cpf).length === 11 &&
+    Boolean(normalizePessoaMatricula(row.matricula)) &&
+    Boolean(row.dataNascimento)
+  );
+}
+
 function resolveCanonicalFornecedorCnpj(
   primaryValue: string | null | undefined,
   secondaryValue: string | null | undefined,
@@ -1430,6 +1455,8 @@ export const cadastrosRouter = router({
           id: pessoas.id,
           nome: pessoas.nome,
           cpf: pessoas.cpf,
+          matricula: pessoas.matricula,
+          dataNascimento: pessoas.dataNascimento,
           cargo: pessoas.cargo,
           secretariaId: pessoas.secretariaId,
         })
@@ -1735,6 +1762,7 @@ export const cadastrosRouter = router({
             ? or(
                 ilike(pessoas.nome, `%${input.search}%`),
                 ilike(pessoas.cpf, `%${input.search}%`),
+                ilike(pessoas.matricula, `%${input.search}%`),
                 ilike(pessoas.cargo, `%${input.search}%`),
                 ilike(secretarias.nome, `%${input.search}%`),
               )
@@ -1751,6 +1779,8 @@ export const cadastrosRouter = router({
               id: pessoas.id,
               nome: pessoas.nome,
               cpf: pessoas.cpf,
+              matricula: pessoas.matricula,
+              dataNascimento: pessoas.dataNascimento,
               cargo: pessoas.cargo,
               secretariaId: pessoas.secretariaId,
               secretariaNome: secretarias.nome,
@@ -1775,6 +1805,8 @@ export const cadastrosRouter = router({
             id: row.id,
             nome: row.nome,
             cpf: row.cpf,
+            matricula: row.matricula,
+            dataNascimento: row.dataNascimento,
             cargo: row.cargo,
             secretariaId: row.secretariaId,
             secretariaNome: row.secretariaNome,
@@ -1851,6 +1883,8 @@ export const cadastrosRouter = router({
                 ilike(users.username, `%${input.search}%`),
                 ilike(users.name, `%${input.search}%`),
                 ilike(users.email, `%${input.search}%`),
+                ilike(pessoas.nome, `%${input.search}%`),
+                ilike(pessoas.matricula, `%${input.search}%`),
               )
             : undefined,
           input.secretariaId ? eq(users.secretariaId, input.secretariaId) : undefined,
@@ -1859,7 +1893,12 @@ export const cadastrosRouter = router({
         const whereClause = filters.length ? and(...filters) : undefined;
 
         const [totalRows, rows] = await Promise.all([
-          db.select({ total: count() }).from(users).leftJoin(secretarias, eq(secretarias.id, users.secretariaId)).where(whereClause),
+          db
+            .select({ total: count() })
+            .from(users)
+            .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
+            .leftJoin(pessoas, eq(pessoas.id, users.pessoaId))
+            .where(whereClause),
           db
             .select({
               id: users.id,
@@ -1869,12 +1908,18 @@ export const cadastrosRouter = router({
               role: users.role,
               secretariaId: users.secretariaId,
               secretariaNome: secretarias.nome,
+              pessoaId: users.pessoaId,
+              pessoaNome: pessoas.nome,
+              pessoaCpf: pessoas.cpf,
+              pessoaMatricula: pessoas.matricula,
+              pessoaDataNascimento: pessoas.dataNascimento,
               ativo: users.ativo,
               lastSignedIn: users.lastSignedIn,
               updatedAt: users.updatedAt,
             })
             .from(users)
             .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
+            .leftJoin(pessoas, eq(pessoas.id, users.pessoaId))
             .where(whereClause)
             .orderBy(asc(users.name))
             .limit(pagination.limit)
@@ -1895,6 +1940,13 @@ export const cadastrosRouter = router({
             role: row.role,
             secretariaId: row.secretariaId,
             secretariaNome: row.secretariaNome,
+            pessoaId: row.pessoaId,
+            pessoaNome: row.pessoaNome,
+            identityStatus: row.pessoaId && hasCompleteIdentityFields({
+              cpf: row.pessoaCpf,
+              matricula: row.pessoaMatricula,
+              dataNascimento: row.pessoaDataNascimento,
+            }) ? "completo" : "pendente",
             status: row.ativo ? "ativo" : "inativo",
             lastSignedIn: row.lastSignedIn,
             atualizadoEm: row.updatedAt,
@@ -2457,6 +2509,7 @@ export const cadastrosRouter = router({
           ? or(
               ilike(pessoas.nome, `%${input.search}%`),
               ilike(pessoas.cpf, `%${input.search}%`),
+              ilike(pessoas.matricula, `%${input.search}%`),
               ilike(pessoas.cargo, `%${input.search}%`),
               ilike(secretarias.nome, `%${input.search}%`),
             )
@@ -2471,6 +2524,8 @@ export const cadastrosRouter = router({
           id: pessoas.id,
           nome: pessoas.nome,
           cpf: pessoas.cpf,
+          matricula: pessoas.matricula,
+          dataNascimento: pessoas.dataNascimento,
           cargo: pessoas.cargo,
           secretariaId: pessoas.secretariaId,
           secretariaNome: secretarias.nome,
@@ -2820,6 +2875,7 @@ export const cadastrosRouter = router({
             ? or(
                 ilike(pessoas.nome, `%${input.search}%`),
                 ilike(pessoas.cpf, `%${input.search}%`),
+                ilike(pessoas.matricula, `%${input.search}%`),
                 ilike(pessoas.cargo, `%${input.search}%`),
                 ilike(secretarias.nome, `%${input.search}%`),
               )
@@ -2834,6 +2890,8 @@ export const cadastrosRouter = router({
             id: pessoas.id,
             nome: pessoas.nome,
             cpf: pessoas.cpf,
+            matricula: pessoas.matricula,
+            dataNascimento: pessoas.dataNascimento,
             cargo: pessoas.cargo,
             secretariaId: pessoas.secretariaId,
             secretariaNome: secretarias.nome,
@@ -2850,6 +2908,8 @@ export const cadastrosRouter = router({
           id: row.id,
           nome: row.nome,
           cpf: row.cpf,
+          matricula: row.matricula,
+          dataNascimento: row.dataNascimento,
           cargo: row.cargo,
           secretariaId: row.secretariaId,
           secretariaNome: row.secretariaNome,
@@ -2914,6 +2974,8 @@ export const cadastrosRouter = router({
                 ilike(users.username, `%${input.search}%`),
                 ilike(users.name, `%${input.search}%`),
                 ilike(users.email, `%${input.search}%`),
+                ilike(pessoas.nome, `%${input.search}%`),
+                ilike(pessoas.matricula, `%${input.search}%`),
               )
             : undefined,
           input.secretariaId ? eq(users.secretariaId, input.secretariaId) : undefined,
@@ -2930,12 +2992,18 @@ export const cadastrosRouter = router({
             role: users.role,
             secretariaId: users.secretariaId,
             secretariaNome: secretarias.nome,
+            pessoaId: users.pessoaId,
+            pessoaNome: pessoas.nome,
+            pessoaCpf: pessoas.cpf,
+            pessoaMatricula: pessoas.matricula,
+            pessoaDataNascimento: pessoas.dataNascimento,
             ativo: users.ativo,
             lastSignedIn: users.lastSignedIn,
             atualizadoEm: users.updatedAt,
           })
           .from(users)
           .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
+          .leftJoin(pessoas, eq(pessoas.id, users.pessoaId))
           .where(whereClause)
           .orderBy(asc(users.name))
           .limit(5000);
@@ -2948,6 +3016,13 @@ export const cadastrosRouter = router({
           role: row.role,
           secretariaId: row.secretariaId,
           secretariaNome: row.secretariaNome,
+          pessoaId: row.pessoaId,
+          pessoaNome: row.pessoaNome,
+          identityStatus: row.pessoaId && hasCompleteIdentityFields({
+            cpf: row.pessoaCpf,
+            matricula: row.pessoaMatricula,
+            dataNascimento: row.pessoaDataNascimento,
+          }) ? "completo" : "pendente",
           status: row.ativo ? "ativo" : "inativo",
           lastSignedIn: row.lastSignedIn,
           atualizadoEm: row.atualizadoEm,
@@ -3285,6 +3360,7 @@ export const cadastrosRouter = router({
       case "pessoas":
       case "servidores": {
         const normalizedCpf = input.data.cpf ? normalizePessoaCpf(input.data.cpf) : null;
+        const normalizedMatricula = normalizePessoaMatricula(input.data.matricula);
         if (normalizedCpf) {
           const existing = await db
             .select({ id: pessoas.id })
@@ -3294,10 +3370,21 @@ export const cadastrosRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "Já existe pessoa cadastrada com este CPF." });
           }
         }
+        if (normalizedMatricula) {
+          const existing = await db
+            .select({ id: pessoas.id })
+            .from(pessoas)
+            .where(findPessoaByNormalizedMatricula(normalizedMatricula));
+          if (existing.some((row) => row.id !== input.data.id)) {
+            throw new TRPCError({ code: "CONFLICT", message: "Ja existe pessoa cadastrada com esta matricula." });
+          }
+        }
 
         const payload = {
           nome: input.data.nome,
           cpf: normalizedCpf,
+          matricula: normalizedMatricula || null,
+          dataNascimento: toNullableDate(input.data.dataNascimento),
           cargo: toNullableString(input.data.cargo),
           secretariaId: input.data.secretariaId ?? null,
           ativo: input.data.ativo,
@@ -3368,6 +3455,28 @@ export const cadastrosRouter = router({
       }
 
       case "usuarios": {
+        const pessoaId = input.data.pessoaId ?? null;
+        let linkedPessoa: typeof pessoas.$inferSelect | null = null;
+        if (pessoaId) {
+          const [pessoaRow] = await db.select().from(pessoas).where(eq(pessoas.id, pessoaId)).limit(1);
+          if (!pessoaRow) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa/servidor nao encontrado para vinculo." });
+          }
+          const existingLinkFilters = [
+            eq(users.pessoaId, pessoaId),
+            input.data.id ? sql`${users.id} <> ${input.data.id}` : undefined,
+          ].filter(Boolean) as any[];
+          const existingLink = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(...existingLinkFilters))
+            .limit(1);
+          if (existingLink.length) {
+            throw new TRPCError({ code: "CONFLICT", message: "Esta pessoa ja esta vinculada a outro usuario." });
+          }
+          linkedPessoa = pessoaRow;
+        }
+
         if (input.data.id) {
           const [before] = await db.select().from(users).where(eq(users.id, input.data.id)).limit(1);
           const [updated] = await db
@@ -3377,6 +3486,10 @@ export const cadastrosRouter = router({
               email: toNullableString(input.data.email),
               role: input.data.role,
               secretariaId: input.data.secretariaId ?? null,
+              pessoaId,
+              identityProfileCompletedAt: linkedPessoa && hasCompleteIdentityFields(linkedPessoa)
+                ? before?.identityProfileCompletedAt ?? new Date()
+                : null,
               ativo: input.data.ativo,
               updatedAt: new Date(),
             })
@@ -3415,6 +3528,10 @@ export const cadastrosRouter = router({
             passwordHash: hashPassword(input.data.password),
             role: input.data.role,
             secretariaId: input.data.secretariaId ?? null,
+            pessoaId,
+            identityProfileCompletedAt: linkedPessoa && hasCompleteIdentityFields(linkedPessoa)
+              ? new Date()
+              : null,
             ativo: input.data.ativo,
             createdAt: new Date(),
             updatedAt: new Date(),

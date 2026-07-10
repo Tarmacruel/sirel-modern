@@ -9,6 +9,7 @@ export type RequestUser = {
   email: string;
   role: string;
   secretariaId: number | null;
+  sessionVersion: number;
 };
 
 function readHeaderValue(req: Request, headerName: string) {
@@ -55,6 +56,7 @@ export function resolveRequestUser(req: Request): RequestUser | null {
       email: sessionPayload.email ?? "",
       role: sessionPayload.role,
       secretariaId: sessionPayload.secretariaId,
+      sessionVersion: sessionPayload.sessionVersion,
     };
   }
 
@@ -73,5 +75,6 @@ export function resolveRequestUser(req: Request): RequestUser | null {
     email: readHeaderValue(req, "x-sirel-user-email") || "demo@sirel.local",
     role: roleHeader,
     secretariaId,
+    sessionVersion: 1,
   };
 }

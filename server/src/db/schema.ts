@@ -416,6 +416,13 @@ export const users = pgTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     role: userRoleEnum("role").notNull().default("user"),
     secretariaId: integer("secretaria_id").references(() => secretarias.id),
+    pessoaId: integer("pessoa_id").references(() => pessoas.id, {
+      onDelete: "set null",
+    }),
+    sessionVersion: integer("session_version").notNull().default(1),
+    identityProfileCompletedAt: timestamp("identity_profile_completed_at", {
+      withTimezone: true,
+    }),
     ativo: boolean("ativo").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -427,6 +434,10 @@ export const users = pgTable(
   },
   (table) => ({
     idxSecretaria: index("users_secretaria_idx").on(table.secretariaId),
+    idxPessoa: index("users_pessoa_idx").on(table.pessoaId),
+    uqPessoa: uniqueIndex("users_pessoa_id_uq")
+      .on(table.pessoaId)
+      .where(sql`${table.pessoaId} is not null`),
   }),
 );
 
@@ -473,6 +484,8 @@ export const pessoas = pgTable(
     id: serial("id").primaryKey(),
     nome: varchar("nome", { length: 200 }).notNull(),
     cpf: varchar("cpf", { length: 18 }),
+    matricula: varchar("matricula", { length: 40 }),
+    dataNascimento: date("data_nascimento"),
     cargo: varchar("cargo", { length: 120 }),
     secretariaId: integer("secretaria_id").references(() => secretarias.id),
     ativo: boolean("ativo").notNull().default(true),
@@ -485,6 +498,10 @@ export const pessoas = pgTable(
   },
   (table) => ({
     idxSecretaria: index("pessoas_secretaria_idx").on(table.secretariaId),
+    idxMatricula: index("pessoas_matricula_idx").on(table.matricula),
+    idxDataNascimento: index("pessoas_data_nascimento_idx").on(
+      table.dataNascimento,
+    ),
   }),
 );
 
@@ -3025,6 +3042,50 @@ export const authLog = pgTable(
     idxLogin: index("auth_log_login_idx").on(table.loginNormalizado),
     idxEvento: index("auth_log_evento_idx").on(table.evento),
     idxCriadoEm: index("auth_log_criado_em_idx").on(table.criadoEm),
+  }),
+);
+
+export const authRecoveryChallenges = pgTable(
+  "auth_recovery_challenges",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    purpose: varchar("purpose", { length: 40 }).notNull(),
+    challengeHash: varchar("challenge_hash", { length: 128 }).notNull(),
+    usernameFingerprint: varchar("username_fingerprint", {
+      length: 128,
+    }),
+    identityFingerprint: varchar("identity_fingerprint", {
+      length: 128,
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    ipFingerprint: varchar("ip_fingerprint", { length: 128 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxUser: index("auth_recovery_challenges_user_idx").on(table.userId),
+    idxPurpose: index("auth_recovery_challenges_purpose_idx").on(
+      table.purpose,
+    ),
+    idxChallenge: index("auth_recovery_challenges_hash_idx").on(
+      table.challengeHash,
+    ),
+    idxIp: index("auth_recovery_challenges_ip_idx").on(table.ipFingerprint),
+    idxUsername: index("auth_recovery_challenges_username_idx").on(
+      table.usernameFingerprint,
+    ),
+    idxIdentity: index("auth_recovery_challenges_identity_idx").on(
+      table.identityFingerprint,
+    ),
+    idxCreatedAt: index("auth_recovery_challenges_created_at_idx").on(
+      table.createdAt,
+    ),
   }),
 );
 

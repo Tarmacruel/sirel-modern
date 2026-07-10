@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -186,6 +186,7 @@ export const usuariosRouter = router({
       .update(users)
       .set({
         passwordHash: hashPassword(input.newPassword),
+        sessionVersion: sql`${users.sessionVersion} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(users.id, input.userId))
@@ -225,6 +226,7 @@ export const usuariosRouter = router({
       .update(users)
       .set({
         passwordHash: hashPassword(input.newPassword),
+        sessionVersion: sql`${users.sessionVersion} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));

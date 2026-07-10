@@ -88,6 +88,8 @@ export function buildCadastroPayload(entity: CadastroEntity, form: CadastroFormS
         id: editingId ?? undefined,
         nome: String(form.nome ?? "").trim(),
         cpf: digitsOnly(form.cpf),
+        matricula: String(form.matricula ?? "").trim(),
+        dataNascimento: String(form.dataNascimento ?? "").trim() || null,
         cargo: String(form.cargo ?? "").trim(),
         secretariaId: form.secretariaId ? Number(form.secretariaId) : null,
         ativo: Boolean(form.ativo),
@@ -110,6 +112,7 @@ export function buildCadastroPayload(entity: CadastroEntity, form: CadastroFormS
         email: String(form.email ?? "").trim(),
         role: form.role,
         secretariaId: form.secretariaId ? Number(form.secretariaId) : null,
+        pessoaId: form.pessoaId ? Number(form.pessoaId) : null,
         password: editingId ? undefined : String(form.password ?? ""),
         ativo: Boolean(form.ativo),
       };

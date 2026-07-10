@@ -44,6 +44,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { PasswordResetDialog } from "@/components/auth/password-reset-dialog";
+import { UsernameRecoveryDialog } from "@/components/auth/username-recovery-dialog";
 import { useRuntimeBranding } from "@/lib/branding";
 
 interface LoginPageProps {
@@ -96,6 +98,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [usernameRecoveryOpen, setUsernameRecoveryOpen] = useState(false);
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
   const mutation = trpc.auth.login.useMutation({
     onSuccess: (session) => {
       onLogin(session);
@@ -290,7 +294,22 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               </div>
 
               <div className="mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-                <p className="max-w-sm">Todos os acessos são registrados para segurança e auditoria institucional.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUsernameRecoveryOpen(true)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
+                  >
+                    Esqueci meu usuario
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPasswordResetOpen(true)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
+                  >
+                    Redefinir senha
+                  </button>
+                </div>
                 <div className="inline-flex items-center gap-2 text-sky-100/80">
                   <span>Ambiente autenticado</span>
                   <ArrowRight className="h-4 w-4" />
@@ -300,6 +319,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </div>
         </section>
       </div>
+      <UsernameRecoveryDialog open={usernameRecoveryOpen} onClose={() => setUsernameRecoveryOpen(false)} />
+      <PasswordResetDialog open={passwordResetOpen} onClose={() => setPasswordResetOpen(false)} />
     </div>
   );
 }

@@ -12,9 +12,14 @@ interface SessionPayload {
   email: string | null;
   role: string;
   secretariaId: number | null;
+  sessionVersion: number;
+  iat: number;
   exp: number;
   ver: number;
 }
+
+type StoredSessionPayload = Omit<SessionPayload, "sessionVersion" | "iat"> &
+  Partial<Pick<SessionPayload, "sessionVersion" | "iat">>;
 
 function base64UrlEncode(value: string) {
   return Buffer.from(value, "utf-8").toString("base64url");
@@ -60,7 +65,7 @@ function buildCookieOptions(req: Request | undefined) {
   };
 }
 
-function signPayload(payload: SessionPayload) {
+function signPayload(payload: object) {
   return createHmac("sha256", getSecret()).update(JSON.stringify(payload)).digest("base64url");
 }
 
@@ -71,7 +76,9 @@ export function createSessionToken(user: {
   email: string | null;
   role: string;
   secretariaId: number | null;
+  sessionVersion: number;
 }) {
+  const issuedAt = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
     sub: user.id,
     username: user.username,
@@ -79,7 +86,9 @@ export function createSessionToken(user: {
     email: user.email,
     role: user.role,
     secretariaId: user.secretariaId,
-    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    sessionVersion: user.sessionVersion,
+    iat: issuedAt,
+    exp: issuedAt + SESSION_TTL_SECONDS,
     ver: TOKEN_VERSION,
   };
   return `${base64UrlEncode(JSON.stringify(payload))}.${signPayload(payload)}`;
@@ -91,12 +100,16 @@ export function verifySessionToken(token: string | null | undefined) {
   if (!payloadPart || !signaturePart) return null;
 
   try {
-    const payload = JSON.parse(base64UrlDecode(payloadPart)) as SessionPayload;
+    const payload = JSON.parse(base64UrlDecode(payloadPart)) as StoredSessionPayload;
     if (payload.ver !== TOKEN_VERSION) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     const expectedSignature = signPayload(payload);
     if (expectedSignature !== signaturePart) return null;
-    return payload;
+    return {
+      ...payload,
+      sessionVersion: Number(payload.sessionVersion ?? 1),
+      iat: Number(payload.iat ?? payload.exp - SESSION_TTL_SECONDS),
+    } satisfies SessionPayload;
   } catch {
     return null;
   }

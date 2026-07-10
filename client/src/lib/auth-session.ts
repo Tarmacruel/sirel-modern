@@ -2,6 +2,10 @@ import type {
   SubsystemAccessLevel,
   SubsystemKey,
 } from "@sirel/shared/subsystems";
+import type {
+  IdentityCompletionMode,
+  IdentityMissingField,
+} from "@sirel/shared/schemas/auth-recovery";
 
 export interface AuthSubsystemAccess {
   subsystemKey: SubsystemKey;
@@ -30,9 +34,20 @@ export interface AuthUser {
   email: string | null;
   role: string;
   secretariaId: number | null;
+  sessionVersion?: number;
   subsystemAccess: AuthSubsystemAccess[];
   availableSubsystems: AuthAvailableSubsystem[];
   defaultSubsystemKey: SubsystemKey | null;
+  identityProfile: {
+    pessoaId: number | null;
+    complete: boolean;
+    missingFields: IdentityMissingField[];
+    cpfMasked: string | null;
+    matriculaMasked: string | null;
+    dataNascimentoPresent: boolean;
+  };
+  requiresIdentityCompletion: boolean;
+  identityCompletionMode: IdentityCompletionMode;
 }
 
 export interface AuthSession {
@@ -50,6 +65,7 @@ function normalizeAuthUser(user: Partial<AuthUser> & Pick<AuthUser, "id" | "name
     email: user.email ?? null,
     role: user.role,
     secretariaId: user.secretariaId ?? null,
+    sessionVersion: user.sessionVersion,
     subsystemAccess: Array.isArray(user.subsystemAccess)
       ? user.subsystemAccess
       : [],
@@ -57,6 +73,18 @@ function normalizeAuthUser(user: Partial<AuthUser> & Pick<AuthUser, "id" | "name
       ? user.availableSubsystems
       : [],
     defaultSubsystemKey: user.defaultSubsystemKey ?? null,
+    identityProfile: {
+      pessoaId: user.identityProfile?.pessoaId ?? null,
+      complete: Boolean(user.identityProfile?.complete),
+      missingFields: Array.isArray(user.identityProfile?.missingFields)
+        ? user.identityProfile.missingFields
+        : ["PESSOA_LINK", "CPF", "MATRICULA", "DATA_NASCIMENTO"],
+      cpfMasked: user.identityProfile?.cpfMasked ?? null,
+      matriculaMasked: user.identityProfile?.matriculaMasked ?? null,
+      dataNascimentoPresent: Boolean(user.identityProfile?.dataNascimentoPresent),
+    },
+    requiresIdentityCompletion: Boolean(user.requiresIdentityCompletion),
+    identityCompletionMode: user.identityCompletionMode === "REQUIRED" ? "REQUIRED" : "REMINDER",
   };
 }
 

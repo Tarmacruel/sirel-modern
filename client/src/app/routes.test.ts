@@ -58,6 +58,16 @@ function userWithAccess(role: string, subsystemKey: SubsystemKey): AuthUser {
     subsystemAccess,
     availableSubsystems: [],
     defaultSubsystemKey: "hub",
+    identityProfile: {
+      pessoaId: null,
+      complete: true,
+      missingFields: [],
+      cpfMasked: null,
+      matriculaMasked: null,
+      dataNascimentoPresent: false,
+    },
+    requiresIdentityCompletion: false,
+    identityCompletionMode: "REMINDER",
   };
 }
 

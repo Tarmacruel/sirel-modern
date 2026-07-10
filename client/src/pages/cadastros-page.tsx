@@ -111,7 +111,7 @@ const entityMeta: Array<{ key: CadastroEntity; label: string; icon: typeof Boxes
   { key: "fornecedores", label: "Fornecedores", icon: Building2, singular: "fornecedor", searchLabel: "razão social, CNPJ ou e-mail" },
   { key: "secretarias", label: "Secretarias", icon: Landmark, singular: "secretaria", searchLabel: "nome, sigla ou responsável" },
   { key: "pessoas", label: "Pessoas", icon: Users, singular: "pessoa", searchLabel: "nome, CPF ou cargo" },
-  { key: "servidores", label: "Servidores", icon: UserCog, singular: "servidor", searchLabel: "nome, CPF, cargo ou secretaria" },
+  { key: "servidores", label: "Servidores", icon: UserCog, singular: "servidor", searchLabel: "nome, CPF, matrícula, cargo ou secretaria" },
   { key: "departamentos", label: "Departamentos", icon: FolderTree, singular: "departamento", searchLabel: "nome, centro de custo ou secretaria" },
   { key: "usuarios", label: "Usuários", icon: Users, singular: "usuário", searchLabel: "nome, login ou e-mail" },
   { key: "parametros", label: "Parâmetros", icon: Settings2, singular: "parâmetro", searchLabel: "categoria, chave ou valor" },
@@ -182,13 +182,13 @@ function getDefaultForm(entity: CadastroEntity): FormState {
     case "secretarias":
       return { sigla: "", nome: "", responsavel: "", email: "", telefone: "", descricao: "", ativo: true };
     case "pessoas":
-      return { nome: "", cpf: "", cargo: "", secretariaId: "", ativo: true };
+      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", secretariaId: "", ativo: true };
     case "servidores":
-      return { nome: "", cpf: "", cargo: "", secretariaId: "", ativo: true };
+      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", secretariaId: "", ativo: true };
     case "departamentos":
       return { nome: "", codigoCentroCusto: "", secretariaId: "", responsavelId: "", descricao: "", ativo: true };
     case "usuarios":
-      return { username: "", name: "", email: "", role: "operador", secretariaId: "", password: "", ativo: true };
+      return { username: "", name: "", email: "", role: "operador", secretariaId: "", pessoaId: "", password: "", ativo: true };
     case "parametros":
       return { categoria: "", chave: "", valor: "", descricao: "", ativo: true };
   }
@@ -232,6 +232,8 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         id: row.id,
         nome: row.nome ?? "",
         cpf: row.cpf ?? "",
+        matricula: row.matricula ?? "",
+        dataNascimento: row.dataNascimento ? String(row.dataNascimento).slice(0, 10) : "",
         cargo: row.cargo ?? "",
         secretariaId: row.secretariaId ? String(row.secretariaId) : "",
         ativo: row.status === "ativo",
@@ -254,6 +256,7 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         email: row.email ?? "",
         role: row.role ?? "operador",
         secretariaId: row.secretariaId ? String(row.secretariaId) : "",
+        pessoaId: row.pessoaId ? String(row.pessoaId) : "",
         password: "",
         ativo: row.status === "ativo",
       };
@@ -399,6 +402,8 @@ function buildExportRows(entity: CadastroEntity, rows: Array<Record<string, any>
       return rows.map((row) => ({
         Nome: row.nome,
         CPF: row.cpf ?? "",
+        Matricula: row.matricula ?? "",
+        Nascimento: row.dataNascimento ? String(row.dataNascimento).slice(0, 10) : "",
         Cargo: row.cargo ?? "",
         Secretaria: row.secretariaNome ?? "",
         Status: row.status,
@@ -418,6 +423,8 @@ function buildExportRows(entity: CadastroEntity, rows: Array<Record<string, any>
         Email: row.email ?? "",
         Perfil: roleLabels[row.role] ?? row.role,
         Secretaria: row.secretariaNome ?? "",
+        Pessoa: row.pessoaNome ?? "",
+        Identidade: row.identityStatus ?? "",
         Status: row.status,
       }));
     case "parametros":
@@ -505,6 +512,13 @@ function CadastroMobileCard({
               <p className="text-sm text-[var(--color-neutral-600)]">{row.responsavel ?? "Sem responsável"}</p>
             </>
           ) : null}
+          {entity === "pessoas" || entity === "servidores" ? (
+            <>
+              <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</p>
+              <p className="text-xs font-mono text-[var(--color-neutral-500)]">{row.cpf ? formatCpf(row.cpf) : "Sem CPF"}</p>
+              <p className="text-sm text-[var(--color-neutral-600)]">{row.matricula ? `Mat. ${row.matricula}` : row.cargo ?? "Sem cargo"}</p>
+            </>
+          ) : null}
           {entity === "departamentos" ? (
             <>
               <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</p>
@@ -516,7 +530,7 @@ function CadastroMobileCard({
             <>
               <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.name, search)}</p>
               <p className="text-xs font-mono text-[var(--color-neutral-500)]">{row.username ?? "Sem login"}</p>
-              <p className="text-sm text-[var(--color-neutral-600)]">{roleLabels[row.role] ?? row.role}</p>
+              <p className="text-sm text-[var(--color-neutral-600)]">{roleLabels[row.role] ?? row.role}{row.pessoaNome ? ` - ${row.pessoaNome}` : ""}</p>
             </>
           ) : null}
           {entity === "parametros" ? (
@@ -2034,9 +2048,9 @@ export function CadastrosPage() {
           <>
             <TableCell>
               <div className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</div>
-              <div className="text-xs font-mono text-[var(--color-neutral-500)]">{row.cpf ?? "-"}</div>
+              <div className="text-xs font-mono text-[var(--color-neutral-500)]">{row.cpf ? formatCpf(row.cpf) : "-"}</div>
             </TableCell>
-            <TableCell>{row.cargo ?? "-"}</TableCell>
+            <TableCell>{row.matricula ?? row.cargo ?? "-"}</TableCell>
             <TableCell>{row.secretariaNome ?? "-"}</TableCell>
           </>
         ) : null}
@@ -2055,9 +2069,13 @@ export function CadastrosPage() {
             <TableCell>
               <div className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.name, search)}</div>
               <div className="text-xs font-mono text-[var(--color-neutral-500)]">{row.username ?? "-"}</div>
+              <div className="mt-1 text-xs text-[var(--color-neutral-500)]">{row.identityStatus === "completo" ? "Identidade completa" : "Identidade pendente"}</div>
             </TableCell>
             <TableCell>{roleLabels[row.role] ?? row.role}</TableCell>
-            <TableCell>{row.secretariaNome ?? "-"}</TableCell>
+            <TableCell>
+              <div>{row.secretariaNome ?? "-"}</div>
+              {row.pessoaNome ? <div className="text-xs text-[var(--color-neutral-500)]">{row.pessoaNome}</div> : null}
+            </TableCell>
           </>
         ) : null}
         {entity === "parametros" ? (
@@ -2745,8 +2763,8 @@ export function CadastrosPage() {
                       />
                     </TableHeaderCell>
                     <TableHeaderCell>{entity === "parametros" ? "Registro" : meta.singular.charAt(0).toUpperCase() + meta.singular.slice(1)}</TableHeaderCell>
-                    <TableHeaderCell>{entity === "itens" ? "Unidade" : entity === "fornecedores" ? "Cidade" : entity === "secretarias" ? "Responsável" : entity === "departamentos" ? "Secretaria" : entity === "usuarios" ? "Perfil" : "Valor"}</TableHeaderCell>
-                    <TableHeaderCell>{entity === "itens" ? "Valor ref." : entity === "fornecedores" ? "E-mail" : entity === "secretarias" ? "E-mail" : entity === "departamentos" ? "Responsável" : entity === "usuarios" ? "Secretaria" : "Descrição"}</TableHeaderCell>
+                    <TableHeaderCell>{entity === "itens" ? "Unidade" : entity === "fornecedores" ? "Cidade" : entity === "secretarias" ? "Responsável" : entity === "pessoas" || entity === "servidores" ? "Matrícula/Cargo" : entity === "departamentos" ? "Secretaria" : entity === "usuarios" ? "Perfil" : "Valor"}</TableHeaderCell>
+                    <TableHeaderCell>{entity === "itens" ? "Valor ref." : entity === "fornecedores" ? "E-mail" : entity === "secretarias" ? "E-mail" : entity === "pessoas" || entity === "servidores" ? "Secretaria" : entity === "departamentos" ? "Responsável" : entity === "usuarios" ? "Secretaria" : "Descrição"}</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
                     <TableHeaderCell>Atualizado</TableHeaderCell>
                     <TableHeaderCell className="text-right">Ações</TableHeaderCell>
@@ -3290,6 +3308,12 @@ export function CadastrosPage() {
                 <FormField label="CPF" error={fieldError("cpf")}>
                   <Input value={formState.cpf ?? ""} onChange={(event) => updateForm("cpf", maskCpf(event.target.value))} placeholder="Somente números ou CPF formatado" />
                 </FormField>
+                <FormField label="Matrícula" error={fieldError("matricula")}>
+                  <Input value={formState.matricula ?? ""} onChange={(event) => updateForm("matricula", event.target.value)} />
+                </FormField>
+                <FormField label="Data de nascimento" error={fieldError("dataNascimento")}>
+                  <Input type="date" value={formState.dataNascimento ?? ""} onChange={(event) => updateForm("dataNascimento", event.target.value)} />
+                </FormField>
                 <FormField label="Cargo" error={fieldError("cargo")}>
                   <Input value={formState.cargo ?? ""} onChange={(event) => updateForm("cargo", event.target.value)} />
                 </FormField>
@@ -3356,6 +3380,16 @@ export function CadastrosPage() {
                     <option value="">Sem vínculo</option>
                     {optionsQuery.data?.secretarias.map((item) => (
                       <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Pessoa/servidor vinculado" className="md:col-span-2" error={fieldError("pessoaId")}>
+                  <Select value={formState.pessoaId ?? ""} onChange={(event) => updateForm("pessoaId", event.target.value)}>
+                    <option value="">Sem vínculo de identidade</option>
+                    {optionsQuery.data?.pessoas.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.nome}{item.matricula ? ` - mat. ${item.matricula}` : ""}{item.cpf ? ` - ${formatCpf(item.cpf)}` : ""}
+                      </option>
                     ))}
                   </Select>
                 </FormField>
