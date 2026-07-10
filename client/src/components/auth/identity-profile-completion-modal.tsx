@@ -33,6 +33,13 @@ export function IdentityProfileCompletionModal({
   onLogout,
 }: IdentityProfileCompletionModalProps) {
   const required = user.identityCompletionMode === "REQUIRED";
+  const identityProfile = user.identityProfile;
+  const missingFields = Array.isArray(identityProfile?.missingFields)
+    ? identityProfile.missingFields
+    : ["PESSOA_LINK", "CPF", "MATRICULA", "DATA_NASCIMENTO"];
+  const missingFieldsLabel = missingFields.length
+    ? missingFields.map((field) => missingLabels[field] ?? field).join(", ")
+    : "Dados funcionais pendentes";
   const [cpf, setCpf] = useState("");
   const [matricula, setMatricula] = useState("");
   const [dataNascimento, setDataNascimento] = useState("");
@@ -77,7 +84,7 @@ export function IdentityProfileCompletionModal({
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <Alert variant={required ? "warning" : "info"} title={required ? "Acesso aguardando regularizacao" : "Perfil incompleto"}>
-          Pendencias: {user.identityProfile.missingFields.map((field) => missingLabels[field] ?? field).join(", ")}.
+          Pendencias: {missingFieldsLabel}.
         </Alert>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -87,7 +94,7 @@ export function IdentityProfileCompletionModal({
               value={cpf}
               onChange={(event) => setCpf(maskCpf(event.target.value))}
               autoComplete="off"
-              placeholder={user.identityProfile.cpfMasked ?? "000.000.000-00"}
+              placeholder={identityProfile?.cpfMasked ?? "000.000.000-00"}
             />
           </FormField>
           <FormField label="Matricula">
@@ -96,7 +103,7 @@ export function IdentityProfileCompletionModal({
               value={matricula}
               onChange={(event) => setMatricula(event.target.value)}
               autoComplete="off"
-              placeholder={user.identityProfile.matriculaMasked ?? "Matricula funcional"}
+              placeholder={identityProfile?.matriculaMasked ?? "Matricula funcional"}
             />
           </FormField>
           <FormField label="Data de nascimento" className="sm:col-span-2">

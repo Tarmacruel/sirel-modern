@@ -77,7 +77,9 @@ function AuthenticatedApp({
     retry: false,
     staleTime: 30_000,
   });
-  const user = meQuery.data?.user ?? session.user;
+  const user = meQuery.data?.user
+    ? normalizeAuthSession({ token: session.token, user: meQuery.data.user }).user
+    : session.user;
   const allowedRoutes = useAllowedRoutes({ user });
   const showIdentityModal =
     Boolean(user.requiresIdentityCompletion) &&
