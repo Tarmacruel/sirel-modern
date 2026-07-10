@@ -100,6 +100,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 22. [`21-prompt-codex-cadastros-institucionais.md`](./21-prompt-codex-cadastros-institucionais.md)
     Prompt operacional para implementar os cadastros institucionais, versionamento, snapshots e integração com o dossiê.
 
+23. [`22-identidade-recuperacao-credenciais.md`](./22-identidade-recuperacao-credenciais.md)
+    Plano de identidade pessoal, vínculo usuário-servidor, regularização pós-login e recuperação segura de credenciais.
+
+24. [`23-prompt-codex-identidade-recuperacao.md`](./23-prompt-codex-identidade-recuperacao.md)
+    Prompt operacional para implementar nascimento, matrícula, recuperação de usuário, redefinição de senha e revogação de sessões.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -147,6 +153,10 @@ O catálogo atual que mistura todos os documentos na fase externa deve ser subst
 ## Nova frente: catálogos institucionais
 
 Os decretos de comissão, equipe de apoio e ordenador deixam de ser uploads repetidos e passam a ser atos institucionais reutilizáveis. A fase de Preparação seleciona estruturas previamente cadastradas, registra composição, vigência e snapshot histórico e disponibiliza os atos no dossiê por referência.
+
+## Nova frente: identidade e recuperação de acesso
+
+O cadastro de Pessoa recebe data de nascimento, o cadastro de Servidor recebe matrícula e o Usuário passa a possuir vínculo explícito com sua identidade funcional. A tela de login ganha recuperação de usuário e senha, enquanto cadastros incompletos são regularizados por modal após o login, com proteção contra enumeração, limitação de tentativas e revogação das sessões anteriores.
 
 ## Regra de ouro
 
