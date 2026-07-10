@@ -11,6 +11,7 @@ import {
   calcularPrazoLegalMinimo,
   type RegraPrazoLegal,
 } from "@sirel/shared/prazos-legais";
+import { isInexigibilidadeModalidade } from "@sirel/shared/licitacao-guided-flow";
 import {
   licitacaoAdvanceStageInputSchema,
   licitacaoDetailInputSchema,
@@ -36,6 +37,11 @@ import {
   getCriticalStatusKind,
   getCriticalStatusKindLabel,
 } from "../lib/process-status-critical.js";
+import {
+  getLicitacaoFlowEnforcement,
+  isLicitacaoFlowBlocking,
+} from "../lib/licitacao-flow-policy.js";
+import { getTransparenciaProviderStatus } from "../integrations/transparencia/transparencia-provider.js";
 import {
   documentos,
   fornecedores,
@@ -1155,6 +1161,7 @@ export const licitacaoRouter = router({
               dataHomologacao: null,
               linkBllPublico: null,
               linkPncpPublico: null,
+              fundamentoLegalInciso: null,
               inversaoFasesHabilitada: false,
               inversaoFasesJustificativa: null,
               observacoes: null,
@@ -1205,6 +1212,8 @@ export const licitacaoRouter = router({
               publicarEmJornal: licitacao?.publicarEmJornal ?? false,
               dataAberturaPropostas: licitacao?.dataAberturaPropostas ?? null,
             }),
+        flowEnforcement: getLicitacaoFlowEnforcement(),
+        transparencia: getTransparenciaProviderStatus(),
         resumo: {
           totalItens: itens.length,
           totalLicitantes: licitantesRows.length,
@@ -1232,7 +1241,11 @@ export const licitacaoRouter = router({
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
-      if (processo.foraDoFluxo && !justificativaAuditoria) {
+      if (
+        processo.foraDoFluxo &&
+        isLicitacaoFlowBlocking() &&
+        !justificativaAuditoria
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -1284,6 +1297,7 @@ export const licitacaoRouter = router({
         ),
         publicarNoDou: Boolean(input.publicarNoDou),
         publicarEmJornal: Boolean(input.publicarEmJornal),
+        fundamentoLegalInciso: toNullableText(input.fundamentoLegalInciso),
         dataPublicacaoEdital:
           schedule?.dataPublicacaoEdital ?? configuredPublicationDate,
         dataRecebimentoPropostasInicio:
@@ -1423,7 +1437,7 @@ export const licitacaoRouter = router({
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
-      if (!justificativaAuditoria) {
+      if (isLicitacaoFlowBlocking() && !justificativaAuditoria) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -1627,7 +1641,11 @@ export const licitacaoRouter = router({
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
-      if (processo.foraDoFluxo && !justificativaAuditoria) {
+      if (
+        processo.foraDoFluxo &&
+        isLicitacaoFlowBlocking() &&
+        !justificativaAuditoria
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -1642,7 +1660,11 @@ export const licitacaoRouter = router({
         processo.modalidadeCodigo,
         processo.modoDisputa,
       );
-      if (!processo.foraDoFluxo && checklist.obrigatoriosPendentes.length) {
+      if (
+        isLicitacaoFlowBlocking() &&
+        !processo.foraDoFluxo &&
+        checklist.obrigatoriosPendentes.length
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -1710,6 +1732,19 @@ export const licitacaoRouter = router({
         parseOptionalTimestamp(input.dataAberturaPropostas) ??
         licitacao.dataAberturaPropostas ??
         null;
+      const fundamentoLegalInciso =
+        toNullableText(input.fundamentoLegalInciso) ??
+        licitacao.fundamentoLegalInciso;
+      if (
+        isInexigibilidadeModalidade(processo.modalidadeCodigo) &&
+        !fundamentoLegalInciso
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Selecione o fundamento legal da inexigibilidade antes de publicar.",
+        });
+      }
 
       const numeroEdital =
         processo.numeroEdital ??
@@ -1754,6 +1789,7 @@ export const licitacaoRouter = router({
           null,
         linkBllPublico: normalizePublicUrl(input.linkBllPublico),
         linkPncpPublico: normalizePublicUrl(input.linkPncpPublico),
+        fundamentoLegalInciso,
         atualizadoEm: new Date(),
       };
       const processoPatch: Record<string, unknown> = {
@@ -2420,7 +2456,11 @@ export const licitacaoRouter = router({
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
-      if (processo.foraDoFluxo && !justificativaAuditoria) {
+      if (
+        processo.foraDoFluxo &&
+        isLicitacaoFlowBlocking() &&
+        !justificativaAuditoria
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:
@@ -2476,7 +2516,11 @@ export const licitacaoRouter = router({
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
-      if (processo.foraDoFluxo && !justificativaAuditoria) {
+      if (
+        processo.foraDoFluxo &&
+        isLicitacaoFlowBlocking() &&
+        !justificativaAuditoria
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message:

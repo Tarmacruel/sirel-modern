@@ -231,6 +231,7 @@ export const licitacaoStatusEnum = pgEnum("licitacao_status", [
   "JULGAMENTO",
   "HABILITACAO",
   "RECURSOS",
+  "CONTROLE_INTERNO",
   "HOMOLOGACAO",
   "CONTRATACAO",
   "FRACASSADA",
@@ -1219,6 +1220,7 @@ export const licitacoes = pgTable(
     dataHomologacao: timestamp("data_homologacao", { withTimezone: true }),
     linkBllPublico: varchar("link_bll_publico", { length: 500 }),
     linkPncpPublico: varchar("link_pncp_publico", { length: 500 }),
+    fundamentoLegalInciso: varchar("fundamento_legal_inciso", { length: 80 }),
     inversaoFasesHabilitada: boolean("inversao_fases_habilitada")
       .notNull()
       .default(false),

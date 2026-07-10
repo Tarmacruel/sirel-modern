@@ -2,8 +2,11 @@ export type LicitacaoProcessoPhaseKey =
   | "PREPARACAO"
   | "PUBLICACAO"
   | "DISPUTA"
-  | "JULGAMENTO_HABILITACAO"
-  | "RECURSOS_HOMOLOGACAO"
+  | "JULGAMENTO"
+  | "HABILITACAO"
+  | "RECURSOS"
+  | "CONTROLE_INTERNO"
+  | "HOMOLOGACAO"
   | "FECHAMENTO";
 
 export type LicitacaoGuidedPhaseStatus =
@@ -11,6 +14,7 @@ export type LicitacaoGuidedPhaseStatus =
   | "viewing"
   | "completed"
   | "available"
+  | "available_with_pending"
   | "blocked";
 
 export type LicitacaoNextActionIntent =
@@ -139,6 +143,7 @@ function getPhaseStatus(
   if (phase.key === currentProcessPhase) return "current";
   if (phase.completed) return "completed";
   if (!phase.accessible) return "blocked";
+  if (phase.pendingCount > 0) return "available_with_pending";
   return "available";
 }
 
@@ -152,6 +157,8 @@ function getPhaseStatusLabel(status: LicitacaoGuidedPhaseStatus) {
       return "Concluida";
     case "blocked":
       return "Bloqueada";
+    case "available_with_pending":
+      return "Com pendencias";
     case "available":
     default:
       return "Disponivel";
@@ -228,7 +235,7 @@ export function buildLicitacaoProcessoViewModel(
         objective:
           input.activePhase === "PREPARACAO"
             ? "A publicacao fica bloqueada ate que os atos obrigatorios da fase interna estejam tratados."
-            : "Trate a primeira pendencia aberta para liberar a sequencia operacional da etapa.",
+            : "Trate a primeira pendencia aberta; no modo orientativo a etapa continua acessivel.",
         primaryLabel: "Resolver primeira pendencia",
         primaryDisabled: false,
         intent: "focus_pending",

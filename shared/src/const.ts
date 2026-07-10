@@ -110,6 +110,7 @@ export const licitacaoStatusOptions = [
   "JULGAMENTO",
   "HABILITACAO",
   "RECURSOS",
+  "CONTROLE_INTERNO",
   "HOMOLOGACAO",
   "CONTRATACAO",
   "FRACASSADA",
@@ -246,6 +247,7 @@ export const licitacaoStatusLabels: Record<
   JULGAMENTO: "Julgamento",
   HABILITACAO: "Habilitação",
   RECURSOS: "Recursos",
+  CONTROLE_INTERNO: "Controle Interno",
   HOMOLOGACAO: "Homologação",
   CONTRATACAO: "Contratação",
   FRACASSADA: "Licitação fracassada",
@@ -376,6 +378,11 @@ export const licitacaoStepCatalog = [
     description: "Interposição, análise e decisão recursal.",
   },
   {
+    key: "CONTROLE_INTERNO",
+    label: "Controle Interno",
+    description: "Encaminhamento e validacao antes da homologacao.",
+  },
+  {
     key: "HOMOLOGACAO",
     label: "Homologação",
     description: "Encerramento da fase licitatória e aprovação do resultado.",
@@ -409,6 +416,7 @@ export const licitacaoFluxoStepKeys: Record<
     "JULGAMENTO",
     "HABILITACAO",
     "RECURSOS",
+    "CONTROLE_INTERNO",
     "HOMOLOGACAO",
   ],
   COMPETITIVO_SIMPLIFICADO: [
@@ -418,12 +426,14 @@ export const licitacaoFluxoStepKeys: Record<
     "LANCES",
     "JULGAMENTO",
     "HABILITACAO",
+    "CONTROLE_INTERNO",
     "HOMOLOGACAO",
   ],
   CONTRATACAO_DIRETA: [
     "PREPARACAO_INTERNA",
     "PUBLICACAO",
     "HABILITACAO",
+    "CONTROLE_INTERNO",
     "HOMOLOGACAO",
   ],
 };

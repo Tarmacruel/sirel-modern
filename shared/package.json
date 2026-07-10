@@ -22,6 +22,10 @@
       "types": "./dist/subsystems.d.ts",
       "import": "./dist/subsystems.js"
     },
+    "./licitacao-guided-flow": {
+      "types": "./dist/licitacao-guided-flow.d.ts",
+      "import": "./dist/licitacao-guided-flow.js"
+    },
     "./schemas/processos": {
       "types": "./dist/schemas/processos.d.ts",
       "import": "./dist/schemas/processos.js"

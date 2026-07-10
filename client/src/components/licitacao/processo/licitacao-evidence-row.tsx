@@ -12,6 +12,7 @@ export interface LicitacaoEvidenceDocument {
 
 export interface LicitacaoEvidenceItem {
   category: string;
+  order: number;
   label: string;
   description: string;
   completionHint?: string;

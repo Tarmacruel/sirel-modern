@@ -36,9 +36,8 @@ function getLatestDocument(item: LicitacaoEvidenceItem) {
 
 function getVisibleItems(items: LicitacaoEvidenceItem[], filter: EvidenceFilter) {
   const ordered = [...items].sort((left, right) => {
-    if (left.concluido !== right.concluido) return left.concluido ? 1 : -1;
-    if (left.obrigatorio !== right.obrigatorio) return left.obrigatorio ? -1 : 1;
-    return left.label.localeCompare(right.label);
+    if (left.order !== right.order) return left.order - right.order;
+    return left.category.localeCompare(right.category);
   });
 
   if (filter === "pending") return ordered.filter((item) => !item.concluido);
@@ -90,7 +89,7 @@ export function LicitacaoEvidenceQueue({
             Fila de evidencias
           </div>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Pendentes primeiro. Abra uma linha para editar e anexar a evidencia.
+            Ordem operacional da fase. Abra uma linha para editar e anexar a evidencia.
           </p>
         </div>
 

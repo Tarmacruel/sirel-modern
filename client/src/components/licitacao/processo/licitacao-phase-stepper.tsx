@@ -7,6 +7,7 @@ import {
   FileCheck2,
   FolderKanban,
   Lock,
+  Scale,
   ShieldCheck,
 } from "lucide-react";
 
@@ -24,8 +25,11 @@ const phaseIcons = {
   PREPARACAO: ShieldCheck,
   PUBLICACAO: CalendarClock,
   DISPUTA: FolderKanban,
-  JULGAMENTO_HABILITACAO: FileCheck2,
-  RECURSOS_HOMOLOGACAO: CheckCircle2,
+  JULGAMENTO: FileCheck2,
+  HABILITACAO: ShieldCheck,
+  RECURSOS: Scale,
+  CONTROLE_INTERNO: ShieldCheck,
+  HOMOLOGACAO: CheckCircle2,
   FECHAMENTO: Clock3,
 } satisfies Record<LicitacaoProcessoPhaseKey, typeof ShieldCheck>;
 
@@ -38,6 +42,8 @@ const statusClassName = {
     "border-[var(--phase-completed-border)] bg-[var(--phase-completed-bg)] text-[var(--phase-completed-text)]",
   available:
     "border-[var(--phase-available-border)] bg-[var(--phase-available-bg)] text-[var(--phase-available-text)] hover:bg-[var(--surface-hover)]",
+  available_with_pending:
+    "border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)] hover:bg-[var(--surface-hover)]",
   blocked:
     "border-[var(--phase-blocked-border)] bg-[var(--phase-blocked-bg)] text-[var(--phase-blocked-text)]",
 };

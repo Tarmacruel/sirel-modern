@@ -68,6 +68,8 @@ describe("getAllowedRoutes", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/licitacao");
     expect(paths).toContain("/licitacao/:processoId");
+    expect(paths).toContain("/processos");
+    expect(paths).toContain("/processos/:processoId");
     expect(paths).toContain("/documentos");
     expect(paths).not.toContain("/usuarios");
   });

@@ -365,6 +365,13 @@
       "when": 1783468800000,
       "tag": "0051_user_subsystem_access",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1783468801000,
+      "tag": "0052_licitacao_guided_flow",
+      "breakpoints": true
     }
   ]
 }

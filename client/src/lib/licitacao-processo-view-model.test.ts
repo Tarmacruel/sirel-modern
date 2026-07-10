@@ -134,4 +134,21 @@ describe("buildLicitacaoProcessoViewModel", () => {
       ["PUBLICACAO", "current"],
     ]);
   });
+
+  it("marca fase acessivel com pendencias como orientativa", () => {
+    const model = buildLicitacaoProcessoViewModel({
+      ...baseInput,
+      activePhase: "PREPARACAO",
+      currentProcessPhase: "PREPARACAO",
+      phases: [
+        { ...baseInput.phases[0], pendingCount: 0 },
+        { ...baseInput.phases[1], accessible: true, pendingCount: 2 },
+      ],
+    });
+
+    expect(model.phases.map((phase) => [phase.key, phase.status])).toEqual([
+      ["PREPARACAO", "current"],
+      ["PUBLICACAO", "available_with_pending"],
+    ]);
+  });
 });

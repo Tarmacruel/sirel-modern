@@ -10,6 +10,7 @@ import type { LicitacaoEvidenceUploadState } from "./licitacao-evidence-editor";
 const items: LicitacaoEvidenceItem[] = [
   {
     category: "ata-disputa",
+    order: 20,
     label: "Ata da disputa",
     description: "Ata emitida pela plataforma.",
     obrigatorio: true,
@@ -18,6 +19,7 @@ const items: LicitacaoEvidenceItem[] = [
   },
   {
     category: "julgamento",
+    order: 10,
     label: "Julgamento",
     description: "Resultado do julgamento.",
     obrigatorio: true,
@@ -26,6 +28,7 @@ const items: LicitacaoEvidenceItem[] = [
   },
   {
     category: "publicacao",
+    order: 30,
     label: "Publicacao",
     description: "Comprovante de publicacao.",
     obrigatorio: true,
@@ -97,7 +100,7 @@ describe("LicitacaoEvidenceQueue", () => {
     expect(screen.getByText("Evidencia 1/3")).toBeInTheDocument();
     expect(screen.getAllByText(/^Evidencia \d\/3$/)).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: /Julgamento/ }));
+    await user.click(screen.getByRole("button", { name: /Ata da disputa/ }));
 
     expect(screen.getByText("Evidencia 2/3")).toBeInTheDocument();
     expect(screen.getAllByText(/^Evidencia \d\/3$/)).toHaveLength(1);
