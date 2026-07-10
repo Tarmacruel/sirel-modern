@@ -106,6 +106,12 @@ Não reescrever o sistema inteiro. Executar a refatoração em camadas:
 24. [`23-prompt-codex-identidade-recuperacao.md`](./23-prompt-codex-identidade-recuperacao.md)
     Prompt operacional para implementar nascimento, matrícula, recuperação de usuário, redefinição de senha e revogação de sessões.
 
+25. [`24-cadastros-autopreenchimento-combobox-cargos.md`](./24-cadastros-autopreenchimento-combobox-cargos.md)
+    Correção de persistência, autopreenchimento de Servidor/Usuário, seletores assíncronos e catálogos de Cargos e Funções.
+
+26. [`25-prompt-codex-cadastros-autopreenchimento.md`](./25-prompt-codex-cadastros-autopreenchimento.md)
+    Prompt operacional para implementar leitura por ID, read-after-write, lookup incremental, autopreenchimento e migração de cargos.
+
 ## Estado implementado e ajustes pós-plano
 
 A implementação consolidada manteve a estratégia **Single SPA host-aware**, com registry central em `shared/src/subsystems.ts`, contexto React em `client/src/app/subsystem-context.tsx`, registry tipado de rotas em `client/src/app/routes.tsx`, home contextual em `client/src/app/subsystem-home.tsx` e contexto de subsistema no backend em `server/src/lib/subsystem-context.ts`.
@@ -157,6 +163,10 @@ Os decretos de comissão, equipe de apoio e ordenador deixam de ser uploads repe
 ## Nova frente: identidade e recuperação de acesso
 
 O cadastro de Pessoa recebe data de nascimento, o cadastro de Servidor recebe matrícula e o Usuário passa a possuir vínculo explícito com sua identidade funcional. A tela de login ganha recuperação de usuário e senha, enquanto cadastros incompletos são regularizados por modal após o login, com proteção contra enumeração, limitação de tentativas e revogação das sessões anteriores.
+
+## Nova frente: consistência dos Cadastros
+
+Os formulários de Pessoa, Servidor e Usuário passam a carregar registros completos por ID, confirmar a leitura após salvar e invalidar os caches relacionados. Servidores reutilizam Pessoas já cadastradas, Usuários recebem sugestões de vínculo por nome, e seletores extensos são substituídos por lookup incremental. Cargo passa a ser catálogo obrigatório para Servidor e Função torna-se catálogo opcional.
 
 ## Regra de ouro
 
