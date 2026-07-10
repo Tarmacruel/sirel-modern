@@ -58,7 +58,11 @@ export function resolveRequestUser(req: Request): RequestUser | null {
     };
   }
 
-  if (!roleHeader) {
+  const allowHeaderFallback =
+    process.env.NODE_ENV !== "production" ||
+    process.env.ALLOW_DEV_AUTH_HEADERS === "true";
+
+  if (!roleHeader || !allowHeaderFallback) {
     return null;
   }
 

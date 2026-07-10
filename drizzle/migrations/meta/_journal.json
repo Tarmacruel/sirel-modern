@@ -372,6 +372,20 @@
       "when": 1783468801000,
       "tag": "0052_licitacao_guided_flow",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1783468802000,
+      "tag": "0053_cadastros_institucionais",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783468803000,
+      "tag": "0054_institutional_designations_integrity",
+      "breakpoints": true
     }
   ]
 }

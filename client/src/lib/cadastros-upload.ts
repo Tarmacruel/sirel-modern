@@ -3,11 +3,22 @@ import { resolveServerAssetUrl, resolveServerBaseUrl } from "@/lib/document-uplo
 
 export type CadastroAssetEntity = "itens" | "fornecedores";
 
+export interface UploadAtoDesignacaoResult {
+  success: boolean;
+  arquivoUrl: string;
+  arquivoChave: string;
+  mimeType: string;
+  tamanhoBytes: number;
+  hashArquivo: string;
+}
+
 function buildAuthHeaders() {
   const token = getStoredAuthToken();
   if (token) {
     return { Authorization: `Bearer ${token}` } satisfies Record<string, string>;
   }
+
+  if (!import.meta.env.DEV) return {} as Record<string, string>;
 
   const session = loadStoredSession();
   if (!session) return {} as Record<string, string>;
@@ -52,6 +63,26 @@ export async function uploadCadastroAsset(input: {
   }
 
   return response.json() as Promise<{ assetUrl: string | null }>;
+}
+
+export async function uploadAtoDesignacao(arquivo: File) {
+  const formData = new FormData();
+  formData.append("arquivo", arquivo);
+
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/cadastros-institucionais/atos/upload`,
+    {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json() as Promise<UploadAtoDesignacaoResult>;
 }
 
 export function resolveCadastroAssetUrl(url: string | null | undefined) {

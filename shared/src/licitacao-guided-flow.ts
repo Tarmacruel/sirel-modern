@@ -16,7 +16,8 @@ export type LicitacaoDocumentRequirementSource =
   | "SYSTEM_STATE"
   | "MANUAL_LINK"
   | "PARSER"
-  | "INTEGRATION";
+  | "INTEGRATION"
+  | "CATALOG";
 
 export type LicitacaoDocumentCompletionStrategy =
   | "DOCUMENT_PRESENT"
@@ -24,7 +25,12 @@ export type LicitacaoDocumentCompletionStrategy =
   | "SYSTEM_STATE"
   | "PARSER_OR_DOCUMENT"
   | "OPTIONAL_DECLARATION"
-  | "INTEGRATION_STATUS";
+  | "INTEGRATION_STATUS"
+  | "CATALOG_SELECTION";
+
+export type LicitacaoDocumentRequirementEditor =
+  | "DOCUMENT_UPLOAD"
+  | "INSTITUTIONAL_SELECTOR";
 
 export interface LicitacaoFlowContext {
   modalidadeCodigo?: string | null;
@@ -48,6 +54,7 @@ export interface LicitacaoDocumentRequirement {
   condicional?: string;
   completionHint?: string;
   aliases?: readonly string[];
+  editor?: LicitacaoDocumentRequirementEditor;
 }
 
 export interface LicitacaoPhaseDefinition {
@@ -273,31 +280,48 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     category: "LICITACAO_DECRETO_COMISSAO",
     phase: "PREPARACAO",
     order: 100,
-    label: "Decreto da comissao",
-    description: "Ato de designacao da comissao da fase licitatoria.",
+    label: "Selecionar Comissao de Contratacao",
+    description: "Comissao institucional vigente para a preparacao da licitacao.",
     obrigatorio: true,
-    source: "DOCUMENT_UPLOAD",
-    completionStrategy: "DOCUMENT_PRESENT",
+    source: "CATALOG",
+    completionStrategy: "CATALOG_SELECTION",
+    editor: "INSTITUTIONAL_SELECTOR",
+    completionHint: "Concluido ao selecionar uma comissao cadastrada.",
   },
   {
     category: "LICITACAO_DECRETO_EQUIPE_APOIO",
     phase: "PREPARACAO",
     order: 110,
-    label: "Decreto da equipe de apoio",
-    description: "Formaliza a equipe de apoio vinculada ao processo.",
+    label: "Selecionar Equipe de Apoio",
+    description: "Equipe de apoio institucional vinculada ao processo.",
     obrigatorio: true,
-    source: "DOCUMENT_UPLOAD",
-    completionStrategy: "DOCUMENT_PRESENT",
+    source: "CATALOG",
+    completionStrategy: "CATALOG_SELECTION",
+    editor: "INSTITUTIONAL_SELECTOR",
+    completionHint: "Concluido ao selecionar uma equipe cadastrada.",
+  },
+  {
+    category: "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
+    phase: "PREPARACAO",
+    order: 120,
+    label: "Selecionar Ordenador de Despesas",
+    description: "Ordenador institucional vigente para a secretaria do processo.",
+    obrigatorio: true,
+    source: "CATALOG",
+    completionStrategy: "CATALOG_SELECTION",
+    editor: "INSTITUTIONAL_SELECTOR",
+    completionHint: "Concluido ao selecionar um ordenador cadastrado.",
   },
   {
     category: "LICITACAO_COMUNICACAO_RESERVA_ORCAMENTARIA",
     phase: "PREPARACAO",
-    order: 120,
+    order: 125,
     label: "CI para reserva orcamentaria",
     description: "Encaminhamento ao setor de Orcamento para reserva.",
     obrigatorio: true,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "DOCUMENT_PRESENT",
+    appliesTo: appliesToCompetitive,
   },
   {
     category: "LICITACAO_RESERVA_ORCAMENTARIA",
@@ -310,19 +334,9 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     completionStrategy: "DOCUMENT_PRESENT",
   },
   {
-    category: "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
-    phase: "PREPARACAO",
-    order: 140,
-    label: "Decreto do Ordenador de Despesas",
-    description: "Documento do ordenador ou secretario competente.",
-    obrigatorio: true,
-    source: "DOCUMENT_UPLOAD",
-    completionStrategy: "DOCUMENT_PRESENT",
-  },
-  {
     category: "LICITACAO_ATO_AUTORIZACAO_AUTORIDADE",
     phase: "PREPARACAO",
-    order: 150,
+    order: 140,
     label: "Ato de autorizacao da autoridade competente",
     description: "Libera oficialmente o prosseguimento da licitacao.",
     obrigatorio: true,
@@ -332,24 +346,20 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_DECLARACAO_NAO_FRACIONAMENTO",
     phase: "PREPARACAO",
-    order: 160,
+    order: 145,
     label: "Declaracao de nao fracionamento",
     description: "Declaracao exigida nas hipoteses municipais aplicaveis.",
-    obrigatorio: (context) =>
-      appliesToDispensa(context) ||
-      Boolean(context.exigeDeclaracaoNaoFracionamento),
-    condicional: "Dispensa ou exigencia manual",
+    obrigatorio: (context) => Boolean(context.exigeDeclaracaoNaoFracionamento),
+    condicional: "Exigencia manual",
     baseLegal: "Art. 75, Lei 14.133/2021",
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "DOCUMENT_PRESENT",
-    appliesTo: (context) =>
-      appliesToDispensa(context) ||
-      Boolean(context.exigeDeclaracaoNaoFracionamento),
+    appliesTo: (context) => Boolean(context.exigeDeclaracaoNaoFracionamento),
   },
   {
     category: "LICITACAO_JUSTIFICATIVA_DISPENSA",
     phase: "PREPARACAO",
-    order: 170,
+    order: 150,
     label: "Justificativa da dispensa",
     description: "Fundamentacao formal da dispensa ou contratacao direta.",
     obrigatorio: true,
@@ -361,7 +371,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_PESQUISA_PRECOS",
     phase: "PREPARACAO",
-    order: 180,
+    order: 160,
     label: "Pesquisa de precos",
     description: "Base comparativa para demonstrar vantajosidade.",
     obrigatorio: true,
@@ -372,7 +382,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_JUSTIFICATIVA_INEXIGIBILIDADE",
     phase: "PREPARACAO",
-    order: 170,
+    order: 150,
     label: "Justificativa da inexigibilidade",
     description: "Demonstra a inviabilidade de competicao.",
     obrigatorio: true,
@@ -384,7 +394,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_COMPROVANTE_EXCLUSIVIDADE",
     phase: "PREPARACAO",
-    order: 180,
+    order: 160,
     label: "Comprovante de exclusividade",
     description: "Documento de exclusividade do fornecedor ou representante.",
     obrigatorio: true,
@@ -395,7 +405,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_MINUTA_AVISO",
     phase: "PREPARACAO",
-    order: 190,
+    order: 170,
     label: "Minuta do aviso",
     description: "Minuta interna preparada antes da publicacao.",
     obrigatorio: true,
@@ -405,17 +415,18 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_COMUNICACAO_PARECER_JURIDICO",
     phase: "PREPARACAO",
-    order: 200,
+    order: 175,
     label: "CI solicitando parecer juridico",
     description: "Encaminhamento formal para manifestacao juridica.",
     obrigatorio: true,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "DOCUMENT_PRESENT",
+    appliesTo: appliesToCompetitive,
   },
   {
     category: "LICITACAO_PARECER_JURIDICO",
     phase: "PREPARACAO",
-    order: 210,
+    order: 180,
     label: "Parecer juridico",
     description: "Manifestacao juridica obrigatoria antes da publicidade.",
     obrigatorio: true,
@@ -425,7 +436,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_TERMO_AUTUACAO",
     phase: "PREPARACAO",
-    order: 220,
+    order: 190,
     label: "Termo de autuacao",
     description: "Autuacao formal pelo agente de contratacao ou pregoeiro.",
     obrigatorio: true,
@@ -435,7 +446,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_DECRETO_AGENTE_CONTRATACAO",
     phase: "PREPARACAO",
-    order: 230,
+    order: 200,
     label: "Decreto do Agente de Contratacao",
     description: "Designacao do agente responsavel pela sessao.",
     obrigatorio: true,

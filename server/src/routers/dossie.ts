@@ -102,6 +102,81 @@ function buildDocumentoUrl(documentoId: number) {
   return `/api/planejamento/documentos/${documentoId}/download`;
 }
 
+function buildInstitutionalDocuments(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== "object") return [];
+  const payload = snapshot as Record<string, any>;
+  const selectedAt = toDateValue(payload.selecionadoEm);
+  const specs = [
+    {
+      key: "comissao",
+      label: "Comissao de Contratacao",
+      category: "INSTITUCIONAL_COMISSAO",
+      id: -100001,
+    },
+    {
+      key: "equipeApoio",
+      label: "Equipe de Apoio",
+      category: "INSTITUCIONAL_EQUIPE_APOIO",
+      id: -100002,
+    },
+    {
+      key: "ordenadorDespesa",
+      label: "Ordenador de Despesas",
+      category: "INSTITUCIONAL_ORDENADOR_DESPESA",
+      id: -100003,
+    },
+  ];
+  const seenAtoKeys = new Set<string>();
+
+  return specs.flatMap((spec) => {
+    const entry = payload[spec.key];
+    if (!entry || typeof entry !== "object") return [];
+    const ato = entry.ato && typeof entry.ato === "object" ? entry.ato : {};
+    const arquivoUrl =
+      typeof ato.arquivoUrl === "string" && ato.arquivoUrl.trim()
+        ? ato.arquivoUrl
+        : null;
+    if (!arquivoUrl) return [];
+    const dedupeKey =
+      typeof ato.id === "number" && Number.isFinite(ato.id)
+        ? `id:${ato.id}`
+        : `url:${arquivoUrl}`;
+    if (seenAtoKeys.has(dedupeKey)) return [];
+    seenAtoKeys.add(dedupeKey);
+
+    const atoLabel =
+      typeof ato.label === "string" && ato.label.trim()
+        ? ato.label
+        : "Ato institucional";
+    const structureName =
+      typeof entry.nome === "string" && entry.nome.trim()
+        ? entry.nome
+        : typeof entry.pessoa?.nome === "string" && entry.pessoa.nome.trim()
+          ? entry.pessoa.nome
+          : spec.label;
+
+    return [
+      {
+        id: spec.id,
+        titulo: `Documento institucional referenciado - ${spec.label}`,
+        descricao: `${structureName} | ${atoLabel}`,
+        tipo: "OUTRO",
+        categoria: spec.category,
+        versao: 1,
+        arquivoUrl,
+        mimeType:
+          typeof ato.mimeType === "string" && ato.mimeType.trim()
+            ? ato.mimeType
+            : null,
+        dataReferencia: toDateValue(entry.vigenciaInicio),
+        publico: false,
+        palavrasChave: ["catalogo institucional", spec.label],
+        criadoEm: selectedAt,
+      },
+    ];
+  });
+}
+
 function normalizeName(value: string | null | undefined) {
   return String(value ?? "")
     .normalize("NFD")
@@ -1388,13 +1463,16 @@ export const dossieRouter = router({
           .filter(Boolean)
           .sort()
           .slice(-1)[0] ?? null;
+      const institutionalDocuments = buildInstitutionalDocuments(
+        licitacaoRow?.designacoesSnapshot,
+      );
 
       return {
         resumo: {
           totalItens: itemsRows.length,
           totalFornecedores: fornecedorMap.size,
           totalFornecedoresVencedores: fornecedoresVencedoresMap.size,
-          totalDocumentos: documentosRows.length,
+          totalDocumentos: documentosRows.length + institutionalDocuments.length,
           totalContratos: contratosRows.length + normalizedPncpContractsRows.length,
           totalContratosPncp: normalizedPncpContractsRows.length,
           totalMovimentacoes: movimentacoesRows.length,
@@ -1888,22 +1966,25 @@ export const dossieRouter = router({
             String(a.dataAssinatura ?? a.dataVigenciaFim ?? ""),
           ),
         ),
-        documentos: documentosRows.map((row) => ({
-          id: row.id,
-          titulo: row.titulo,
-          descricao: row.descricao,
-          tipo: row.tipo,
-          categoria: row.categoria,
-          versao: row.versao,
-          arquivoUrl: buildDocumentoUrl(row.id),
-          mimeType: row.mimeType,
-          dataReferencia: toDateValue(row.dataReferencia),
-          publico: row.publico,
-          palavrasChave: Array.isArray(row.palavrasChave)
-            ? row.palavrasChave
-            : [],
-          criadoEm: toDateValue(row.criadoEm),
-        })),
+        documentos: [
+          ...documentosRows.map((row) => ({
+            id: row.id,
+            titulo: row.titulo,
+            descricao: row.descricao,
+            tipo: row.tipo,
+            categoria: row.categoria,
+            versao: row.versao,
+            arquivoUrl: buildDocumentoUrl(row.id),
+            mimeType: row.mimeType,
+            dataReferencia: toDateValue(row.dataReferencia),
+            publico: row.publico,
+            palavrasChave: Array.isArray(row.palavrasChave)
+              ? row.palavrasChave
+              : [],
+            criadoEm: toDateValue(row.criadoEm),
+          })),
+          ...institutionalDocuments,
+        ],
         prazos: prazosRows.map((row) => ({
           id: row.id,
           tipo: row.tipo,

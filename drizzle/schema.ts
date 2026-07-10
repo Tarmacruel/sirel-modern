@@ -28,6 +28,34 @@ export const subsystemAccessLevelEnum = pgEnum("subsystem_access_level", [
   "MANAGER",
   "ADMIN",
 ]);
+export const atoDesignacaoTipoEnum = pgEnum("ato_designacao_tipo", [
+  "DECRETO",
+  "PORTARIA",
+  "RESOLUCAO",
+  "OUTRO",
+]);
+export const grupoInstitucionalTipoEnum = pgEnum("grupo_institucional_tipo", [
+  "COMISSAO_CONTRATACAO",
+  "EQUIPE_APOIO",
+]);
+export const grupoInstitucionalMembroFuncaoEnum = pgEnum(
+  "grupo_institucional_membro_funcao",
+  [
+    "PRESIDENTE",
+    "AGENTE_CONTRATACAO",
+    "PREGOEIRO",
+    "MEMBRO",
+    "MEMBRO_SUPLENTE",
+    "COORDENADOR_APOIO",
+    "APOIO",
+    "OUTRO",
+  ],
+);
+export const ordenadorTipoVinculoEnum = pgEnum("ordenador_tipo_vinculo", [
+  "TITULAR",
+  "SUBSTITUTO",
+  "DELEGADO",
+]);
 export const escopoDisputaEnum = pgEnum("escopo_disputa", [
   "ITEM",
   "LOTE",
@@ -482,6 +510,176 @@ export const departamentos = pgTable(
   (table) => ({
     idxSecretaria: index("departamentos_secretaria_idx").on(table.secretariaId),
     idxAtivo: index("departamentos_ativo_idx").on(table.ativo),
+  }),
+);
+
+export const atosDesignacao = pgTable(
+  "atos_designacao",
+  {
+    id: serial("id").primaryKey(),
+    numero: varchar("numero", { length: 80 }).notNull(),
+    ano: integer("ano").notNull(),
+    tipo: atoDesignacaoTipoEnum("tipo").notNull(),
+    ementa: text("ementa").notNull(),
+    dataEmissao: date("data_emissao"),
+    dataPublicacao: date("data_publicacao"),
+    vigenciaInicio: date("vigencia_inicio"),
+    vigenciaFim: date("vigencia_fim"),
+    arquivoUrl: varchar("arquivo_url", { length: 500 }),
+    arquivoChave: varchar("arquivo_chave", { length: 500 }),
+    mimeType: varchar("mime_type", { length: 120 }),
+    tamanhoBytes: integer("tamanho_bytes"),
+    hashArquivo: varchar("hash_arquivo", { length: 128 }),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxTipo: index("atos_designacao_tipo_idx").on(table.tipo),
+    idxAtivo: index("atos_designacao_ativo_idx").on(table.ativo),
+    idxVigencia: index("atos_designacao_vigencia_idx").on(
+      table.vigenciaInicio,
+      table.vigenciaFim,
+    ),
+    uqAto: uniqueIndex("atos_designacao_numero_ano_tipo_uq").on(
+      table.numero,
+      table.ano,
+      table.tipo,
+    ),
+  }),
+);
+
+export const gruposInstitucionais = pgTable(
+  "grupos_institucionais",
+  {
+    id: serial("id").primaryKey(),
+    nome: varchar("nome", { length: 255 }).notNull(),
+    tipo: grupoInstitucionalTipoEnum("tipo").notNull(),
+    sigla: varchar("sigla", { length: 32 }),
+    secretariaId: integer("secretaria_id").references(() => secretarias.id, {
+      onDelete: "set null",
+    }),
+    atoDesignacaoId: integer("ato_designacao_id")
+      .notNull()
+      .references(() => atosDesignacao.id, { onDelete: "restrict" }),
+    vigenciaInicio: date("vigencia_inicio"),
+    vigenciaFim: date("vigencia_fim"),
+    versao: integer("versao").notNull().default(1),
+    substituiGrupoId: integer("substitui_grupo_id"),
+    observacao: text("observacao"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxTipo: index("grupos_institucionais_tipo_idx").on(table.tipo),
+    idxSecretaria: index("grupos_institucionais_secretaria_idx").on(
+      table.secretariaId,
+    ),
+    idxAto: index("grupos_institucionais_ato_idx").on(table.atoDesignacaoId),
+    idxAtivo: index("grupos_institucionais_ativo_idx").on(table.ativo),
+  }),
+);
+
+export const gruposInstitucionaisMembros = pgTable(
+  "grupos_institucionais_membros",
+  {
+    id: serial("id").primaryKey(),
+    grupoId: integer("grupo_id")
+      .notNull()
+      .references(() => gruposInstitucionais.id, { onDelete: "cascade" }),
+    pessoaId: integer("pessoa_id")
+      .notNull()
+      .references(() => pessoas.id, { onDelete: "restrict" }),
+    funcao: grupoInstitucionalMembroFuncaoEnum("funcao").notNull(),
+    ordem: integer("ordem").notNull().default(0),
+    titular: boolean("titular").notNull().default(true),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxGrupo: index("grupos_institucionais_membros_grupo_idx").on(
+      table.grupoId,
+    ),
+    idxPessoa: index("grupos_institucionais_membros_pessoa_idx").on(
+      table.pessoaId,
+    ),
+    uqGrupoPessoa: uniqueIndex(
+      "grupos_institucionais_membros_grupo_pessoa_uq",
+    ).on(table.grupoId, table.pessoaId),
+  }),
+);
+
+export const ordenadoresDespesa = pgTable(
+  "ordenadores_despesa",
+  {
+    id: serial("id").primaryKey(),
+    pessoaId: integer("pessoa_id")
+      .notNull()
+      .references(() => pessoas.id, { onDelete: "restrict" }),
+    atoDesignacaoId: integer("ato_designacao_id")
+      .notNull()
+      .references(() => atosDesignacao.id, { onDelete: "restrict" }),
+    tipoVinculo: ordenadorTipoVinculoEnum("tipo_vinculo").notNull(),
+    vigenciaInicio: date("vigencia_inicio"),
+    vigenciaFim: date("vigencia_fim"),
+    versao: integer("versao").notNull().default(1),
+    observacao: text("observacao"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoPor: integer("criado_por").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idxPessoa: index("ordenadores_despesa_pessoa_idx").on(table.pessoaId),
+    idxAto: index("ordenadores_despesa_ato_idx").on(table.atoDesignacaoId),
+    idxAtivo: index("ordenadores_despesa_ativo_idx").on(table.ativo),
+  }),
+);
+
+export const ordenadoresDespesaSecretarias = pgTable(
+  "ordenadores_despesa_secretarias",
+  {
+    id: serial("id").primaryKey(),
+    ordenadorDespesaId: integer("ordenador_despesa_id")
+      .notNull()
+      .references(() => ordenadoresDespesa.id, { onDelete: "cascade" }),
+    secretariaId: integer("secretaria_id")
+      .notNull()
+      .references(() => secretarias.id, { onDelete: "restrict" }),
+  },
+  (table) => ({
+    idxOrdenador: index("ordenadores_despesa_secretarias_ordenador_idx").on(
+      table.ordenadorDespesaId,
+    ),
+    idxSecretaria: index("ordenadores_despesa_secretarias_secretaria_idx").on(
+      table.secretariaId,
+    ),
+    uqOrdenadorSecretaria: uniqueIndex(
+      "ordenadores_despesa_secretaria_uq",
+    ).on(table.ordenadorDespesaId, table.secretariaId),
   }),
 );
 
@@ -1221,6 +1419,25 @@ export const licitacoes = pgTable(
     linkBllPublico: varchar("link_bll_publico", { length: 500 }),
     linkPncpPublico: varchar("link_pncp_publico", { length: 500 }),
     fundamentoLegalInciso: varchar("fundamento_legal_inciso", { length: 80 }),
+    comissaoId: integer("comissao_id").references(
+      () => gruposInstitucionais.id,
+      { onDelete: "restrict" },
+    ),
+    equipeApoioId: integer("equipe_apoio_id").references(
+      () => gruposInstitucionais.id,
+      { onDelete: "restrict" },
+    ),
+    ordenadorDespesaId: integer("ordenador_despesa_id").references(
+      () => ordenadoresDespesa.id,
+      { onDelete: "restrict" },
+    ),
+    designacoesSnapshot: jsonb("designacoes_snapshot"),
+    designacoesSelecionadasPor: integer(
+      "designacoes_selecionadas_por",
+    ).references(() => users.id, { onDelete: "set null" }),
+    designacoesSelecionadasEm: timestamp("designacoes_selecionadas_em", {
+      withTimezone: true,
+    }),
     inversaoFasesHabilitada: boolean("inversao_fases_habilitada")
       .notNull()
       .default(false),
@@ -1235,6 +1452,13 @@ export const licitacoes = pgTable(
   },
   (table) => ({
     idxStatus: index("licitacoes_status_idx").on(table.statusLicitacao),
+    idxComissao: index("licitacoes_comissao_idx").on(table.comissaoId),
+    idxEquipeApoio: index("licitacoes_equipe_apoio_idx").on(
+      table.equipeApoioId,
+    ),
+    idxOrdenadorDespesa: index("licitacoes_ordenador_despesa_idx").on(
+      table.ordenadorDespesaId,
+    ),
   }),
 );
 

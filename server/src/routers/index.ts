@@ -1,6 +1,7 @@
 import { router } from "../trpc.js";
 import { auditoriaRouter } from "./auditoria.js";
 import { authRouter } from "./auth.js";
+import { cadastrosInstitucionaisRouter } from "./cadastros-institucionais.js";
 import { cadastrosRouter } from "./cadastros.js";
 import { consultasRouter } from "./consultas.js";
 import { contratosRouter } from "./contratos.js";
@@ -28,6 +29,7 @@ export const appRouter = router({
   dashboard: dashboardRouter,
   dossie: dossieRouter,
   cadastros: cadastrosRouter,
+  cadastrosInstitucionais: cadastrosInstitucionaisRouter,
   consultas: consultasRouter,
   importacoes: importacoesRouter,
   pncpTeixeira: pncpTeixeiraRouter,

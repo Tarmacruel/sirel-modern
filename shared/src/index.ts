@@ -10,6 +10,7 @@ export * from "./schemas/workflow.js";
 export * from "./schemas/usuarios.js";
 export * from "./schemas/itens.js";
 export * from "./schemas/cadastros.js";
+export * from "./schemas/cadastros-institucionais.js";
 export * from "./schemas/licitacao.js";
 export * from "./schemas/importacoes.js";
 export * from "./schemas/dossie.js";

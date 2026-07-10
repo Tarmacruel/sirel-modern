@@ -49,6 +49,10 @@ import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-
 import { LicitacaoContextAssistant } from "@/components/licitacao/processo/licitacao-context-assistant";
 import { LicitacaoEvidenceQueue } from "@/components/licitacao/processo/licitacao-evidence-queue";
 import type { LicitacaoEvidenceItem } from "@/components/licitacao/processo/licitacao-evidence-row";
+import {
+  LicitacaoInstitutionalSelector,
+  type LicitacaoInstitutionalKind,
+} from "@/components/licitacao/processo/licitacao-institutional-selector";
 import { LicitacaoNextActionCard } from "@/components/licitacao/processo/licitacao-next-action-card";
 import { LicitacaoPhaseStepper } from "@/components/licitacao/processo/licitacao-phase-stepper";
 import { LicitacaoProcessHeader } from "@/components/licitacao/processo/licitacao-process-header";
@@ -1013,6 +1017,25 @@ export function LicitacaoProcessoPage({
         setErrorMessage(error.message);
       },
     });
+  const selectDesignacoesMutation =
+    trpc.cadastrosInstitucionais.designacoes.selectForLicitacao.useMutation({
+      onSuccess: async () => {
+        await Promise.all([
+          refreshAll(),
+          utils.cadastrosInstitucionais.designacoes.getForLicitacao.invalidate({
+            processoId,
+          }),
+          utils.cadastrosInstitucionais.designacoes.availableForProcess.invalidate(),
+          utils.dossie.detail.invalidate({ processoId }),
+        ]);
+        setErrorMessage(null);
+        setFeedback("Designacao institucional vinculada ao processo.");
+      },
+      onError: (error) => {
+        setFeedback(null);
+        setErrorMessage(error.message);
+      },
+    });
   const saveLicitanteMutation = trpc.licitacao.saveLicitante.useMutation({
     onSuccess: async () => {
       await refreshAll();
@@ -1144,6 +1167,20 @@ export function LicitacaoProcessoPage({
       },
     });
   const detalhe = detailQuery.data;
+  const designacoesQuery =
+    trpc.cadastrosInstitucionais.designacoes.getForLicitacao.useQuery(
+      { processoId },
+      { enabled: Boolean(detalhe), retry: false },
+    );
+  const availableDesignacoesQuery =
+    trpc.cadastrosInstitucionais.designacoes.availableForProcess.useQuery(
+      {
+        processoId,
+        secretariaId: detalhe?.processo.secretariaId ?? undefined,
+        somenteVigentes: true,
+      },
+      { enabled: Boolean(detalhe), retry: false },
+    );
   const documentos = documentosQuery.data ?? [];
   const mergedSdItems = useMemo<SdItemView[]>(() => {
     if (!sdResult) return [];
@@ -1335,9 +1372,9 @@ export function LicitacaoProcessoPage({
 
   const checklistItems = useMemo<ChecklistCardItem[]>(() => {
     const serverItems = detalhe?.checklistInterno.itens ?? [];
-    const sourceItems =
-      serverItems.length > 0
-        ? serverItems.map((serverItem, index) => {
+    const serverOnlyItems = serverItems
+      .filter((serverItem) => !internalBlueprintMap.has(serverItem.category))
+      .map((serverItem, index) => {
             const blueprintItem = internalBlueprintMap.get(serverItem.category);
             return {
               category: serverItem.category,
@@ -1354,8 +1391,32 @@ export function LicitacaoProcessoPage({
               condicional: blueprintItem?.condicional,
               completionHint: blueprintItem?.completionHint,
             };
-          })
-        : preparationRequirements;
+      });
+    const sourceItems = [...preparationRequirements, ...serverOnlyItems].sort(
+      (left, right) => left.order - right.order,
+    );
+    const catalogSelectedByCategory = new Map<string, boolean>([
+      [
+        "LICITACAO_DECRETO_COMISSAO",
+        Boolean(
+          designacoesQuery.data?.comissao?.id ?? detalhe?.licitacao.comissaoId,
+        ),
+      ],
+      [
+        "LICITACAO_DECRETO_EQUIPE_APOIO",
+        Boolean(
+          designacoesQuery.data?.equipeApoio?.id ??
+            detalhe?.licitacao.equipeApoioId,
+        ),
+      ],
+      [
+        "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
+        Boolean(
+          designacoesQuery.data?.ordenadorDespesa?.id ??
+            detalhe?.licitacao.ordenadorDespesaId,
+        ),
+      ],
+    ]);
 
     return sourceItems.map((item) => {
       const serverItem = serverChecklistMap.get(item.category);
@@ -1367,7 +1428,8 @@ export function LicitacaoProcessoPage({
       const concluido =
         (serverItem?.concluido ?? false) ||
         documentosCategoria.length > 0 ||
-        statusFlexivel !== "PADRAO";
+        statusFlexivel !== "PADRAO" ||
+        (catalogSelectedByCategory.get(item.category) ?? false);
       return {
         ...item,
         concluido,
@@ -1385,6 +1447,12 @@ export function LicitacaoProcessoPage({
     });
   }, [
     detalhe?.checklistInterno.itens,
+    detalhe?.licitacao.comissaoId,
+    detalhe?.licitacao.equipeApoioId,
+    detalhe?.licitacao.ordenadorDespesaId,
+    designacoesQuery.data?.comissao?.id,
+    designacoesQuery.data?.equipeApoio?.id,
+    designacoesQuery.data?.ordenadorDespesa?.id,
     docsByCategory,
     internalBlueprintMap,
     preparationRequirements,
@@ -1448,6 +1516,25 @@ export function LicitacaoProcessoPage({
   const selectedInternalChecklistUsesCIModal =
     selectedInternalChecklistItem?.category ===
     CI_RESERVA_ORCAMENTARIA_CATEGORY;
+  const selectedInternalInstitutionalKind:
+    | LicitacaoInstitutionalKind
+    | null = (() => {
+    switch (selectedInternalChecklistItem?.category) {
+      case "LICITACAO_DECRETO_COMISSAO":
+        return "comissao";
+      case "LICITACAO_DECRETO_EQUIPE_APOIO":
+        return "equipeApoio";
+      case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
+        return "ordenadorDespesa";
+      default:
+        return null;
+    }
+  })();
+  const selectedInternalUsesInstitutionalSelector =
+    selectedInternalChecklistItem?.editor === "INSTITUTIONAL_SELECTOR" ||
+    selectedInternalChecklistItem?.completionStrategy ===
+      "CATALOG_SELECTION" ||
+    Boolean(selectedInternalInstitutionalKind);
   const selectedInternalChecklistFlexState = selectedInternalChecklistItem
     ? (checklistNaoAplicavelForm[selectedInternalChecklistItem.category] ?? {
         statusFlexivel:
@@ -1489,6 +1576,21 @@ export function LicitacaoProcessoPage({
       const concluidoPorDocumento = documentosCategoria.length > 0;
       const concluidoPorSistema = (() => {
         switch (item.category) {
+          case "LICITACAO_DECRETO_COMISSAO":
+            return Boolean(
+              designacoesQuery.data?.comissao?.id ??
+                detalhe?.licitacao.comissaoId,
+            );
+          case "LICITACAO_DECRETO_EQUIPE_APOIO":
+            return Boolean(
+              designacoesQuery.data?.equipeApoio?.id ??
+                detalhe?.licitacao.equipeApoioId,
+            );
+          case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
+            return Boolean(
+              designacoesQuery.data?.ordenadorDespesa?.id ??
+                detalhe?.licitacao.ordenadorDespesaId,
+            );
           case "LICITACAO_FUNDAMENTO_INEXIGIBILIDADE":
             return Boolean(configForm.fundamentoLegalInciso);
           case "LICITACAO_CONFIRMACAO_PNCP":
@@ -1548,8 +1650,14 @@ export function LicitacaoProcessoPage({
     return map;
   }, [
     configForm.fundamentoLegalInciso,
+    designacoesQuery.data?.comissao?.id,
+    designacoesQuery.data?.equipeApoio?.id,
+    designacoesQuery.data?.ordenadorDespesa?.id,
+    detalhe?.licitacao.comissaoId,
+    detalhe?.licitacao.equipeApoioId,
     detalhe?.licitacao.linkBllPublico,
     detalhe?.licitacao.linkPncpPublico,
+    detalhe?.licitacao.ordenadorDespesaId,
     detalhe?.licitacao.statusLicitacao,
     detalhe?.licitantes,
     detalhe?.processo.homologado,
@@ -1741,10 +1849,82 @@ export function LicitacaoProcessoPage({
       utils.documentos.listByProcesso.invalidate({ processoId }),
       utils.documentos.list.invalidate(),
       utils.documentos.summary.invalidate(),
+      utils.cadastrosInstitucionais.designacoes.getForLicitacao.invalidate({
+        processoId,
+      }),
       utils.workflow.byProcesso.invalidate({ processoId }),
       utils.processos.overview.invalidate({ processoId }),
       utils.auditoria.list.invalidate(),
     ]);
+  }
+
+  function resolveSuggestedConductorFromGroup(group: any) {
+    const priorities = ["AGENTE_CONTRATACAO", "PREGOEIRO", "PRESIDENTE"];
+    const members = Array.isArray(group?.membros) ? group.membros : [];
+    for (const funcao of priorities) {
+      const member = members.find(
+        (item: any) => item.ativo !== false && item.funcao === funcao,
+      );
+      if (member?.pessoaId) {
+        return {
+          id: Number(member.pessoaId),
+          nome: member.pessoaNome ?? "Condutor sugerido",
+          cargo: member.pessoaCargo ?? null,
+          funcao,
+        };
+      }
+    }
+    return null;
+  }
+
+  async function handleSelectInstitutionalDesignation(
+    kind: LicitacaoInstitutionalKind,
+    id: number,
+    applySuggestedConductor: boolean,
+  ) {
+    const currentComissaoId =
+      designacoesQuery.data?.comissao?.id ??
+      detalhe?.licitacao.comissaoId ??
+      null;
+    const currentEquipeApoioId =
+      designacoesQuery.data?.equipeApoio?.id ??
+      detalhe?.licitacao.equipeApoioId ??
+      null;
+    const currentOrdenadorDespesaId =
+      designacoesQuery.data?.ordenadorDespesa?.id ??
+      detalhe?.licitacao.ordenadorDespesaId ??
+      null;
+    const next = {
+      comissaoId: currentComissaoId,
+      equipeApoioId: currentEquipeApoioId,
+      ordenadorDespesaId: currentOrdenadorDespesaId,
+    };
+
+    if (kind === "comissao") next.comissaoId = id;
+    if (kind === "equipeApoio") next.equipeApoioId = id;
+    if (kind === "ordenadorDespesa") next.ordenadorDespesaId = id;
+
+    const selectedComissao = (availableDesignacoesQuery.data?.comissoes ?? []).find(
+      (item) => item.id === next.comissaoId,
+    );
+    const suggestedConductor =
+      kind === "comissao"
+        ? resolveSuggestedConductorFromGroup(selectedComissao)
+        : null;
+    const shouldApplyConductor =
+      Boolean(applySuggestedConductor && suggestedConductor?.id) &&
+      window.confirm(
+        `Aplicar ${suggestedConductor?.nome} como condutor do processo?`,
+      );
+
+    await selectDesignacoesMutation.mutateAsync({
+      processoId,
+      ...next,
+      aplicarCondutorSugerido: shouldApplyConductor,
+      condutorSugeridoId: shouldApplyConductor
+        ? suggestedConductor?.id
+        : null,
+    });
   }
 
   async function handleProcessarSd() {
@@ -4572,6 +4752,52 @@ export function LicitacaoProcessoPage({
                           ) : null}
                         </div>
 
+                        {selectedInternalUsesInstitutionalSelector &&
+                        selectedInternalInstitutionalKind ? (
+                          <div className="mt-5">
+                            <LicitacaoInstitutionalSelector
+                              kind={selectedInternalInstitutionalKind}
+                              title={selectedInternalChecklistItem.label}
+                              selected={
+                                selectedInternalInstitutionalKind === "comissao"
+                                  ? (designacoesQuery.data?.comissao ?? null)
+                                  : selectedInternalInstitutionalKind ===
+                                      "equipeApoio"
+                                    ? (designacoesQuery.data?.equipeApoio ?? null)
+                                    : (designacoesQuery.data
+                                        ?.ordenadorDespesa ?? null)
+                              }
+                              options={
+                                selectedInternalInstitutionalKind === "comissao"
+                                  ? (availableDesignacoesQuery.data
+                                      ?.comissoes ?? [])
+                                  : selectedInternalInstitutionalKind ===
+                                      "equipeApoio"
+                                    ? (availableDesignacoesQuery.data
+                                        ?.equipesApoio ?? [])
+                                    : (availableDesignacoesQuery.data
+                                        ?.ordenadores ?? [])
+                              }
+                              isLoading={availableDesignacoesQuery.isLoading}
+                              isSaving={selectDesignacoesMutation.isPending}
+                              suggestedConductor={
+                                designacoesQuery.data?.condutorSugerido ?? null
+                              }
+                              onSelect={(id, applySuggestedConductor) =>
+                                void handleSelectInstitutionalDesignation(
+                                  selectedInternalInstitutionalKind,
+                                  id,
+                                  applySuggestedConductor,
+                                )
+                              }
+                              onOpenCadastros={() =>
+                                setLocation("/cadastros?institucionais=1")
+                              }
+                            />
+                          </div>
+                        ) : null}
+
+                        {!selectedInternalUsesInstitutionalSelector ? (
                         <div className="mt-5 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
                             Ultima evidencia
@@ -4635,8 +4861,10 @@ export function LicitacaoProcessoPage({
                             </p>
                           )}
                         </div>
+                        ) : null}
 
-                        {isForaDoFluxo ? (
+                        {!selectedInternalUsesInstitutionalSelector &&
+                        isForaDoFluxo ? (
                           <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
                             <FormField label="Tratamento fora do fluxo">
                               <Select
@@ -4816,6 +5044,7 @@ export function LicitacaoProcessoPage({
                           </div>
                         ) : null}
 
+                        {!selectedInternalUsesInstitutionalSelector ? (
                         <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
                             Nova evidencia
@@ -4909,6 +5138,7 @@ export function LicitacaoProcessoPage({
                             </Button>
                           </div>
                         </div>
+                        ) : null}
                       </>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">

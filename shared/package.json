@@ -66,6 +66,10 @@
       "types": "./dist/schemas/cadastros.d.ts",
       "import": "./dist/schemas/cadastros.js"
     },
+    "./schemas/cadastros-institucionais": {
+      "types": "./dist/schemas/cadastros-institucionais.d.ts",
+      "import": "./dist/schemas/cadastros-institucionais.js"
+    },
     "./schemas/licitacao": {
       "types": "./dist/schemas/licitacao.d.ts",
       "import": "./dist/schemas/licitacao.js"

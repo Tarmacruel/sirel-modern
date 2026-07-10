@@ -493,6 +493,23 @@ async function buildInternalChecklist(
 ) {
   const docs = await getChecklistDocuments(db, processoId);
   const overrides = await getChecklistOverrides(db, processoId);
+  const [designacoes] = await db
+    .select({
+      comissaoId: licitacoes.comissaoId,
+      equipeApoioId: licitacoes.equipeApoioId,
+      ordenadorDespesaId: licitacoes.ordenadorDespesaId,
+    })
+    .from(licitacoes)
+    .where(eq(licitacoes.processoId, processoId))
+    .limit(1);
+  const catalogCompletionByCategory = new Map<string, boolean>([
+    ["LICITACAO_DECRETO_COMISSAO", Boolean(designacoes?.comissaoId)],
+    ["LICITACAO_DECRETO_EQUIPE_APOIO", Boolean(designacoes?.equipeApoioId)],
+    [
+      "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
+      Boolean(designacoes?.ordenadorDespesaId),
+    ],
+  ]);
   const byCategory = new Map<string, (typeof docs)[number][]>();
 
   docs.forEach((documento) => {
@@ -522,9 +539,14 @@ async function buildInternalChecklist(
       );
       const naoAplicavel = statusFlexivel === "NAO_APLICAVEL";
       const concluidoPorFlex = statusFlexivel !== "PADRAO";
+      const concluidoPorCatalogo =
+        catalogCompletionByCategory.get(item.category) ?? false;
       return {
         ...item,
-        concluido: documentosCategoria.length > 0 || concluidoPorFlex,
+        concluido:
+          documentosCategoria.length > 0 ||
+          concluidoPorFlex ||
+          concluidoPorCatalogo,
         naoAplicavel,
         statusFlexivel,
         justificativaNaoAplicavel: override?.justificativa ?? null,
@@ -1162,6 +1184,12 @@ export const licitacaoRouter = router({
               linkBllPublico: null,
               linkPncpPublico: null,
               fundamentoLegalInciso: null,
+              comissaoId: null,
+              equipeApoioId: null,
+              ordenadorDespesaId: null,
+              designacoesSnapshot: null,
+              designacoesSelecionadasPor: null,
+              designacoesSelecionadasEm: null,
               inversaoFasesHabilitada: false,
               inversaoFasesJustificativa: null,
               observacoes: null,

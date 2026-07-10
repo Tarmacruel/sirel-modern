@@ -79,6 +79,24 @@ describe("licitacao guided flow catalog", () => {
     expect(pregao).toContain("LICITACAO_PUBLICACAO_JORNAL");
   });
 
+  it("inicia a preparacao por selecoes do catalogo institucional", () => {
+    const preparacao = getLicitacaoDocumentRequirements({
+      modalidadeCodigo: "DISPENSA_ELETRONICA",
+      modoDisputa: "ABERTO",
+    }).filter((item) => item.phase === "PREPARACAO");
+
+    expect(preparacao.slice(0, 3).map((item) => item.category)).toEqual([
+      "LICITACAO_DECRETO_COMISSAO",
+      "LICITACAO_DECRETO_EQUIPE_APOIO",
+      "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
+    ]);
+    preparacao.slice(0, 3).forEach((item) => {
+      expect(item.source).toBe("CATALOG");
+      expect(item.completionStrategy).toBe("CATALOG_SELECTION");
+      expect(item.editor).toBe("INSTITUTIONAL_SELECTOR");
+    });
+  });
+
   it("exige fundamento centralizado para inexigibilidade", () => {
     const inexigibilidade = categoriesForPhase("PUBLICACAO", {
       modalidadeCodigo: "INEXIGIBILIDADE",

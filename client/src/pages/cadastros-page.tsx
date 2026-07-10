@@ -24,6 +24,7 @@ import { useLocation } from "wouter";
 
 import type { CadastroEntity } from "@sirel/shared/schemas/cadastros";
 
+import { CadastrosInstitucionaisPanel } from "@/components/cadastros-institucionais/cadastros-institucionais-panel";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -556,8 +557,19 @@ function CadastroMobileCard({
 export function CadastrosPage() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const utils = trpc.useUtils();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [entity, setEntity] = useState<CadastroEntity>("itens");
+  const institutionalQueryActive = useMemo(() => {
+    const query =
+      typeof window !== "undefined"
+        ? window.location.search.replace(/^\?/, "")
+        : (location.split("?")[1] ?? "");
+    return new URLSearchParams(query).get("institucionais") === "1";
+  }, [location]);
+  const [showInstitucionais, setShowInstitucionais] = useState(
+    institutionalQueryActive,
+  );
+  const isInstitutionalMode = showInstitucionais || institutionalQueryActive;
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | "ativo" | "inativo">("");
   const [secretariaId, setSecretariaId] = useState("");
@@ -608,8 +620,35 @@ export function CadastrosPage() {
   const deferredSearch = useDeferredValue(search.trim());
   const deferredAuditSearch = useDeferredValue(auditSearch.trim());
 
-  const optionsQuery = trpc.cadastros.formOptions.useQuery(undefined, { retry: false });
-  const summaryQuery = trpc.cadastros.summary.useQuery({ entity }, { retry: false });
+  useEffect(() => {
+    setShowInstitucionais(institutionalQueryActive);
+  }, [institutionalQueryActive]);
+
+  useEffect(() => {
+    if (!isInstitutionalMode) {
+      return;
+    }
+
+    setSelectedRecordId(null);
+    setSelectedRowsById({});
+    setAuditDetail(null);
+    setAuditActionFilter("");
+    setAuditSearch("");
+    setAuditFieldFilter("");
+    setModalOpen(false);
+    setExportModalOpen(false);
+    setFeedback(null);
+    setError(null);
+  }, [isInstitutionalMode]);
+
+  const optionsQuery = trpc.cadastros.formOptions.useQuery(undefined, {
+    enabled: !isInstitutionalMode,
+    retry: false,
+  });
+  const summaryQuery = trpc.cadastros.summary.useQuery(
+    { entity },
+    { enabled: !isInstitutionalMode, retry: false },
+  );
 
   const listQuery = trpc.cadastros.list.useQuery(
     {
@@ -622,7 +661,11 @@ export function CadastrosPage() {
       page,
       pageSize,
     },
-    { retry: false, placeholderData: (previous) => previous },
+    {
+      enabled: !isInstitutionalMode,
+      retry: false,
+      placeholderData: (previous) => previous,
+    },
   );
 
   const rows = (listQuery.data?.items ?? []) as Array<Record<string, any>>;
@@ -642,7 +685,7 @@ export function CadastrosPage() {
       limit: 12,
     },
     {
-      enabled: supportsMergeEntity,
+      enabled: !isInstitutionalMode && supportsMergeEntity,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -656,7 +699,7 @@ export function CadastrosPage() {
       pageSize: 8,
     },
     {
-      enabled: supportsFornecedorWinnerBackfill,
+      enabled: !isInstitutionalMode && supportsFornecedorWinnerBackfill,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -670,7 +713,7 @@ export function CadastrosPage() {
       pageSize: 100,
     },
     {
-      enabled: winnerLinkModal?.mode === "process",
+      enabled: !isInstitutionalMode && winnerLinkModal?.mode === "process",
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -930,7 +973,10 @@ export function CadastrosPage() {
       page: 1,
       pageSize: 8,
     },
-    { retry: false, enabled: Boolean(selectedRecordId) },
+    {
+      retry: false,
+      enabled: !isInstitutionalMode && Boolean(selectedRecordId),
+    },
   );
 
   const historyRows = useMemo(() => {
@@ -2073,8 +2119,8 @@ export function CadastrosPage() {
     ));
   }
 
-  return (
-    <div className="space-y-6">
+  function renderModuleSelector() {
+    return (
       <SectionCard
         title="Módulo de Cadastros"
         description="Centralize a manutenção das entidades mestres do SIREL em um único ponto operacional."
@@ -2093,10 +2139,16 @@ export function CadastrosPage() {
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setEntity(item.key)}
+                onClick={() => {
+                  setEntity(item.key);
+                  setShowInstitucionais(false);
+                  if (institutionalQueryActive) {
+                    setLocation("/cadastros");
+                  }
+                }}
                 className={[
                   "inline-flex min-w-fit items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition",
-                  active
+                  active && !isInstitutionalMode
                     ? "border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] text-[var(--color-primary-800)]"
                     : "border-[rgba(209,213,219,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(47,84,196,0.24)] hover:bg-[var(--color-primary-50)] hover:text-[var(--color-primary-800)]",
                 ].join(" ")}
@@ -2106,8 +2158,41 @@ export function CadastrosPage() {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => {
+              setShowInstitucionais(true);
+              if (!institutionalQueryActive) {
+                setLocation("/cadastros?institucionais=1");
+              }
+            }}
+            className={[
+              "inline-flex min-w-fit items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition",
+              isInstitutionalMode
+                ? "border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] text-[var(--color-primary-800)]"
+                : "border-[rgba(209,213,219,0.92)] bg-white text-[var(--color-neutral-700)] hover:border-[rgba(47,84,196,0.24)] hover:bg-[var(--color-primary-50)] hover:text-[var(--color-primary-800)]",
+            ].join(" ")}
+          >
+            <Landmark className="h-4 w-4" />
+            Institucionais
+          </button>
         </div>
       </SectionCard>
+    );
+  }
+
+  if (isInstitutionalMode) {
+    return (
+      <div className="space-y-6">
+        {renderModuleSelector()}
+        <CadastrosInstitucionaisPanel />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {renderModuleSelector()}
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
         <Card>

@@ -1,5 +1,6 @@
 import "./bootstrap/load-env.js";
 
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -25,6 +26,7 @@ import { createContext } from "./_core/context.js";
 import { logAuditoria } from "./db/auditoria.js";
 import { requireDb } from "./db/client.js";
 import {
+  atosDesignacao,
   catalogoItens,
   documentos,
   fornecedores,
@@ -63,6 +65,11 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const uploadsRoot = resolve(currentDir, "../../storage/uploads");
 const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
+const atosDesignacaoUploadsRoot = join(
+  uploadsRoot,
+  "cadastros-institucionais",
+  "atos",
+);
 const ataSessaoReportsRoot = resolve(
   currentDir,
   "../../storage/reports/atas-sessao",
@@ -78,6 +85,9 @@ if (!existsSync(uploadsRoot)) {
 }
 if (!existsSync(cadastroAssetsRoot)) {
   mkdirSync(cadastroAssetsRoot, { recursive: true });
+}
+if (!existsSync(atosDesignacaoUploadsRoot)) {
+  mkdirSync(atosDesignacaoUploadsRoot, { recursive: true });
 }
 if (!existsSync(ataSessaoUploadsRoot)) {
   mkdirSync(ataSessaoUploadsRoot, { recursive: true });
@@ -139,6 +149,35 @@ function parseStringArrayField(value: unknown) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function isAllowedAtoDesignacaoFile(file: Express.Multer.File) {
+  const allowedExtensions = new Set([
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+  ]);
+  const allowedMimeTypes = new Set([
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+  ]);
+  const extension = extname(file.originalname).toLowerCase();
+  return allowedExtensions.has(extension) && allowedMimeTypes.has(file.mimetype);
+}
+
+function buildUploadRelativePath(file: Express.Multer.File) {
+  return (
+    file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ??
+    file.filename
+  );
 }
 
 function resolveClientDistRoot() {
@@ -226,6 +265,25 @@ const cadastroAssetStorage = multer.diskStorage({
 const cadastroAssetUpload = multer({
   storage: cadastroAssetStorage,
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const atoDesignacaoStorage = multer.diskStorage({
+  destination(_req, _file, callback) {
+    mkdirSync(atosDesignacaoUploadsRoot, { recursive: true });
+    callback(null, atosDesignacaoUploadsRoot);
+  },
+  filename(_req, file, callback) {
+    const extension = extname(file.originalname) || ".pdf";
+    const baseName =
+      slugifyFileName(file.originalname.replace(extension, "")) ||
+      "ato-designacao";
+    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+  },
+});
+
+const atoDesignacaoUpload = multer({
+  storage: atoDesignacaoStorage,
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 const ataSessaoStorage = multer.diskStorage({
@@ -939,6 +997,98 @@ app.post(
 );
 
 app.post(
+  "/api/cadastros-institucionais/atos/upload",
+  atoDesignacaoUpload.single("arquivo"),
+  async (req, res) => {
+    try {
+      const user = requireUploadUser(req, res);
+      if (!user) return;
+      if (!["admin", "gestor"].includes(user.role)) {
+        res.status(403).json({
+          message:
+            "Apenas gestores e administradores podem enviar atos institucionais.",
+        });
+        return;
+      }
+      if (!req.file) {
+        res.status(400).json({ message: "Selecione um arquivo para upload." });
+        return;
+      }
+      if (!isAllowedAtoDesignacaoFile(req.file)) {
+        rmSync(req.file.path, { force: true });
+        res.status(400).json({
+          message:
+            "Formato invalido. Envie PDF, DOC, DOCX, PNG, JPG ou WEBP.",
+        });
+        return;
+      }
+
+      const fileBuffer = readFileSync(req.file.path);
+      const hashArquivo = createHash("sha256").update(fileBuffer).digest("hex");
+      const db = requireDb();
+      const [existingAto] = await db
+        .select({
+          arquivoUrl: atosDesignacao.arquivoUrl,
+          arquivoChave: atosDesignacao.arquivoChave,
+          mimeType: atosDesignacao.mimeType,
+          tamanhoBytes: atosDesignacao.tamanhoBytes,
+          hashArquivo: atosDesignacao.hashArquivo,
+        })
+        .from(atosDesignacao)
+        .where(eq(atosDesignacao.hashArquivo, hashArquivo))
+        .limit(1);
+      if (existingAto?.arquivoChave) {
+        const existingPath = resolveDocumentoPath(existingAto.arquivoChave);
+        if (existsSync(existingPath)) {
+          rmSync(req.file.path, { force: true });
+          res.status(200).json({
+            success: true,
+            arquivoUrl:
+              existingAto.arquivoUrl ??
+              `/api/cadastros-institucionais/atos/download?key=${encodeURIComponent(existingAto.arquivoChave)}`,
+            arquivoChave: existingAto.arquivoChave,
+            mimeType: existingAto.mimeType ?? req.file.mimetype,
+            tamanhoBytes: existingAto.tamanhoBytes ?? req.file.size,
+            hashArquivo,
+          });
+          return;
+        }
+      }
+      const arquivoChave = buildUploadRelativePath(req.file);
+      const arquivoUrl = `/api/cadastros-institucionais/atos/download?key=${encodeURIComponent(arquivoChave)}`;
+
+      await logAuditoria({ user } as any, {
+        tabela: "atos_designacao_uploads",
+        registroId: 0,
+        acao: "CREATE",
+        dadosNovos: {
+          arquivoOriginal: req.file.originalname,
+          arquivoChave,
+          mimeType: req.file.mimetype,
+          tamanhoBytes: req.file.size,
+          hashArquivo,
+        },
+        descricao: "Arquivo de ato institucional enviado",
+      });
+
+      res.status(201).json({
+        success: true,
+        arquivoUrl,
+        arquivoChave,
+        mimeType: req.file.mimetype,
+        tamanhoBytes: req.file.size,
+        hashArquivo,
+      });
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ message: "Falha ao salvar o ato institucional enviado." });
+    }
+  },
+);
+
+app.post(
   "/api/relatorios/ata-sessao/processar",
   ataSessaoUpload.single("arquivo"),
   async (req, res) => {
@@ -1534,6 +1684,63 @@ app.get(
     }
   },
 );
+
+app.get("/api/cadastros-institucionais/atos/download", async (req, res) => {
+  try {
+    if (!requireUploadUser(req, res)) return;
+
+    const arquivoChave = String(req.query.key ?? "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "");
+    if (
+      !arquivoChave ||
+      !arquivoChave.startsWith("cadastros-institucionais/atos/") ||
+      arquivoChave.includes("../")
+    ) {
+      res.status(400).json({ message: "Chave do ato invalida." });
+      return;
+    }
+
+    const absolutePath = resolveDocumentoPath(arquivoChave);
+    const normalizedRoot = resolve(atosDesignacaoUploadsRoot).replace(/\\/g, "/");
+    const normalizedTarget = resolve(absolutePath).replace(/\\/g, "/");
+    if (!normalizedTarget.startsWith(normalizedRoot)) {
+      res.status(400).json({ message: "Caminho do ato invalido." });
+      return;
+    }
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Arquivo fisico nao encontrado." });
+      return;
+    }
+
+    const db = requireDb();
+    const [ato] = await db
+      .select()
+      .from(atosDesignacao)
+      .where(eq(atosDesignacao.arquivoChave, arquivoChave))
+      .limit(1);
+    const extension = extname(arquivoChave) || extname(absolutePath);
+    const rawName = ato
+      ? `${ato.tipo}-${ato.numero}-${ato.ano}`
+      : arquivoChave.split("/").pop() || "ato-designacao";
+    const downloadName = `${slugifyFileName(rawName.replace(extension, "")) || "ato-designacao"}${extension}`;
+    const mimeType = ato?.mimeType?.trim() || "application/octet-stream";
+
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename=\"${downloadName}\"`,
+    );
+    res.sendFile(absolutePath);
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Falha ao disponibilizar o ato institucional." });
+  }
+});
 
 app.get(
   "/api/planejamento/documentos/:documentoId/download",
