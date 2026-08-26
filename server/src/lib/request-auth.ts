@@ -37,16 +37,8 @@ function readCookieValue(req: Request, cookieName: string) {
 }
 
 export function resolveRequestUser(req: Request): RequestUser | null {
-  const authHeader = readHeaderValue(req, "authorization").trim();
-  const bearerToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : "";
   const cookieToken = readCookieValue(req, SESSION_COOKIE_NAME);
-  const sessionPayload = verifySessionToken(cookieToken || bearerToken);
-  const roleHeader = readHeaderValue(req, "x-sirel-role").trim();
-  const userId = Number(readHeaderValue(req, "x-sirel-user-id") || 0) || 1;
-  const secretariaId =
-    Number(readHeaderValue(req, "x-sirel-secretaria-id") || 0) || null;
+  const sessionPayload = verifySessionToken(cookieToken);
 
   if (sessionPayload) {
     return {
@@ -60,21 +52,5 @@ export function resolveRequestUser(req: Request): RequestUser | null {
     };
   }
 
-  const allowHeaderFallback =
-    process.env.NODE_ENV !== "production" ||
-    process.env.ALLOW_DEV_AUTH_HEADERS === "true";
-
-  if (!roleHeader || !allowHeaderFallback) {
-    return null;
-  }
-
-  return {
-    id: userId,
-    username: readHeaderValue(req, "x-sirel-username") || "demo",
-    name: readHeaderValue(req, "x-sirel-user-name") || "Usuario demo",
-    email: readHeaderValue(req, "x-sirel-user-email") || "demo@sirel.local",
-    role: roleHeader,
-    secretariaId,
-    sessionVersion: 1,
-  };
+  return null;
 }

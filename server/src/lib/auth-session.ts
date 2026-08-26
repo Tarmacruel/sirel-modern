@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 
 const TOKEN_VERSION = 1;
@@ -29,8 +29,18 @@ function base64UrlDecode(value: string) {
   return Buffer.from(value, "base64url").toString("utf-8");
 }
 
-function getSecret() {
-  return process.env.JWT_SECRET || "sirel-secret";
+export function getSessionSecret() {
+  const secret = process.env.JWT_SECRET?.trim() ?? "";
+  if (secret.length < 32) {
+    throw new Error(
+      "JWT_SECRET deve estar configurado com pelo menos 32 caracteres aleatorios.",
+    );
+  }
+  return secret;
+}
+
+export function assertSessionSecretConfigured() {
+  getSessionSecret();
 }
 
 function readHeaderValue(req: Request | undefined, headerName: string) {
@@ -66,7 +76,9 @@ function buildCookieOptions(req: Request | undefined) {
 }
 
 function signPayload(payload: object) {
-  return createHmac("sha256", getSecret()).update(JSON.stringify(payload)).digest("base64url");
+  return createHmac("sha256", getSessionSecret())
+    .update(JSON.stringify(payload))
+    .digest("base64url");
 }
 
 export function createSessionToken(user: {
@@ -104,7 +116,14 @@ export function verifySessionToken(token: string | null | undefined) {
     if (payload.ver !== TOKEN_VERSION) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     const expectedSignature = signPayload(payload);
-    if (expectedSignature !== signaturePart) return null;
+    const expected = Buffer.from(expectedSignature);
+    const received = Buffer.from(signaturePart);
+    if (
+      expected.length !== received.length ||
+      !timingSafeEqual(expected, received)
+    ) {
+      return null;
+    }
     return {
       ...payload,
       sessionVersion: Number(payload.sessionVersion ?? 1),

@@ -7,11 +7,13 @@ import { requireAdmin, requireAuditor, requireGestor, requireOperador } from "./
 import { requireDb } from "./db/client.js";
 import { users } from "./db/schema.js";
 import { requireSubsystemAccess } from "./lib/subsystem-access.js";
+import { hasValidCsrfToken } from "./lib/csrf.js";
 
 const t = initTRPC.context<AppContext>().create({ transformer: superjson });
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
+/** Endpoints deliberately reachable without a session (login, recovery and health). */
+export const anonymousProcedure = t.procedure;
 
 async function loadSessionGuardUser(userId: number) {
   const db = requireDb();
@@ -64,8 +66,15 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next, path }) =>
   if (path !== "auth.me") {
     await requireSubsystemAccess(ctx);
   }
+  const method = ctx.req.method?.toUpperCase();
+  if (method && method !== "GET" && method !== "HEAD" && !hasValidCsrfToken(ctx.req)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Validacao CSRF obrigatoria." });
+  }
   return next({ ctx });
 });
+
+/** Compatibility name: every business router now requires a validated session. */
+export const publicProcedure = protectedProcedure;
 
 export const operadorProcedure = protectedProcedure.use(({ ctx, next }) => {
   requireOperador(ctx);

@@ -1,7 +1,7 @@
-import { publicProcedure, router } from "../trpc.js";
+import { anonymousProcedure, router } from "../trpc.js";
 
 export const healthRouter = router({
-  ping: publicProcedure.query(() => ({
+  ping: anonymousProcedure.query(() => ({
     ok: true,
     service: "sirel-modern-server",
     timestamp: new Date().toISOString()

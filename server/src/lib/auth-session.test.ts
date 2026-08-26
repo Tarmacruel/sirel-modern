@@ -5,12 +5,13 @@ import { createSessionToken, verifySessionToken } from "./auth-session.js";
 const originalSecret = process.env.JWT_SECRET;
 
 afterEach(() => {
-  process.env.JWT_SECRET = originalSecret;
+  if (originalSecret === undefined) delete process.env.JWT_SECRET;
+  else process.env.JWT_SECRET = originalSecret;
 });
 
 describe("auth-session", () => {
   it("inclui versao de sessao e data de emissao no token", () => {
-    process.env.JWT_SECRET = "test-secret";
+    process.env.JWT_SECRET = "test-secret-com-mais-de-trinta-e-dois-caracteres";
 
     const token = createSessionToken({
       id: 10,
@@ -27,5 +28,18 @@ describe("auth-session", () => {
     expect(payload?.sub).toBe(10);
     expect(payload?.sessionVersion).toBe(4);
     expect(payload?.iat).toBeTypeOf("number");
+  });
+
+  it("recusa segredo ausente ou fraco", () => {
+    delete process.env.JWT_SECRET;
+    expect(() => createSessionToken({
+      id: 10,
+      username: "usuario.teste",
+      name: "Usuario Teste",
+      email: null,
+      role: "operador",
+      secretariaId: 2,
+      sessionVersion: 1,
+    })).toThrow(/JWT_SECRET/);
   });
 });

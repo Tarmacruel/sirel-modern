@@ -386,7 +386,7 @@ export async function exportReportToXlsx(
   summary: ReportSummaryItem[] = [],
   brandingOptions?: ReportBrandingOptions,
 ) {
-  const XLSX = await import("xlsx");
+  const { Workbook } = await import("exceljs");
   const sheetData = buildSheetData(
     title,
     columns,
@@ -395,14 +395,14 @@ export async function exportReportToXlsx(
     brandingOptions,
   );
 
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-  worksheet["!cols"] = columns.map((column) => ({
-    wch: Math.max(column.label.length + 4, 20),
-  }));
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet("Relatorio");
+  worksheet.addRows(sheetData);
+  worksheet.columns.forEach((column, index) => {
+    column.width = Math.max((columns[index]?.label.length ?? 0) + 4, 20);
+  });
 
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório");
-  XLSX.writeFile(workbook, filename);
+  downloadBlob(filename, new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
 }
 
 export async function exportWorkbookToXlsx(
@@ -412,8 +412,8 @@ export async function exportWorkbookToXlsx(
   summary: ReportSummaryItem[] = [],
   brandingOptions?: ReportBrandingOptions,
 ) {
-  const XLSX = await import("xlsx");
-  const workbook = XLSX.utils.book_new();
+  const { Workbook } = await import("exceljs");
+  const workbook = new Workbook();
   const usedNames = new Set<string>();
 
   if (summary.length) {
@@ -425,7 +425,8 @@ export async function exportWorkbookToXlsx(
       label: item.label,
       value: toText(item.value),
     }));
-    const resumoSheet = XLSX.utils.aoa_to_sheet(
+    const resumoSheet = workbook.addWorksheet(sanitizeSheetName("Resumo", usedNames));
+    resumoSheet.addRows(
       buildSheetData(
         `${title} - Resumo`,
         resumoColumns,
@@ -434,16 +435,12 @@ export async function exportWorkbookToXlsx(
         brandingOptions,
       ),
     );
-    resumoSheet["!cols"] = [{ wch: 34 }, { wch: 42 }];
-    XLSX.utils.book_append_sheet(
-      workbook,
-      resumoSheet,
-      sanitizeSheetName("Resumo", usedNames),
-    );
+    resumoSheet.columns.forEach((column, index) => { column.width = index === 0 ? 34 : 42; });
   }
 
   sheets.forEach((sheet) => {
-    const worksheet = XLSX.utils.aoa_to_sheet(
+    const worksheet = workbook.addWorksheet(sanitizeSheetName(sheet.name, usedNames));
+    worksheet.addRows(
       buildSheetData(
         sheet.title ?? `${title} - ${sheet.name}`,
         sheet.columns,
@@ -452,17 +449,10 @@ export async function exportWorkbookToXlsx(
         brandingOptions,
       ),
     );
-    worksheet["!cols"] = sheet.columns.map((column) => ({
-      wch: Math.max(column.label.length + 4, 20),
-    }));
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      sanitizeSheetName(sheet.name, usedNames),
-    );
+    worksheet.columns.forEach((column, index) => { column.width = Math.max((sheet.columns[index]?.label.length ?? 0) + 4, 20); });
   });
 
-  XLSX.writeFile(workbook, filename);
+  downloadBlob(filename, new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
 }
 
 export async function exportReportToPdf(

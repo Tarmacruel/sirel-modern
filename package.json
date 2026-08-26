@@ -47,6 +47,9 @@
     "drizzle-kit": "^0.30.0",
     "prettier": "^3.4.2",
     "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "shell-quote": "^1.10.0"
   }
 }
 

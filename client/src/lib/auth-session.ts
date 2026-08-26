@@ -51,7 +51,6 @@ export interface AuthUser {
 }
 
 export interface AuthSession {
-  token: string;
   user: AuthUser;
 }
 
@@ -90,7 +89,6 @@ function normalizeAuthUser(user: Partial<AuthUser> & Pick<AuthUser, "id" | "name
 
 export function normalizeAuthSession(session: AuthSession): AuthSession {
   return {
-    token: session.token ?? "",
     user: normalizeAuthUser(session.user),
   };
 }
@@ -116,6 +114,12 @@ export function clearStoredSession() {
   window.localStorage.removeItem(STORAGE_KEY);
 }
 
-export function getStoredAuthToken() {
-  return loadStoredSession()?.token ?? "";
+export function getCsrfToken() {
+  if (typeof document === "undefined") return "";
+  const prefix = "sirel_csrf=";
+  const cookie = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
 }

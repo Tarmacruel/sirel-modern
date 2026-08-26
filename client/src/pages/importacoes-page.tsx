@@ -1999,24 +1999,22 @@ export function ImportacoesPage() {
 
     setLegacyBusy(true);
     try {
-      const XLSX = await import("xlsx");
+      const { Workbook } = await import("exceljs");
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, {
-        type: "array",
-        cellDates: true,
-      });
+      const workbook = new Workbook();
+      await workbook.xlsx.load(buffer);
 
       const sheets = Object.fromEntries(
-        workbook.SheetNames.map((sheetName) => {
-          const worksheet = workbook.Sheets[sheetName];
-          const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-            worksheet,
-            {
-              defval: null,
-              raw: false,
-            },
-          );
-          const headers = Object.keys(rawRows[0] ?? {});
+        workbook.worksheets.map((worksheet) => {
+          const sheetName = worksheet.name;
+          const headerRow = worksheet.getRow(1);
+          const headers = Array.from({ length: headerRow.cellCount }, (_value, index) => String(headerRow.getCell(index + 1).text ?? "").trim() || `COLUNA_${index + 1}`);
+          const rawRows: Record<string, unknown>[] = [];
+          worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber <= 1) return;
+            const record = Object.fromEntries(headers.map((header, index) => [header, row.getCell(index + 1).text || null]));
+            if (Object.values(record).some((value) => value !== null)) rawRows.push(record);
+          });
           const records = rawRows
             .map((row, index) => normalizeLegacyWorkbookRow(row, index + 2))
             .filter(
@@ -2041,10 +2039,10 @@ export function ImportacoesPage() {
         }),
       ) as Record<string, LegacyWorkbookSheet>;
 
-      const selectedSheet = workbook.SheetNames[0] ?? "";
+      const selectedSheet = workbook.worksheets[0]?.name ?? "";
       setLegacyWorkbook({
         fileName: file.name,
-        sheetNames: workbook.SheetNames,
+        sheetNames: workbook.worksheets.map((sheet) => sheet.name),
         selectedSheet,
         sheets,
       });
@@ -2320,7 +2318,7 @@ export function ImportacoesPage() {
           <div className="rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-sm">
             <div className="grid gap-3">
               <FormField label="Arquivo XLSX legado">
-                <Input type="file" accept=".xlsx,.xlsm,.xls" onChange={(event) => void handleLegacyFileChange(event)} />
+                <Input type="file" accept=".xlsx,.xlsm" onChange={(event) => void handleLegacyFileChange(event)} />
               </FormField>
               {legacyWorkbook ? (
                 <>

@@ -126,7 +126,7 @@ export const parametrosRouter = router({
       .returning();
 
     const ipAddress =
-      resolveClientIp(ctx.req.headers["x-forwarded-for"]) ??
+      resolveClientIp(ctx.req.ip) ??
       resolveClientIp(ctx.req.socket.remoteAddress) ??
       null;
 

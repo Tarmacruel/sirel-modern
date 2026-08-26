@@ -27,7 +27,9 @@ import {
   getAuthorizedSubsystemsFromMatrix,
   getUserSubsystemAccess,
 } from "../lib/subsystem-access.js";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "../trpc.js";
+import { adminProcedure, anonymousProcedure, protectedProcedure, router } from "../trpc.js";
+import { getSessionSecret } from "../lib/auth-session.js";
+import { clearCsrfCookie, setCsrfCookie } from "../lib/csrf.js";
 
 const LOGIN_WINDOW_MINUTES = 15;
 const RECOVERY_WINDOW_MINUTES = 15;
@@ -104,16 +106,12 @@ function maskUsername(value: string | null | undefined) {
   return domain ? `${visible}***@${domain}` : `${visible}***`;
 }
 
-function getSecret() {
-  return process.env.JWT_SECRET || "sirel-secret";
-}
-
 function fingerprint(value: string) {
-  return createHmac("sha256", getSecret()).update(value).digest("hex");
+  return createHmac("sha256", getSessionSecret()).update(value).digest("hex");
 }
 
 function hashChallenge(value: string) {
-  return createHash("sha256").update(`${getSecret()}:${value}`).digest("hex");
+  return createHash("sha256").update(`${getSessionSecret()}:${value}`).digest("hex");
 }
 
 function safeHashEquals(left: string, right: string) {
@@ -133,21 +131,20 @@ function resolveClientIp(value: unknown) {
 
 function resolveRequestIp(ctx: {
   req: {
-    headers: Record<string, unknown>;
+    ip?: string;
     socket: { remoteAddress?: string | undefined };
   };
 }) {
   return (
-    resolveClientIp(ctx.req.headers["x-forwarded-for"]) ??
+    resolveClientIp(ctx.req.ip) ??
     resolveClientIp(ctx.req.socket.remoteAddress) ??
     "local"
   );
 }
 
-function assertPublicRecoveryTransport(ctx: { req: { headers: Record<string, unknown> } }) {
+function assertPublicRecoveryTransport(ctx: { req: { protocol?: string } }) {
   if (process.env.NODE_ENV !== "production") return;
-  const forwardedProto = resolveClientIp(ctx.req.headers["x-forwarded-proto"]);
-  if (forwardedProto === "https") return;
+  if (ctx.req.protocol === "https") return;
 
   throw new TRPCError({
     code: "BAD_REQUEST",
@@ -357,7 +354,7 @@ async function findPessoaForCompletion(input: {
 }
 
 export const authRouter = router({
-  login: publicProcedure.input(loginInputSchema).mutation(async ({ ctx, input }) => {
+  login: anonymousProcedure.input(loginInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
     const normalizedLogin = normalizeLogin(input.login);
     const ipAddress = resolveRequestIp(ctx);
@@ -375,13 +372,28 @@ export const authRouter = router({
       )
       .limit(MAX_FAILED_ATTEMPTS);
 
-    if (recentFailures.length >= MAX_FAILED_ATTEMPTS) {
+    const recentIpFailures = await db
+      .select({ id: authLog.id })
+      .from(authLog)
+      .where(
+        and(
+          eq(authLog.ipAddress, ipAddress),
+          eq(authLog.evento, "LOGIN_FAILURE"),
+          gte(authLog.criadoEm, lockoutCutoff),
+        ),
+      )
+      .limit(MAX_FAILED_ATTEMPTS * 2);
+
+    if (
+      recentFailures.length >= MAX_FAILED_ATTEMPTS ||
+      recentIpFailures.length >= MAX_FAILED_ATTEMPTS * 2
+    ) {
       await logAuthEvent({
         loginInformado: input.login,
         loginNormalizado: normalizedLogin,
         ipAddress,
         evento: "LOGIN_BLOCKED",
-        detalhe: `Bloqueio temporario apos ${MAX_FAILED_ATTEMPTS} tentativas invalidas em ${LOGIN_WINDOW_MINUTES} minutos.`,
+        detalhe: `Bloqueio temporario por tentativas invalidas de conta ou IP nos ultimos ${LOGIN_WINDOW_MINUTES} minutos.`,
       });
 
       throw new TRPCError({
@@ -420,6 +432,7 @@ export const authRouter = router({
     const responseUser = await toAuthResponseUser(user);
     const token = createSessionToken(responseUser);
     setSessionCookie(ctx.res, ctx.req, token);
+    setCsrfCookie(ctx.res);
 
     await db
       .update(users)
@@ -439,7 +452,6 @@ export const authRouter = router({
     });
 
     return {
-      token,
       user: responseUser,
     };
   }),
@@ -462,7 +474,7 @@ export const authRouter = router({
     return { user: await toAuthResponseUser(user) };
   }),
 
-  recoverUsername: publicProcedure.input(recoverUsernameInputSchema).mutation(async ({ ctx, input }) => {
+  recoverUsername: anonymousProcedure.input(recoverUsernameInputSchema).mutation(async ({ ctx, input }) => {
     assertPublicRecoveryTransport(ctx);
     const db = requireDb();
     const ipFingerprint = fingerprint(`ip:${resolveRequestIp(ctx)}`);
@@ -502,7 +514,7 @@ export const authRouter = router({
     };
   }),
 
-  requestPasswordReset: publicProcedure.input(requestPasswordResetInputSchema).mutation(async ({ ctx, input }) => {
+  requestPasswordReset: anonymousProcedure.input(requestPasswordResetInputSchema).mutation(async ({ ctx, input }) => {
     assertPublicRecoveryTransport(ctx);
     const db = requireDb();
     const normalizedLogin = normalizeLogin(input.username);
@@ -554,7 +566,7 @@ export const authRouter = router({
     };
   }),
 
-  completePasswordReset: publicProcedure.input(completePasswordResetInputSchema).mutation(async ({ ctx, input }) => {
+  completePasswordReset: anonymousProcedure.input(completePasswordResetInputSchema).mutation(async ({ ctx, input }) => {
     assertPublicRecoveryTransport(ctx);
     const db = requireDb();
     const normalizedLogin = normalizeLogin(input.username);
@@ -774,8 +786,9 @@ export const authRouter = router({
     };
   }),
 
-  logout: publicProcedure.mutation(({ ctx }) => {
+  logout: anonymousProcedure.mutation(({ ctx }) => {
     clearSessionCookie(ctx.res, ctx.req);
+    clearCsrfCookie(ctx.res);
     return { success: true };
   }),
 });

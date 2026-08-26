@@ -3,7 +3,7 @@ import { httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
 
 import type { AppRouter } from "@sirel/server/routers/index";
-import { getStoredAuthToken } from "./auth-session";
+import { getCsrfToken } from "./auth-session";
 
 export const trpc = createTRPCReact<AppRouter>();
 
@@ -32,8 +32,8 @@ export const trpcClient = trpc.createClient({
         });
       },
       headers() {
-        const token = getStoredAuthToken();
-        return token ? { authorization: `Bearer ${token}` } : {};
+        const csrfToken = getCsrfToken();
+        return csrfToken ? { "x-sirel-csrf": csrfToken } : {};
       },
     })
   ]

@@ -1,4 +1,4 @@
-﻿import { getStoredAuthToken, loadStoredSession } from "@/lib/auth-session";
+import { getCsrfToken } from "@/lib/auth-session";
 import { resolveServerAssetUrl, resolveServerBaseUrl } from "@/lib/document-upload";
 
 export type CadastroAssetEntity = "itens" | "fornecedores";
@@ -12,25 +12,9 @@ export interface UploadAtoDesignacaoResult {
   hashArquivo: string;
 }
 
-function buildAuthHeaders() {
-  const token = getStoredAuthToken();
-  if (token) {
-    return { Authorization: `Bearer ${token}` } satisfies Record<string, string>;
-  }
-
-  if (!import.meta.env.DEV) return {} as Record<string, string>;
-
-  const session = loadStoredSession();
-  if (!session) return {} as Record<string, string>;
-
-  return {
-    "x-sirel-role": session.user.role,
-    "x-sirel-user-id": String(session.user.id),
-    "x-sirel-user-name": session.user.name,
-    "x-sirel-user-email": session.user.email ?? "",
-    "x-sirel-username": session.user.username,
-    "x-sirel-secretaria-id": String(session.user.secretariaId ?? ""),
-  } satisfies Record<string, string>;
+function buildAuthHeaders(): Record<string, string> {
+  const csrfToken = getCsrfToken();
+  return csrfToken ? { "x-sirel-csrf": csrfToken } : {};
 }
 
 async function parseError(response: Response) {
@@ -51,37 +35,20 @@ export async function uploadCadastroAsset(input: {
   formData.append("entity", input.entity);
   formData.append("recordId", String(input.recordId));
   formData.append("arquivo", input.arquivo);
-
   const response = await fetch(`${resolveServerBaseUrl()}/api/cadastros/assets/upload`, {
-    method: "POST",
-    headers: buildAuthHeaders(),
-    body: formData,
+    method: "POST", headers: buildAuthHeaders(), body: formData, credentials: "include",
   });
-
-  if (!response.ok) {
-    throw new Error(await parseError(response));
-  }
-
+  if (!response.ok) throw new Error(await parseError(response));
   return response.json() as Promise<{ assetUrl: string | null }>;
 }
 
 export async function uploadAtoDesignacao(arquivo: File) {
   const formData = new FormData();
   formData.append("arquivo", arquivo);
-
-  const response = await fetch(
-    `${resolveServerBaseUrl()}/api/cadastros-institucionais/atos/upload`,
-    {
-      method: "POST",
-      headers: buildAuthHeaders(),
-      body: formData,
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(await parseError(response));
-  }
-
+  const response = await fetch(`${resolveServerBaseUrl()}/api/cadastros-institucionais/atos/upload`, {
+    method: "POST", headers: buildAuthHeaders(), body: formData, credentials: "include",
+  });
+  if (!response.ok) throw new Error(await parseError(response));
   return response.json() as Promise<UploadAtoDesignacaoResult>;
 }
 

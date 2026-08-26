@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { asc, desc, eq, inArray } from "drizzle-orm";
@@ -63,10 +64,18 @@ import {
 } from "./lib/cors-origins.js";
 import { projectRoot } from "./lib/project-root.js";
 import { resolveRequestUser } from "./lib/request-auth.js";
+import { assertSessionSecretConfigured } from "./lib/auth-session.js";
+import { hasValidCsrfToken } from "./lib/csrf.js";
+import { verifyPublicDocumentLink } from "./lib/public-document-link.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
 
 const app = express();
+assertSessionSecretConfigured();
+const trustProxy = String(process.env.TRUST_PROXY ?? "").trim();
+if (trustProxy === "true" || /^\d+$/.test(trustProxy)) {
+  app.set("trust proxy", trustProxy === "true" ? 1 : Number(trustProxy));
+}
 const port = Number(process.env.PORT ?? 3030);
 const host = process.env.HOST ?? "0.0.0.0";
 const isProduction = process.env.NODE_ENV === "production";
@@ -233,6 +242,38 @@ function requireUploadUser(req: express.Request, res: express.Response) {
   return user;
 }
 
+function requireAuthenticatedUser(req: express.Request, res: express.Response) {
+  const user = resolveRequestUser(req);
+  if (!user) {
+    res.status(401).json({ message: "Login obrigatorio." });
+    return null;
+  }
+  return user;
+}
+
+function requireUploadAccess(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!requireUploadUser(req, res)) return;
+  if (!hasValidCsrfToken(req)) {
+    res.status(403).json({ message: "Validacao CSRF obrigatoria." });
+    return;
+  }
+  next();
+}
+
+function isAllowedDocumentFile(file: Express.Multer.File) {
+  const extension = extname(file.originalname).toLowerCase();
+  const allowed = new Map([
+    [".pdf", "application/pdf"],
+    [".doc", "application/msword"],
+    [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    [".png", "image/png"],
+    [".jpg", "image/jpeg"],
+    [".jpeg", "image/jpeg"],
+    [".webp", "image/webp"],
+  ]);
+  return allowed.get(extension) === file.mimetype;
+}
+
 const storage = multer.diskStorage({
   destination(req, _file, callback) {
     const processoId =
@@ -243,15 +284,16 @@ const storage = multer.diskStorage({
   },
   filename(_req, file, callback) {
     const extension = extname(file.originalname) || "";
-    const baseName =
-      slugifyFileName(file.originalname.replace(extension, "")) || "documento";
-    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+    callback(null, `${randomUUID()}${extension.toLowerCase()}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 20, parts: 22, fieldNameSize: 100, fieldSize: 100_000 },
+  fileFilter(_req, file, callback) {
+    callback(null, isAllowedDocumentFile(file));
+  },
 });
 
 const cadastroAssetStorage = multer.diskStorage({
@@ -275,7 +317,10 @@ const cadastroAssetStorage = multer.diskStorage({
 
 const cadastroAssetUpload = multer({
   storage: cadastroAssetStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 8, parts: 10 },
+  fileFilter(_req, file, callback) {
+    callback(null, ["image/png", "image/jpeg", "image/webp"].includes(file.mimetype) && [".png", ".jpg", ".jpeg", ".webp"].includes(extname(file.originalname).toLowerCase()));
+  },
 });
 
 const atoDesignacaoStorage = multer.diskStorage({
@@ -294,7 +339,10 @@ const atoDesignacaoStorage = multer.diskStorage({
 
 const atoDesignacaoUpload = multer({
   storage: atoDesignacaoStorage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 8, parts: 10 },
+  fileFilter(_req, file, callback) {
+    callback(null, isAllowedDocumentFile(file));
+  },
 });
 
 const ataSessaoStorage = multer.diskStorage({
@@ -315,7 +363,10 @@ const ataSessaoStorage = multer.diskStorage({
 
 const ataSessaoUpload = multer({
   storage: ataSessaoStorage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024, files: 2, fields: 12, parts: 15 },
+  fileFilter(_req, file, callback) {
+    callback(null, extname(file.originalname).toLowerCase() === ".pdf");
+  },
 });
 
 const ataSessaoStandaloneUpload = ataSessaoUpload.fields([
@@ -362,7 +413,10 @@ const sdStorage = multer.diskStorage({
 
 const sdUpload = multer({
   storage: sdStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 10, parts: 12 },
+  fileFilter(_req, file, callback) {
+    callback(null, extname(file.originalname).toLowerCase() === ".pdf");
+  },
 });
 
 type SdManualItem = {
@@ -786,6 +840,22 @@ function handleSdDownloadRequest(req: express.Request, res: express.Response) {
 }
 
 app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      reportOnly: true,
+      directives: {
+        "default-src": ["'self'"],
+        "base-uri": ["'self'"],
+        "frame-ancestors": ["'self'"],
+        "img-src": ["'self'", "data:", "blob:"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: "same-site" },
+  }),
+);
+app.disable("x-powered-by");
+app.use(
   cors({
     origin(origin, callback) {
       if (
@@ -801,22 +871,27 @@ app.use(
       callback(new Error("Origem não autorizada pelo SIREL"));
     },
     allowedHeaders: [
-      "Authorization",
       "Content-Type",
-      "X-Sirel-Role",
-      "X-Sirel-User-Id",
-      "X-Sirel-Secretaria-Id",
-      "X-Sirel-Username",
-      "X-Sirel-User-Name",
-      "X-Sirel-User-Email",
+      "X-Sirel-Csrf",
       "X-Sirel-Subsystem",
-      "X-Forwarded-Host",
     ],
     credentials: true,
   }),
 );
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
+app.use("/api", (req, res, next) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path.startsWith("/trpc")) {
+    next();
+    return;
+  }
+  if (!requireAuthenticatedUser(req, res)) return;
+  if (!hasValidCsrfToken(req)) {
+    res.status(403).json({ message: "Validacao CSRF obrigatoria." });
+    return;
+  }
+  next();
+});
 
 app.get("/healthz", (_req, res) => {
   res.json({
@@ -830,6 +905,7 @@ app.get("/healthz", (_req, res) => {
 
 app.post(
   "/api/planejamento/documentos/upload",
+  requireUploadAccess,
   upload.single("arquivo"),
   async (req, res) => {
     try {
@@ -837,6 +913,11 @@ app.post(
       if (!user) return;
       if (!req.file) {
         res.status(400).json({ message: "Selecione um arquivo para upload." });
+        return;
+      }
+      if (extname(req.file.originalname).toLowerCase() === ".pdf" && !hasPdfFileSignature(req.file.path)) {
+        rmSync(req.file.path, { force: true });
+        res.status(400).json({ message: "O arquivo PDF nao possui uma assinatura valida." });
         return;
       }
 
@@ -924,6 +1005,7 @@ app.post(
 
 app.post(
   "/api/cadastros/assets/upload",
+  requireUploadAccess,
   cadastroAssetUpload.single("arquivo"),
   async (req, res) => {
     try {
@@ -1039,6 +1121,7 @@ app.post(
 
 app.post(
   "/api/cadastros-institucionais/atos/upload",
+  requireUploadAccess,
   atoDesignacaoUpload.single("arquivo"),
   async (req, res) => {
     try {
@@ -1130,6 +1213,7 @@ app.post(
 
 app.post(
   "/api/relatorios/ata-sessao/processar",
+  requireUploadAccess,
   receiveAtaSessaoStandaloneFiles,
   async (req, res) => {
     const uploadedFiles = req.files as
@@ -1375,6 +1459,7 @@ app.post("/api/licitacao/ata-sessao/aplicar", async (req, res) => {
 
 app.post(
   "/api/relatorios/sd/processar",
+  requireUploadAccess,
   sdUpload.single("arquivo"),
   async (req, res) => {
     try {
@@ -1539,6 +1624,7 @@ app.post("/api/relatorios/sd/finalizar", async (req, res) => {
 
 app.post(
   "/api/licitacao/sd/processar",
+  requireUploadAccess,
   sdUpload.single("arquivo"),
   async (req, res) => {
     try {
@@ -1627,6 +1713,7 @@ app.post("/api/licitacao/sd/vincular", async (req, res) => {
 
 app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
   try {
+    if (!requireAuthenticatedUser(req, res)) return;
     const relativeFile = String(req.query.file ?? "")
       .trim()
       .replace(/\\/g, "/")
@@ -1679,6 +1766,7 @@ app.get("/api/relatorios/ata-sessao/download", async (req, res) => {
 
 app.get("/api/relatorios/sd/download", async (req, res) => {
   try {
+    if (!requireAuthenticatedUser(req, res)) return;
     const relativeFile = String(req.query.file ?? "")
       .trim()
       .replace(/\\/g, "/")
@@ -1718,6 +1806,7 @@ app.get("/api/relatorios/sd/download", async (req, res) => {
 
 app.get("/api/licitacao/sd/download", async (req, res) => {
   try {
+    if (!requireAuthenticatedUser(req, res)) return;
     handleSdDownloadRequest(req, res);
   } catch (error) {
     console.error(error);
@@ -1729,6 +1818,7 @@ app.get(
   "/api/cadastros/assets/:entity/:recordId/download",
   async (req, res) => {
     try {
+      if (!requireAuthenticatedUser(req, res)) return;
       const entity = String(req.params.entity ?? "").trim();
       const recordId = Number(req.params.recordId ?? 0);
       const db = requireDb();
@@ -1845,10 +1935,47 @@ app.get("/api/cadastros-institucionais/atos/download", async (req, res) => {
   }
 });
 
+app.get("/api/publico/documentos/:token/download", async (req, res) => {
+  try {
+    const documentoId = verifyPublicDocumentLink(String(req.params.token ?? ""));
+    if (!documentoId) {
+      res.status(404).json({ message: "Documento nao encontrado." });
+      return;
+    }
+    const db = requireDb();
+    const [result] = await db
+      .select({ documento: documentos, publicado: processos.publicado, ativo: processos.ativo })
+      .from(documentos)
+      .innerJoin(processos, eq(processos.id, documentos.processoId))
+      .where(eq(documentos.id, documentoId))
+      .limit(1);
+    const documento = result?.documento;
+    if (!documento?.arquivoChave || !documento.publico || !result.publicado || !result.ativo) {
+      res.status(404).json({ message: "Documento nao encontrado." });
+      return;
+    }
+    const absolutePath = resolveDocumentoPath(documento.arquivoChave);
+    if (!existsSync(absolutePath)) {
+      res.status(404).json({ message: "Documento nao encontrado." });
+      return;
+    }
+    const extension = extname(documento.arquivoChave) || extname(absolutePath);
+    const downloadName = `${slugifyFileName(documento.titulo || "documento") || "documento"}${extension}`;
+    res.setHeader("Content-Type", documento.mimeType?.trim() || "application/octet-stream");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    res.sendFile(absolutePath);
+  } catch {
+    res.status(500).json({ message: "Falha ao disponibilizar o documento." });
+  }
+});
+
 app.get(
   "/api/planejamento/documentos/:documentoId/download",
   async (req, res) => {
     try {
+      const user = requireAuthenticatedUser(req, res);
+      if (!user) return;
       const db = requireDb();
       const documentoId = Number(req.params.documentoId ?? 0);
       const [documento] = await db
@@ -1861,6 +1988,14 @@ app.get(
         return;
       }
 
+      const restrictions = Array.isArray(documento.restritoA)
+        ? documento.restritoA.map((role) => String(role).toLowerCase())
+        : [];
+      if (user.role !== "admin" && restrictions.length > 0 && !restrictions.includes(user.role.toLowerCase())) {
+        res.status(403).json({ message: "Seu perfil nao possui acesso a este documento." });
+        return;
+      }
+
       const absolutePath = resolveDocumentoPath(documento.arquivoChave);
       if (!existsSync(absolutePath)) {
         res.status(404).json({ message: "Arquivo físico não encontrado." });
@@ -1870,14 +2005,13 @@ app.get(
       const extension =
         extname(documento.arquivoChave || "") || extname(absolutePath);
       const downloadName = `${slugifyFileName(documento.titulo || "documento") || "documento"}${extension}`;
-      const forceDownload = String(req.query.download ?? "").trim() === "1";
       const mimeType = documento.mimeType?.trim() || "application/octet-stream";
 
       res.setHeader("Content-Type", mimeType);
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader(
         "Content-Disposition",
-        `${forceDownload ? "attachment" : "inline"}; filename=\"${downloadName}\"`,
+        `attachment; filename=\"${downloadName}\"`,
       );
       res.sendFile(absolutePath);
     } catch (error) {
@@ -1940,7 +2074,7 @@ if (existsSync(clientIndexHtml)) {
     }),
   );
 
-  app.get("*", (req, res, next) => {
+  app.get("/{*path}", (req, res, next) => {
     if (!shouldServeSpaFallback(req)) {
       next();
       return;
@@ -1953,6 +2087,19 @@ if (existsSync(clientIndexHtml)) {
     `Client build not found at ${clientIndexHtml}; SPA routes will not be served by Express.`,
   );
 }
+
+app.use((_req, res) => {
+  res.status(404).json({ message: "Recurso nao encontrado." });
+});
+
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (error instanceof multer.MulterError) {
+    res.status(400).json({ message: "Upload invalido ou acima do limite permitido." });
+    return;
+  }
+  console.error(error);
+  res.status(500).json({ message: "Falha interna ao processar a solicitacao." });
+});
 
 const server = app.listen(port, host, () => {
   startImportacoesScheduler();

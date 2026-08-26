@@ -1,4 +1,4 @@
-import { getStoredAuthToken, loadStoredSession } from "@/lib/auth-session";
+import { getCsrfToken } from "@/lib/auth-session";
 import type {
   AtaSessaoApplyResult,
   AtaSessaoCreatePreviewFromDiscoveryInput,
@@ -125,26 +125,9 @@ export function resolveServerAssetUrl(url: string | null | undefined) {
   return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
-function buildAuthHeaders() {
-  const token = getStoredAuthToken();
-  if (token) {
-    return { Authorization: `Bearer ${token}` } satisfies Record<
-      string,
-      string
-    >;
-  }
-
-  const session = loadStoredSession();
-  if (!session) return {} as Record<string, string>;
-
-  return {
-    "x-sirel-role": session.user.role,
-    "x-sirel-user-id": String(session.user.id),
-    "x-sirel-user-name": session.user.name,
-    "x-sirel-user-email": session.user.email ?? "",
-    "x-sirel-username": session.user.username,
-    "x-sirel-secretaria-id": String(session.user.secretariaId ?? ""),
-  } satisfies Record<string, string>;
+function buildAuthHeaders(): Record<string, string> {
+  const csrfToken = getCsrfToken();
+  return csrfToken ? { "x-sirel-csrf": csrfToken } : {};
 }
 
 async function parseError(response: Response) {
@@ -176,6 +159,7 @@ export async function uploadProcessoDocumento(
     {
       method: "POST",
       headers: buildAuthHeaders(),
+      credentials: "include",
       body: formData,
     },
   );
@@ -193,6 +177,7 @@ export async function deleteProcessoDocumento(documentoId: number) {
     {
       method: "DELETE",
       headers: buildAuthHeaders(),
+      credentials: "include",
     },
   );
 

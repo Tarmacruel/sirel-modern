@@ -21,10 +21,12 @@ import { relatoriosRouter } from "./relatorios.js";
 import { usuariosRouter } from "./usuarios.js";
 import { workflowRouter } from "./workflow.js";
 import { pncpTeixeiraRouter } from "./importacoes-pncp-teixeira.js";
+import { portalPublicoRouter } from "./portal-publico.js";
 
 export const appRouter = router({
   health: healthRouter,
   auth: authRouter,
+  portalPublico: portalPublicoRouter,
   auditoria: auditoriaRouter,
   dashboard: dashboardRouter,
   dossie: dossieRouter,

@@ -78,7 +78,7 @@ function AuthenticatedApp({
     staleTime: 30_000,
   });
   const user = meQuery.data?.user
-    ? normalizeAuthSession({ token: session.token, user: meQuery.data.user }).user
+    ? normalizeAuthSession({ user: meQuery.data.user }).user
     : session.user;
   const allowedRoutes = useAllowedRoutes({ user });
   const showIdentityModal =
@@ -166,10 +166,7 @@ function AppContent() {
   useEffect(() => {
     if (session || !cookieSessionQuery.data?.user) return;
 
-    const nextSession = normalizeAuthSession({
-      token: "",
-      user: cookieSessionQuery.data.user,
-    });
+    const nextSession = normalizeAuthSession({ user: cookieSessionQuery.data.user });
     saveStoredSession(nextSession);
     setSession(nextSession);
   }, [cookieSessionQuery.data, session]);

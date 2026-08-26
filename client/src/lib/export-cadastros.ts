@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import { Workbook } from "exceljs";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -32,10 +32,12 @@ export function exportCadastrosToCsv(filename: string, rows: Record<string, unkn
 }
 
 export async function exportCadastrosToXlsx(filename: string, sheetName: string, rows: Record<string, unknown>[]) {
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  const buffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet(sheetName.slice(0, 31) || "Dados");
+  const headers = Object.keys(rows[0] ?? {});
+  worksheet.columns = headers.map((header) => ({ header, key: header, width: Math.max(header.length + 4, 16) }));
+  rows.forEach((row) => worksheet.addRow(row));
+  const buffer = await workbook.xlsx.writeBuffer();
   downloadBlob(filename, new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
 }
 
