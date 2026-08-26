@@ -83,6 +83,19 @@ def _malsucedidos_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for lot in lots:
         item = _first_item(lot)
+        matched_items = [
+            current
+            for current in lot.itens
+            if current.valor_unitario_estimado is not None
+            and current.valor_total_estimado is not None
+        ]
+        coverage_complete = bool(lot.itens) and len(matched_items) == len(lot.itens)
+        estimated_lot_total = (
+            sum(float(current.valor_total_estimado or 0) for current in lot.itens)
+            if coverage_complete
+            else None
+        )
+        provenance_item = matched_items[0] if matched_items else item
         marca_modelo = ' / '.join(
             part
             for part in [
@@ -96,11 +109,21 @@ def _malsucedidos_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
                 'Nº Lote': lot.numero_lote,
                 'Descrição do Lote/1º Item': (item.descricao if item and item.descricao else None) or lot.titulo,
                 'Total de Itens': len(lot.itens),
-                'Valor Unitário Estimado (1º item)': item.valor_unitario_estimado if item else None,
-                'Valor Total Estimado (1º item)': item.valor_total_estimado if item else None,
-                'Processo Fonte do Valor Estimado': item.valor_estimado_processo_fonte if item else '',
-                'Fonte do Valor Estimado': item.valor_estimado_fonte if item else '',
-                'Confiança do Valor Estimado': item.valor_estimado_confianca if item else '',
+                'Valor Unitário Estimado (lote unitário)': (
+                    item.valor_unitario_estimado if item and len(lot.itens) == 1 else None
+                ),
+                'Valor Total Estimado do Lote': estimated_lot_total,
+                'Cobertura dos Valores Estimados': (
+                    f"Completa ({len(matched_items)}/{len(lot.itens)})"
+                    if coverage_complete
+                    else f"Parcial ({len(matched_items)}/{len(lot.itens)})"
+                    if matched_items
+                    else f"Não conciliada (0/{len(lot.itens)})"
+                ),
+                'Itens Conciliados': f"{len(matched_items)}/{len(lot.itens)}",
+                'Processo Fonte do Valor Estimado': provenance_item.valor_estimado_processo_fonte if provenance_item else '',
+                'Fonte do Valor Estimado': provenance_item.valor_estimado_fonte if provenance_item else '',
+                'Confiança do Valor Estimado': provenance_item.valor_estimado_confianca if provenance_item else '',
                 'Marca/Modelo (1º item)': marca_modelo,
                 'Status': lot.status,
                 'Motivo da Falha': lot.motivo_falha or '',
@@ -118,6 +141,7 @@ def _item_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
                     'Nº Lote': lot.numero_lote,
                     'Status do Lote': lot.status,
                     'Item': '',
+                    'CATMAT/CATSER': '',
                     'Descrição': lot.titulo,
                     'Unidade': '',
                     'Quantidade': None,
@@ -128,6 +152,8 @@ def _item_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
                     'Processo Fonte do Valor Estimado': '',
                     'Fonte do Valor Estimado': '',
                     'Confiança do Valor Estimado': '',
+                    'Status da Conciliação': '',
+                    'Correspondência': '',
                     'Marca': '',
                     'Modelo': '',
                     'Vencedor': lot.vencedor or '',
@@ -142,6 +168,7 @@ def _item_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
                     'Nº Lote': lot.numero_lote,
                     'Status do Lote': lot.status,
                     'Item': item.item_numero or '',
+                    'CATMAT/CATSER': item.catmat_catser or '',
                     'Descrição': item.descricao or lot.titulo,
                     'Unidade': item.unidade or '',
                     'Quantidade': item.quantidade,
@@ -152,12 +179,105 @@ def _item_rows(lots: Iterable[LotRecord]) -> list[dict[str, object]]:
                     'Processo Fonte do Valor Estimado': item.valor_estimado_processo_fonte or '',
                     'Fonte do Valor Estimado': item.valor_estimado_fonte or '',
                     'Confiança do Valor Estimado': item.valor_estimado_confianca or '',
+                    'Status da Conciliação': item.valor_estimado_conciliacao or '',
+                    'Correspondência': item.valor_estimado_correspondencia or '',
                     'Marca': item.marca or '',
                     'Modelo': item.modelo or '',
                     'Vencedor': lot.vencedor or '',
                     'CNPJ Vencedor': lot.cnpj_vencedor or '',
                 }
             )
+    return rows
+
+
+def _partially_matched_lot_numbers(lots: Iterable[LotRecord]) -> list[int]:
+    numbers: list[int] = []
+    for lot in lots:
+        total_items = len(lot.itens)
+        matched_items = sum(
+            item.valor_unitario_estimado is not None
+            and item.valor_total_estimado is not None
+            for item in lot.itens
+        )
+        if total_items > 0 and 0 < matched_items < total_items:
+            numbers.append(lot.numero_lote)
+    return sorted(set(numbers))
+
+
+def _lot_numbers_text(values: object) -> str:
+    if not isinstance(values, (list, tuple, set)):
+        return 'Nenhum'
+    normalized: list[int] = []
+    for value in values:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            normalized.append(number)
+    return ', '.join(str(number) for number in sorted(set(normalized))) or 'Nenhum'
+
+
+def _reconciliation_rows(result: AtaSessaoParseResult) -> list[dict[str, object]]:
+    reconciliation = result.estimated_value_reconciliation
+    if not reconciliation:
+        return [
+            {
+                'Seção': 'Disponibilidade',
+                'Indicador': 'Status',
+                'Valor': 'Conciliação com Solicitação de Despesa não executada.',
+            }
+        ]
+
+    metric_labels: list[tuple[str, str]] = [
+        ('source', 'Fonte'),
+        ('sd_number', 'Número da SD'),
+        ('total_failed_lots', 'Total de lotes malsucedidos'),
+        ('fully_matched_lots', 'Lotes totalmente conciliados'),
+        ('partially_matched_lots', 'Lotes parcialmente conciliados'),
+        ('total_failed_items', 'Total de itens malsucedidos'),
+        ('matched_items', 'Itens conciliados'),
+        ('ambiguous_items', 'Itens ambíguos'),
+        ('unmatched_items', 'Itens não encontrados'),
+    ]
+    rows: list[dict[str, object]] = [
+        {
+            'Seção': 'Métricas',
+            'Indicador': label,
+            'Valor': reconciliation.get(key),
+        }
+        for key, label in metric_labels
+    ]
+    rows.extend(
+        [
+            {
+                'Seção': 'Lotes afetados',
+                'Indicador': 'Parcialmente conciliados',
+                'Valor': _lot_numbers_text(_partially_matched_lot_numbers(result.malsucedidos)),
+            },
+            {
+                'Seção': 'Lotes afetados',
+                'Indicador': 'Ambíguos',
+                'Valor': _lot_numbers_text(reconciliation.get('ambiguous_lots')),
+            },
+            {
+                'Seção': 'Lotes afetados',
+                'Indicador': 'Não encontrados',
+                'Valor': _lot_numbers_text(reconciliation.get('unmatched_lots')),
+            },
+        ]
+    )
+    warnings = reconciliation.get('warnings')
+    if isinstance(warnings, list):
+        rows.extend(
+            {
+                'Seção': 'Avisos',
+                'Indicador': f'Aviso {index}',
+                'Valor': str(warning),
+            }
+            for index, warning in enumerate(warnings, start=1)
+            if str(warning).strip()
+        )
     return rows
 
 
@@ -294,7 +414,7 @@ def write_reports_workbooks(result: AtaSessaoParseResult, output_dir: str | Path
             writer,
             sheet_name='Malsucedidos',
             rows=_malsucedidos_rows(result.malsucedidos),
-            currency_columns={'Valor Unitário Estimado (1º item)', 'Valor Total Estimado (1º item)'},
+            currency_columns={'Valor Unitário Estimado (lote unitário)', 'Valor Total Estimado do Lote'},
             empty_message='Nenhum registro encontrado para este relatório.',
         )
         _write_sheet(
@@ -310,6 +430,13 @@ def write_reports_workbooks(result: AtaSessaoParseResult, output_dir: str | Path
             rows=_participant_rows(result.malsucedidos),
             currency_columns={'Oferta Inicial', 'Oferta Final'},
             empty_message='Nenhum participante registrado.',
+        )
+        _write_sheet(
+            writer,
+            sheet_name='Conciliação',
+            rows=_reconciliation_rows(result),
+            currency_columns=set(),
+            empty_message='Nenhuma informação de conciliação registrada.',
         )
 
     return {

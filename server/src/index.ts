@@ -1,6 +1,6 @@
 import "./bootstrap/load-env.js";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -35,7 +35,17 @@ import {
   processos,
   propostasLicitacao,
 } from "./db/schema.js";
-import { generateAtaSessaoReports } from "./lib/ata-sessao-reports.js";
+import {
+  generateAtaSessaoReports,
+  isAtaSessaoReportInputError,
+} from "./lib/ata-sessao-reports.js";
+import {
+  ataSessaoMulterClientErrorMessage,
+  collectMulterFilePaths,
+  hasPdfFileSignature,
+  removeAutomaticReportDirectory,
+  removeTransientUploadFiles,
+} from "./lib/ata-sessao-upload.js";
 import {
   applyAtaSessaoPreview,
   createAtaSessaoPreviewFromDiscovery,
@@ -51,6 +61,7 @@ import {
   isAllowedCorsOrigin,
   resolveAllowedOrigins,
 } from "./lib/cors-origins.js";
+import { projectRoot } from "./lib/project-root.js";
 import { resolveRequestUser } from "./lib/request-auth.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
@@ -62,8 +73,8 @@ const isProduction = process.env.NODE_ENV === "production";
 const clientUrl =
   process.env.CLIENT_URL ?? (isProduction ? "" : "http://localhost:5173");
 const currentDir = dirname(fileURLToPath(import.meta.url));
-const uploadsRoot = resolve(currentDir, "../../storage/uploads");
-const legacyUploadsRoot = resolve(currentDir, "../../../storage/uploads");
+const uploadsRoot = resolve(projectRoot, "storage/uploads");
+const legacyUploadsRoot = resolve(projectRoot, "../storage/uploads");
 const cadastroAssetsRoot = join(uploadsRoot, "cadastros");
 const atosDesignacaoUploadsRoot = join(
   uploadsRoot,
@@ -71,11 +82,11 @@ const atosDesignacaoUploadsRoot = join(
   "atos",
 );
 const ataSessaoReportsRoot = resolve(
-  currentDir,
-  "../../storage/reports/atas-sessao",
+  projectRoot,
+  "storage/reports/atas-sessao",
 );
 const ataSessaoUploadsRoot = join(ataSessaoReportsRoot, "uploads");
-const sdReportsRoot = resolve(currentDir, "../../storage/reports/sd");
+const sdReportsRoot = resolve(projectRoot, "storage/reports/sd");
 const sdUploadsRoot = join(sdReportsRoot, "uploads");
 const clientDistRoot = resolveClientDistRoot();
 const clientIndexHtml = join(clientDistRoot, "index.html");
@@ -170,7 +181,9 @@ function isAllowedAtoDesignacaoFile(file: Express.Multer.File) {
     "image/webp",
   ]);
   const extension = extname(file.originalname).toLowerCase();
-  return allowedExtensions.has(extension) && allowedMimeTypes.has(file.mimetype);
+  return (
+    allowedExtensions.has(extension) && allowedMimeTypes.has(file.mimetype)
+  );
 }
 
 function buildUploadRelativePath(file: Express.Multer.File) {
@@ -212,11 +225,9 @@ function requireUploadUser(req: express.Request, res: express.Response) {
     return null;
   }
   if (!["admin", "gestor", "operador"].includes(user.role)) {
-    res
-      .status(403)
-      .json({
-        message: "Acesso restrito a operadores, gestores e administradores.",
-      });
+    res.status(403).json({
+      message: "Acesso restrito a operadores, gestores e administradores.",
+    });
     return null;
   }
   return user;
@@ -295,7 +306,10 @@ const ataSessaoStorage = multer.diskStorage({
     const extension = extname(file.originalname) || ".pdf";
     const baseName =
       slugifyFileName(file.originalname.replace(extension, "")) || "ata-sessao";
-    callback(null, `${Date.now()}-${baseName}${extension.toLowerCase()}`);
+    callback(
+      null,
+      `${Date.now()}-${randomUUID()}-${baseName}${extension.toLowerCase()}`,
+    );
   },
 });
 
@@ -303,6 +317,35 @@ const ataSessaoUpload = multer({
   storage: ataSessaoStorage,
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+const ataSessaoStandaloneUpload = ataSessaoUpload.fields([
+  { name: "arquivo", maxCount: 1 },
+  { name: "sdArquivo", maxCount: 1 },
+]);
+
+function receiveAtaSessaoStandaloneFiles(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  ataSessaoStandaloneUpload(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    removeTransientUploadFiles(
+      collectMulterFilePaths(req.files),
+      ataSessaoUploadsRoot,
+    );
+    const clientMessage = ataSessaoMulterClientErrorMessage(error);
+    if (clientMessage) {
+      res.status(400).json({ message: clientMessage });
+      return;
+    }
+    next(error);
+  });
+}
 
 const sdStorage = multer.diskStorage({
   destination(_req, _file, callback) {
@@ -671,11 +714,9 @@ async function handleSdProcessarRequest(
 
   const extension = extname(req.file.originalname).toLowerCase();
   if (extension !== ".pdf") {
-    res
-      .status(400)
-      .json({
-        message: "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
-      });
+    res.status(400).json({
+      message: "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
+    });
     return;
   }
 
@@ -1017,8 +1058,7 @@ app.post(
       if (!isAllowedAtoDesignacaoFile(req.file)) {
         rmSync(req.file.path, { force: true });
         res.status(400).json({
-          message:
-            "Formato invalido. Envie PDF, DOC, DOCX, PNG, JPG ou WEBP.",
+          message: "Formato invalido. Envie PDF, DOC, DOCX, PNG, JPG ou WEBP.",
         });
         return;
       }
@@ -1090,62 +1130,128 @@ app.post(
 
 app.post(
   "/api/relatorios/ata-sessao/processar",
-  ataSessaoUpload.single("arquivo"),
+  receiveAtaSessaoStandaloneFiles,
   async (req, res) => {
+    const uploadedFiles = req.files as
+      | Record<string, Express.Multer.File[]>
+      | undefined;
+    const transientUploadPaths = collectMulterFilePaths(uploadedFiles);
     try {
       const user = requireUploadUser(req, res);
       if (!user) return;
-      if (!req.file) {
-        res
-          .status(400)
-          .json({ message: "Selecione um arquivo PDF da ata para processar." });
+      const ataFile = uploadedFiles?.arquivo?.[0];
+      const sdFile = uploadedFiles?.sdArquivo?.[0];
+      if (!ataFile || !sdFile) {
+        res.status(400).json({
+          message:
+            "Selecione os arquivos PDF da Ata BLL e da Solicitação de Despesa para processar.",
+        });
         return;
       }
 
-      const extension = extname(req.file.originalname).toLowerCase();
-      if (extension !== ".pdf") {
-        res
-          .status(400)
-          .json({
-            message: "Somente arquivos PDF de ata de sessão são aceitos.",
-          });
-        return;
-      }
-
-      const result = await generateAtaSessaoReports({
-        sourcePath: req.file.path,
-        processoId: Number(req.body.processoId) || undefined,
-        generatedByName: user.name,
-        edital: String(req.body.edital ?? "").trim() || undefined,
-        processoAdministrativo:
-          String(req.body.processoAdministrativo ?? "").trim() || undefined,
-        arquivoOrigem:
-          String(req.body.arquivoOrigem ?? req.file.originalname).trim() ||
-          undefined,
-        dataGeracao: String(req.body.dataGeracao ?? "").trim() || undefined,
+      const invalidFiles = [ataFile, sdFile].filter((file) => {
+        if (extname(file.originalname).toLowerCase() !== ".pdf") return true;
+        // O MIME informado pelo navegador não é confiável e pode vir
+        // vazio/octet-stream. A assinatura evita rejeitar PDFs válidos e
+        // também impede aceitar um arquivo apenas renomeado para .pdf.
+        return !hasPdfFileSignature(file.path);
       });
+      if (invalidFiles.length > 0) {
+        res.status(400).json({
+          message:
+            "Somente arquivos PDF da Ata BLL e da Solicitação de Despesa são aceitos.",
+        });
+        return;
+      }
+
+      const result = await generateAtaSessaoReports(
+        {
+          sourcePath: ataFile.path,
+          sdSourcePath: sdFile.path,
+          processoId: Number(req.body.processoId) || undefined,
+          generatedByName: user.name,
+          edital: String(req.body.edital ?? "").trim() || undefined,
+          processoAdministrativo:
+            String(req.body.processoAdministrativo ?? "").trim() || undefined,
+          arquivoOrigem:
+            String(req.body.arquivoOrigem ?? ataFile.originalname).trim() ||
+            undefined,
+          dataGeracao: String(req.body.dataGeracao ?? "").trim() || undefined,
+        },
+        { removeAutomaticOutputOnFailure: true },
+      );
+
+      if (result.summary.totalLotes === 0) {
+        removeAutomaticReportDirectory(result.outputDir, ataSessaoReportsRoot);
+        throw new Error(
+          "Nenhum lote foi identificado; a estrutura da Ata BLL não foi reconhecida.",
+        );
+      }
+      if (!result.estimatedValueReconciliation) {
+        removeAutomaticReportDirectory(result.outputDir, ataSessaoReportsRoot);
+        throw new Error(
+          "A estrutura da SD não foi reconhecida para conciliação dos valores estimados.",
+        );
+      }
 
       await logAuditoria({ user } as any, {
         tabela: "relatorios_ata_sessao",
         registroId: 0,
         acao: "CREATE",
         dadosNovos: {
-          arquivoOriginal: req.file.originalname,
+          arquivoOriginal: ataFile.originalname,
+          arquivoOriginalSd: sdFile.originalname,
           outputDir: result.outputDir,
           summary: result.summary,
+          estimatedValueReconciliation: result.estimatedValueReconciliation,
         },
-        descricao: `Processamento avulso de ata de sessão em Documentos: ${req.file.originalname}`,
+        descricao: `Processamento avulso de Ata BLL (${ataFile.originalname}) com Solicitação de Despesa (${sdFile.originalname}) em Documentos`,
       });
 
       res.status(201).json({
         ...result,
-        originalFileName: req.file.originalname,
+        originalFileName: ataFile.originalname,
+        originalSdFileName: sdFile.originalname,
       });
     } catch (error) {
       console.error(error);
-      res
-        .status(500)
-        .json({ message: "Falha ao processar a ata de sessão enviada." });
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const normalizedMessage = rawMessage
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      const isMissingTextLayer =
+        normalizedMessage.includes("pdf sem camada de texto") ||
+        normalizedMessage.includes("sem texto extraivel") ||
+        normalizedMessage.includes("ocr");
+      const isUnrecognizedStructure = [
+        "estrutura do documento nao reconhecida",
+        "estrutura da solicitacao de despesa",
+        "estrutura da sd",
+        "nenhum lote",
+        "nenhum item",
+        "sdstructureerror",
+        "sditemextractionerror",
+      ].some((marker) => normalizedMessage.includes(marker));
+
+      if (
+        isAtaSessaoReportInputError(error) ||
+        isMissingTextLayer ||
+        isUnrecognizedStructure
+      ) {
+        res.status(422).json({
+          message: isMissingTextLayer
+            ? "Não foi possível ler um dos PDFs porque ele não possui camada de texto. Gere um PDF pesquisável com OCR e tente novamente."
+            : "Não foi possível reconhecer a estrutura da Ata BLL ou da Solicitação de Despesa enviada.",
+        });
+        return;
+      }
+      res.status(500).json({
+        message:
+          "Falha ao processar a Ata BLL e a Solicitação de Despesa enviadas.",
+      });
+    } finally {
+      removeTransientUploadFiles(transientUploadPaths, ataSessaoUploadsRoot);
     }
   },
 );
@@ -1158,22 +1264,18 @@ app.post(
       const user = requireUploadUser(req, res);
       if (!user) return;
       if (!req.file) {
-        res
-          .status(400)
-          .json({
-            message:
-              "Selecione um arquivo PDF da ata para identificar o processo.",
-          });
+        res.status(400).json({
+          message:
+            "Selecione um arquivo PDF da ata para identificar o processo.",
+        });
         return;
       }
 
       const extension = extname(req.file.originalname).toLowerCase();
       if (extension !== ".pdf") {
-        res
-          .status(400)
-          .json({
-            message: "Somente arquivos PDF de ata de sessão são aceitos.",
-          });
+        res.status(400).json({
+          message: "Somente arquivos PDF de ata de sessão são aceitos.",
+        });
         return;
       }
 
@@ -1287,12 +1389,10 @@ app.post(
 
       const extension = extname(req.file.originalname).toLowerCase();
       if (extension !== ".pdf") {
-        res
-          .status(400)
-          .json({
-            message:
-              "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
-          });
+        res.status(400).json({
+          message:
+            "Somente arquivos PDF de Solicitação de Despesa são aceitos.",
+        });
         return;
       }
 
@@ -1703,7 +1803,10 @@ app.get("/api/cadastros-institucionais/atos/download", async (req, res) => {
     }
 
     const absolutePath = resolveDocumentoPath(arquivoChave);
-    const normalizedRoot = resolve(atosDesignacaoUploadsRoot).replace(/\\/g, "/");
+    const normalizedRoot = resolve(atosDesignacaoUploadsRoot).replace(
+      /\\/g,
+      "/",
+    );
     const normalizedTarget = resolve(absolutePath).replace(/\\/g, "/");
     if (!normalizedTarget.startsWith(normalizedRoot)) {
       res.status(400).json({ message: "Caminho do ato invalido." });

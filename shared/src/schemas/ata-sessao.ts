@@ -18,6 +18,7 @@ const ataSessaoSummarySchema = z.object({
 export const ataSessaoProcessInputSchema = z
   .object({
     sourcePath: z.string().trim().min(3).optional(),
+    sdSourcePath: z.string().trim().min(3).optional(),
     documentoId: z.number().int().positive().optional(),
     processoId: z.number().int().positive().optional(),
     outputDir: z.string().trim().min(3).optional(),
@@ -40,11 +41,28 @@ export const ataSessaoReportArtifactSchema = z.object({
   downloadUrl: z.string(),
 });
 
+export const ataSessaoEstimatedValueReconciliationSchema = z.object({
+  source: z.literal("SD"),
+  sdNumber: z.string().nullable(),
+  totalFailedLots: z.number().int().nonnegative(),
+  fullyMatchedLots: z.number().int().nonnegative(),
+  partiallyMatchedLots: z.number().int().nonnegative(),
+  unmatchedLots: z.array(z.number().int().positive()),
+  ambiguousLots: z.array(z.number().int().positive()),
+  totalFailedItems: z.number().int().nonnegative(),
+  matchedItems: z.number().int().nonnegative(),
+  ambiguousItems: z.number().int().nonnegative(),
+  unmatchedItems: z.number().int().nonnegative(),
+  warnings: z.array(z.string()),
+});
+
 export const ataSessaoProcessResultSchema = z.object({
   sourceFile: z.string(),
   outputDir: z.string(),
   generatedAt: z.string(),
   summary: ataSessaoSummarySchema,
+  estimatedValueReconciliation:
+    ataSessaoEstimatedValueReconciliationSchema.nullable(),
   artifacts: z.array(ataSessaoReportArtifactSchema),
 });
 
@@ -193,6 +211,9 @@ export const ataSessaoCreatePreviewFromDiscoveryInputSchema = z.object({
 });
 
 export type AtaSessaoProcessInput = z.infer<typeof ataSessaoProcessInputSchema>;
+export type AtaSessaoEstimatedValueReconciliation = z.infer<
+  typeof ataSessaoEstimatedValueReconciliationSchema
+>;
 export type AtaSessaoProcessResult = z.infer<
   typeof ataSessaoProcessResultSchema
 >;

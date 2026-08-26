@@ -11,7 +11,15 @@ from .models import (
 )
 from .parser import parse_ata_sessao_pdf
 from .pdf_renderer import write_ata_institucional_pdf, write_report_pdfs
-from .sd_parser import SDItem, SDMetadata, SDRecord, map_sd_item_to_lot_item, parse_sd_pdf
+from .reconciliation import reconcile_estimated_values
+from .sd_parser import (
+    SDItem,
+    SDMetadata,
+    SDRecord,
+    map_sd_item_to_lot_item,
+    parse_sd_pdf,
+    sd_record_to_dict,
+)
 
 
 __all__ = [
@@ -25,10 +33,12 @@ __all__ = [
     "parse_ata_sessao_pdf",
     "write_ata_institucional_pdf",
     "write_report_pdfs",
+    "reconcile_estimated_values",
     "write_reports_workbooks",
     "SDItem",
     "SDMetadata",
     "SDRecord",
     "parse_sd_pdf",
     "map_sd_item_to_lot_item",
+    "sd_record_to_dict",
 ]

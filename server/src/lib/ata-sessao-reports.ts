@@ -1,8 +1,7 @@
 ﻿import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
 
 import {
   ataSessaoProcessResultSchema,
@@ -19,11 +18,12 @@ import {
   lotes,
   processos,
 } from "../db/schema.js";
+import { removeAutomaticReportDirectory } from "./ata-sessao-upload.js";
+import { projectRoot } from "./project-root.js";
 import { getSystemParamValue } from "./system-params.js";
 
 const execFileAsync = promisify(execFile);
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(currentDir, "../../..");
+const repoRoot = projectRoot;
 const reportsRoot = resolve(repoRoot, "storage/reports/atas-sessao");
 const uploadsRoot = resolve(repoRoot, "storage/uploads");
 const pythonScriptPath = resolve(
@@ -31,6 +31,30 @@ const pythonScriptPath = resolve(
   "scripts/process_ata_sessao_reports.py",
 );
 const defaultLogoPath = resolve(repoRoot, "client/public/logo-prefeitura.png");
+
+export class AtaSessaoReportInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AtaSessaoReportInputError";
+  }
+}
+
+export function isAtaSessaoReportInputError(error: unknown) {
+  if (error instanceof AtaSessaoReportInputError) return true;
+  const message = String(error instanceof Error ? error.message : error)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return [
+    "pdf sem camada de texto",
+    "numero da sd nao identificado",
+    "nenhum item foi extraido da sd",
+    "estrutura da sd",
+    "estrutura nao reconhecida",
+    "nenhum lote",
+    "arquivo pdf invalido",
+  ].some((fragment) => message.includes(fragment));
+}
 
 export type AtaSessaoParsedPayload = {
   source_path: string;
@@ -50,6 +74,21 @@ export type AtaSessaoParsedPayload = {
   parsing_errors?: Array<Record<string, string>>;
   lotes?: Array<Record<string, unknown>>;
   enrichment?: Record<string, unknown>;
+  estimated_value_reconciliation?: {
+    source?: string;
+    sd_number?: string | null;
+    total_failed_lots?: number;
+    fully_matched_lots?: number;
+    partially_matched_lots?: number;
+    unmatched_lots?: Array<number | string>;
+    ambiguous_lots?: Array<number | string>;
+    total_failed_items?: number;
+    matched_items?: number;
+    ambiguous_items?: number;
+    unmatched_items?: number;
+    warnings?: string[];
+    lots?: Array<Record<string, unknown>>;
+  };
   artifacts?: Record<string, string>;
 };
 
@@ -60,30 +99,50 @@ type AtaSessaoSourceInfo = {
   processoId: number | null;
 };
 
-type ParsedAtaLotItem = {
+type AtaSessaoPipelineOptions = {
+  removeAutomaticOutputOnFailure?: boolean;
+};
+
+export type ParsedAtaLotItem = {
   item_numero?: string | null;
   descricao?: string | null;
   quantidade?: number | null;
+  unidade?: string | null;
+  valor_unitario_estimado?: number | null;
+  valor_total_estimado?: number | null;
+  valor_estimado_fonte?: string | null;
 };
 
-type ParsedAtaLot = {
+export type ParsedAtaLot = {
   numero_lote?: number | string | null;
   status?: string | null;
   titulo?: string | null;
   itens?: ParsedAtaLotItem[];
 };
 
-type ProcessEstimateRow = {
+export type ProcessEstimateRow = {
   itemId: number;
   numeroItem: number;
   descricao: string;
   quantidade: string;
+  unidade: string;
   valorUnitarioEstimadoBase: string | null;
   valorTotalEstimadoBase: string | null;
   loteNumero: number | null;
+  resultadoLoteNumero: string | null;
   loteValorEstimado: string | null;
   valorEstimadoUnitario: string | null;
   valorEstimadoTotal: string | null;
+};
+
+type EstimatedValueReconciliation = NonNullable<
+  AtaSessaoProcessResult["estimatedValueReconciliation"]
+>;
+
+type InternalEstimatedValueEnrichment = {
+  processo: ProcessChoice | null;
+  warnings: string[];
+  lotes: Array<NonNullable<ReturnType<typeof buildEstimateEntry>>>;
 };
 
 type ProcessChoice = {
@@ -121,7 +180,9 @@ function resolveDocumentoPath(arquivoChave: string) {
   );
 }
 
-async function resolveSourceInfo(input: AtaSessaoProcessInput): Promise<AtaSessaoSourceInfo> {
+async function resolveSourceInfo(
+  input: AtaSessaoProcessInput,
+): Promise<AtaSessaoSourceInfo> {
   if (input.sourcePath) {
     return {
       sourceFile: resolve(repoRoot, input.sourcePath),
@@ -186,10 +247,42 @@ function normalizeLotKey(value: unknown) {
 
 function tokenSimilarity(left: unknown, right: unknown) {
   const leftTokens = new Set(normalizeAtaText(left).split(" ").filter(Boolean));
-  const rightTokens = new Set(normalizeAtaText(right).split(" ").filter(Boolean));
+  const rightTokens = new Set(
+    normalizeAtaText(right).split(" ").filter(Boolean),
+  );
   if (!leftTokens.size || !rightTokens.size) return 0;
-  const intersection = [...leftTokens].filter((token) => rightTokens.has(token));
+  const intersection = [...leftTokens].filter((token) =>
+    rightTokens.has(token),
+  );
   return intersection.length / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function normalizeUnit(value: unknown) {
+  const normalized = normalizeAtaIdentifier(value);
+  const aliases: Record<string, string> = {
+    UN: "UN",
+    UND: "UN",
+    UNID: "UN",
+    UNIDADE: "UN",
+    UNIDADES: "UN",
+    PC: "PC",
+    PCA: "PC",
+    PECA: "PC",
+    PECAS: "PC",
+  };
+  return aliases[normalized] ?? normalized;
+}
+
+function quantitiesMatch(left: unknown, right: unknown) {
+  const leftNumber = toNumberOrNull(left);
+  const rightNumber = toNumberOrNull(right);
+  if (leftNumber === null || rightNumber === null) return false;
+  const scale = Math.max(Math.abs(leftNumber), Math.abs(rightNumber), 1);
+  return Math.abs(leftNumber - rightNumber) / scale <= 0.001;
+}
+
+function processRowLotKey(row: ProcessEstimateRow) {
+  return normalizeLotKey(row.loteNumero ?? row.resultadoLoteNumero);
 }
 
 function isMalsucedidoStatus(status: unknown) {
@@ -230,7 +323,9 @@ async function loadProcessChoice(
   }
 
   const edital = normalizeAtaIdentifier(payload.edital);
-  const administrativo = normalizeAtaIdentifier(payload.processo_administrativo);
+  const administrativo = normalizeAtaIdentifier(
+    payload.processo_administrativo,
+  );
   if (!edital && !administrativo) {
     return null;
   }
@@ -297,9 +392,11 @@ async function loadProcessEstimateRows(
       numeroItem: itensProcesso.numeroItem,
       descricao: itensProcesso.descricao,
       quantidade: itensProcesso.quantidade,
+      unidade: itensProcesso.unidade,
       valorUnitarioEstimadoBase: itensProcesso.valorUnitarioEstimado,
       valorTotalEstimadoBase: itensProcesso.valorTotalEstimado,
       loteNumero: lotes.numeroLote,
+      resultadoLoteNumero: itensProcessoValores.numeroLote,
       loteValorEstimado: lotes.valorEstimado,
       valorEstimadoUnitario: itensProcessoValores.valorEstimadoUnitario,
       valorEstimadoTotal: itensProcessoValores.valorEstimadoTotal,
@@ -313,7 +410,7 @@ async function loadProcessEstimateRows(
     .where(eq(itensProcesso.processoId, processoId));
 }
 
-function matchEstimateRowForLot(
+export function matchEstimateRowForLot(
   lot: ParsedAtaLot,
   rows: ProcessEstimateRow[],
 ): { row: ProcessEstimateRow; score: number; reason: string } | null {
@@ -323,39 +420,81 @@ function matchEstimateRowForLot(
   const parsedItemNumber = normalizeLotKey(parsedItem?.item_numero);
   const referenceText = parsedItem?.descricao || lot.titulo || "";
   const directLotRows = lotKey
-    ? rows.filter((row) => normalizeLotKey(row.loteNumero) === lotKey)
+    ? rows.filter((row) => processRowLotKey(row) === lotKey)
     : [];
 
   if (directLotRows.length === 1) {
     return { row: directLotRows[0], score: 0.98, reason: "lote" };
   }
 
-  const exactItem = parsedItemNumber
-    ? rows.find((row) => normalizeLotKey(row.numeroItem) === parsedItemNumber)
-    : null;
-  if (exactItem) {
-    const itemLotMatches =
-      !lotKey || normalizeLotKey(exactItem.loteNumero) === lotKey;
-    const score = itemLotMatches
-      ? 0.96
-      : Math.max(0.72, tokenSimilarity(referenceText, exactItem.descricao));
-    return { row: exactItem, score, reason: "item_numero" };
+  const exactItems = parsedItemNumber
+    ? rows.filter((row) => normalizeLotKey(row.numeroItem) === parsedItemNumber)
+    : [];
+  if (exactItems.length === 1) {
+    const exactItem = exactItems[0];
+    const itemLotMatches = Boolean(
+      lotKey && processRowLotKey(exactItem) === lotKey,
+    );
+    const descriptionScore = tokenSimilarity(
+      referenceText,
+      exactItem.descricao,
+    );
+    const quantityMatches = quantitiesMatch(
+      parsedItem?.quantidade,
+      exactItem.quantidade,
+    );
+    const unitMatches =
+      Boolean(parsedItem?.unidade) &&
+      normalizeUnit(parsedItem?.unidade) === normalizeUnit(exactItem.unidade);
+
+    if (itemLotMatches) {
+      return { row: exactItem, score: 0.96, reason: "item_numero_lote" };
+    }
+
+    // A BLL reinicia a numeração local como Item 1 em muitos lotes. Sem
+    // vínculo de lote, o número do item só é aceito com confirmação
+    // semântica forte; isso impede repetir o item global 1 em vários lotes.
+    if (
+      descriptionScore >= 0.85 &&
+      (quantityMatches || unitMatches || descriptionScore >= 0.95)
+    ) {
+      return {
+        row: exactItem,
+        score: Math.min(0.94, descriptionScore),
+        reason: "item_numero_confirmado",
+      };
+    }
   }
 
   const scoredRows = (directLotRows.length ? directLotRows : rows)
     .map((row) => {
-      const lotBonus =
-        lotKey && normalizeLotKey(row.loteNumero) === lotKey ? 0.18 : 0;
+      const descriptionScore = tokenSimilarity(referenceText, row.descricao);
+      const quantityMatches = quantitiesMatch(
+        parsedItem?.quantidade,
+        row.quantidade,
+      );
+      const unitMatches =
+        Boolean(parsedItem?.unidade) &&
+        normalizeUnit(parsedItem?.unidade) === normalizeUnit(row.unidade);
       return {
         row,
-        score: Math.min(1, tokenSimilarity(referenceText, row.descricao) + lotBonus),
+        descriptionScore,
+        confirmed: quantityMatches || unitMatches,
+        score: Math.min(
+          1,
+          descriptionScore +
+            (quantityMatches ? 0.05 : 0) +
+            (unitMatches ? 0.03 : 0),
+        ),
       };
     })
     .sort((left, right) => right.score - left.score);
 
   const best = scoredRows[0];
   if (!best) return null;
-  if (best.score <= 0 && rows.length > 1) return null;
+  const runnerUp = scoredRows[1];
+  if (best.descriptionScore < 0.85 || !best.confirmed) return null;
+  if (runnerUp && best.score - runnerUp.score < 0.15) return null;
   return { row: best.row, score: best.score, reason: "melhor_candidato" };
 }
 
@@ -413,7 +552,7 @@ async function buildEstimatedValueEnrichment(params: {
   input: AtaSessaoProcessInput;
   payload: AtaSessaoParsedPayload;
   sourceInfo: AtaSessaoSourceInfo;
-}) {
+}): Promise<InternalEstimatedValueEnrichment> {
   const warnings: string[] = [];
   try {
     const db = requireDb();
@@ -438,29 +577,35 @@ async function buildEstimatedValueEnrichment(params: {
     }
 
     const estimateRows = await loadProcessEstimateRows(db, processChoice.id);
-    const lots = (Array.isArray(params.payload.lotes)
-      ? (params.payload.lotes as ParsedAtaLot[])
-      : []
+    const lots = (
+      Array.isArray(params.payload.lotes)
+        ? (params.payload.lotes as ParsedAtaLot[])
+        : []
     ).filter((lot) => isMalsucedidoStatus(lot.status));
 
-    const enrichedLots = lots
-      .map((lot) => {
-        const match = matchEstimateRowForLot(lot, estimateRows);
-        if (!match) {
-          warnings.push(
-            `Lote ${lot.numero_lote}: nenhum item interno compatível foi encontrado para preencher valor estimado.`,
-          );
-          return null;
-        }
-        const entry = buildEstimateEntry(lot, match);
-        if (!entry) {
-          warnings.push(
-            `Lote ${lot.numero_lote}: item interno encontrado, mas sem valor estimado disponível no dossiê.`,
-          );
-        }
-        return entry;
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    const enrichedLots: InternalEstimatedValueEnrichment["lotes"] = [];
+    const usedItemIds = new Set<number>();
+    for (const lot of lots) {
+      const availableRows = estimateRows.filter(
+        (row) => !usedItemIds.has(row.itemId),
+      );
+      const match = matchEstimateRowForLot(lot, availableRows);
+      if (!match) {
+        warnings.push(
+          `Lote ${lot.numero_lote}: nenhum item interno compatível foi encontrado para preencher valor estimado.`,
+        );
+        continue;
+      }
+      const entry = buildEstimateEntry(lot, match);
+      if (!entry) {
+        warnings.push(
+          `Lote ${lot.numero_lote}: item interno encontrado, mas sem valor estimado disponível no dossiê.`,
+        );
+        continue;
+      }
+      usedItemIds.add(match.row.itemId);
+      enrichedLots.push(entry);
+    }
 
     return {
       processo: processChoice,
@@ -472,12 +617,49 @@ async function buildEstimatedValueEnrichment(params: {
       processo: null,
       warnings: [
         `Enriquecimento de valores estimados não aplicado: ${
-          error instanceof Error ? error.message : "falha ao consultar dados internos"
+          error instanceof Error
+            ? error.message
+            : "falha ao consultar dados internos"
         }.`,
       ],
       lotes: [],
     };
   }
+}
+
+function positiveIntegerArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0),
+    ),
+  );
+}
+
+function mapEstimatedValueReconciliation(
+  payload: AtaSessaoParsedPayload,
+): EstimatedValueReconciliation | null {
+  const reconciliation = payload.estimated_value_reconciliation;
+  if (!reconciliation) return null;
+
+  return {
+    source: "SD",
+    sdNumber: reconciliation.sd_number?.trim() || null,
+    totalFailedLots: Number(reconciliation.total_failed_lots ?? 0),
+    fullyMatchedLots: Number(reconciliation.fully_matched_lots ?? 0),
+    partiallyMatchedLots: Number(reconciliation.partially_matched_lots ?? 0),
+    unmatchedLots: positiveIntegerArray(reconciliation.unmatched_lots),
+    ambiguousLots: positiveIntegerArray(reconciliation.ambiguous_lots),
+    totalFailedItems: Number(reconciliation.total_failed_items ?? 0),
+    matchedItems: Number(reconciliation.matched_items ?? 0),
+    ambiguousItems: Number(reconciliation.ambiguous_items ?? 0),
+    unmatchedItems: Number(reconciliation.unmatched_items ?? 0),
+    warnings: Array.isArray(reconciliation.warnings)
+      ? reconciliation.warnings.map(String).filter(Boolean)
+      : [],
+  };
 }
 
 async function resolveBrandingData() {
@@ -539,6 +721,7 @@ async function runPythonPipeline(
   sourceFile: string,
   outputDir: string,
   enrichmentJsonPath?: string | null,
+  sdSourceFile?: string | null,
 ) {
   ensureDirectory(outputDir);
   const jsonOutput = join(outputDir, "ata-sessao-relatorio.json");
@@ -580,17 +763,38 @@ async function runPythonPipeline(
   if (enrichmentJsonPath) {
     args.push("--enrichment-json", enrichmentJsonPath);
   }
+  if (sdSourceFile) {
+    args.push("--sd-input", sdSourceFile);
+  }
 
-  await execFileAsync(python.command, args, {
-    cwd: repoRoot,
-    windowsHide: true,
-    maxBuffer: 1024 * 1024 * 10,
-  });
+  try {
+    await execFileAsync(python.command, args, {
+      cwd: repoRoot,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024 * 10,
+    });
+  } catch (error) {
+    const processError = error as {
+      message?: string;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+    const details = String(
+      processError.stderr || processError.stdout || processError.message || "",
+    ).trim();
+    const message =
+      details || "Falha desconhecida no processamento dos relatórios.";
+    if (isAtaSessaoReportInputError(message)) {
+      throw new AtaSessaoReportInputError(message);
+    }
+    throw new Error(`Falha ao gerar os relatórios da ata: ${message}`);
+  }
   return jsonOutput;
 }
 
 export async function runAtaSessaoPipeline(
   input: AtaSessaoProcessInput,
+  options: AtaSessaoPipelineOptions = {},
 ): Promise<{
   sourceFile: string;
   outputDir: string;
@@ -603,6 +807,12 @@ export async function runAtaSessaoPipeline(
   if (!existsSync(sourceFile)) {
     throw new Error(`Arquivo PDF não encontrado: ${sourceFile}`);
   }
+  const sdSourceFile = input.sdSourcePath
+    ? resolve(repoRoot, input.sdSourcePath)
+    : null;
+  if (sdSourceFile && !existsSync(sdSourceFile)) {
+    throw new Error(`Arquivo PDF da SD não encontrado: ${sdSourceFile}`);
+  }
 
   const outputDir = input.outputDir
     ? resolve(repoRoot, input.outputDir)
@@ -611,27 +821,101 @@ export async function runAtaSessaoPipeline(
         `${Date.now()}-${slugifyAtaSessaoFileName(basename(sourceFile, ".pdf"))}`,
       );
   ensureDirectory(outputDir);
+  const shouldRemoveOutputOnFailure = Boolean(
+    options.removeAutomaticOutputOnFailure && !input.outputDir,
+  );
 
-  const jsonPath = await runPythonPipeline(input, sourceFile, outputDir);
-  let payload = JSON.parse(
-    readFileSync(jsonPath, "utf-8"),
-  ) as AtaSessaoParsedPayload;
-  const enrichment = await buildEstimatedValueEnrichment({
-    input,
-    payload,
-    sourceInfo,
-  });
-  const enrichmentJsonPath = join(outputDir, "ata-sessao-enrichment.json");
-  writeFileSync(enrichmentJsonPath, JSON.stringify(enrichment, null, 2), "utf-8");
-  await runPythonPipeline(input, sourceFile, outputDir, enrichmentJsonPath);
-  payload = JSON.parse(readFileSync(jsonPath, "utf-8")) as AtaSessaoParsedPayload;
+  try {
+    let jsonPath: string;
+    let payload: AtaSessaoParsedPayload;
+    const enrichmentJsonPath = join(outputDir, "ata-sessao-enrichment.json");
 
-  return {
-    sourceFile,
-    outputDir,
-    jsonPath,
-    payload,
-  };
+    if (sdSourceFile) {
+      // A primeira leitura permite localizar um processo compatível e carregar
+      // valores internos apenas para comparação. Na execução final, o Python
+      // aplica esses valores antes da SD; o conciliador registra divergências,
+      // limpa os valores internos e mantém somente os valores seguros da SD.
+      jsonPath = await runPythonPipeline(input, sourceFile, outputDir);
+      payload = JSON.parse(
+        readFileSync(jsonPath, "utf-8"),
+      ) as AtaSessaoParsedPayload;
+      const internalComparison = await buildEstimatedValueEnrichment({
+        input,
+        payload,
+        sourceInfo,
+      });
+      writeFileSync(
+        enrichmentJsonPath,
+        JSON.stringify(internalComparison, null, 2),
+        "utf-8",
+      );
+
+      const comparisonJsonPath = join(outputDir, "ata-sessao-comparison.json");
+      const hasInternalComparison = Boolean(
+        internalComparison.processo && internalComparison.lotes.length,
+      );
+      if (hasInternalComparison) {
+        writeFileSync(
+          comparisonJsonPath,
+          JSON.stringify(
+            {
+              processo: internalComparison.processo,
+              // Avisos da consulta interna ficam no arquivo de auditoria. Nos
+              // relatórios entram somente divergências encontradas pelo
+              // conciliador, para não transformar ausência de cadastro em erro.
+              warnings: [],
+              lotes: internalComparison.lotes,
+            },
+            null,
+            2,
+          ),
+          "utf-8",
+        );
+      }
+
+      await runPythonPipeline(
+        input,
+        sourceFile,
+        outputDir,
+        hasInternalComparison ? comparisonJsonPath : null,
+        sdSourceFile,
+      );
+      payload = JSON.parse(
+        readFileSync(jsonPath, "utf-8"),
+      ) as AtaSessaoParsedPayload;
+    } else {
+      jsonPath = await runPythonPipeline(input, sourceFile, outputDir);
+      payload = JSON.parse(
+        readFileSync(jsonPath, "utf-8"),
+      ) as AtaSessaoParsedPayload;
+      const enrichment = await buildEstimatedValueEnrichment({
+        input,
+        payload,
+        sourceInfo,
+      });
+      writeFileSync(
+        enrichmentJsonPath,
+        JSON.stringify(enrichment, null, 2),
+        "utf-8",
+      );
+      await runPythonPipeline(input, sourceFile, outputDir, enrichmentJsonPath);
+      payload = JSON.parse(
+        readFileSync(jsonPath, "utf-8"),
+      ) as AtaSessaoParsedPayload;
+    }
+
+    return {
+      sourceFile,
+      outputDir,
+      jsonPath,
+      payload,
+    };
+  } catch (error) {
+    if (shouldRemoveOutputOnFailure) {
+      removeAutomaticReportDirectory(outputDir, reportsRoot);
+    }
+    throw error;
+  }
 }
 
 export function buildAtaSessaoArtifacts(
@@ -639,6 +923,9 @@ export function buildAtaSessaoArtifacts(
   jsonPath: string,
   parsed: AtaSessaoParsedPayload,
 ): AtaSessaoReportArtifact[] {
+  const sdParsedPath = String(
+    parsed.artifacts?.sd_parsed_json ?? join(outputDir, "sd-parsed.json"),
+  );
   const rawArtifacts = [
     {
       label: "Ata institucional completa (PDF)",
@@ -649,6 +936,15 @@ export function buildAtaSessaoArtifacts(
       type: "pdf" as const,
     },
     { label: "JSON consolidado", path: jsonPath, type: "json" as const },
+    ...(existsSync(sdParsedPath)
+      ? [
+          {
+            label: "JSON da SD processada",
+            path: sdParsedPath,
+            type: "json" as const,
+          },
+        ]
+      : []),
     {
       label: "Relatório Em Andamento (PDF)",
       path: String(
@@ -745,13 +1041,14 @@ export function buildAtaSessaoArtifacts(
 
 export async function generateAtaSessaoReports(
   input: AtaSessaoProcessInput,
+  options: AtaSessaoPipelineOptions = {},
 ): Promise<AtaSessaoProcessResult> {
   const {
     sourceFile,
     outputDir,
     jsonPath,
     payload: parsed,
-  } = await runAtaSessaoPipeline(input);
+  } = await runAtaSessaoPipeline(input, options);
   const artifacts = buildAtaSessaoArtifacts(outputDir, jsonPath, parsed);
 
   return ataSessaoProcessResultSchema.parse({
@@ -767,6 +1064,7 @@ export async function generateAtaSessaoReports(
       warnings: parsed.summary.warnings,
       parsingErrors: parsed.summary.parsing_errors,
     },
+    estimatedValueReconciliation: mapEstimatedValueReconciliation(parsed),
     artifacts,
   });
 }

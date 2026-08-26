@@ -7,7 +7,15 @@ import type {
   AtaSessaoPreviewProcessInput,
 } from "@sirel/shared/schemas/ata-sessao";
 
-export type DocumentoTipo = "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO";
+export type DocumentoTipo =
+  | "DFD"
+  | "ETP"
+  | "TR"
+  | "EDITAL"
+  | "COMUNICACAO_INTERNA"
+  | "RESULTADO"
+  | "CONTRATO"
+  | "OUTRO";
 
 export interface UploadProcessoDocumentoInput {
   processoId: number;
@@ -39,11 +47,28 @@ export interface AtaSessaoStandaloneArtifact {
   downloadUrl: string;
 }
 
+export interface AtaSessaoEstimatedValueReconciliation {
+  source: "SD";
+  sdNumber: string | null;
+  totalFailedLots: number;
+  fullyMatchedLots: number;
+  partiallyMatchedLots: number;
+  unmatchedLots: number[];
+  ambiguousLots: number[];
+  totalFailedItems: number;
+  matchedItems: number;
+  ambiguousItems: number;
+  unmatchedItems: number;
+  warnings: string[];
+}
+
 export interface AtaSessaoStandaloneProcessResult {
   sourceFile: string;
   outputDir: string;
   generatedAt: string;
   originalFileName?: string;
+  originalSdFileName?: string;
+  estimatedValueReconciliation: AtaSessaoEstimatedValueReconciliation | null;
   summary: {
     totalLotes: number;
     emAndamento: number;
@@ -67,6 +92,16 @@ export interface ProcessAtaSessaoDocumentoOptions {
 export interface DiscoverAtaSessaoProcessInput {
   arquivo: File;
   providedProcessoId?: number;
+}
+
+export function isPdfFile(file: File) {
+  const normalizedMime = file.type.trim().toLowerCase();
+  const hasAcceptedMime =
+    !normalizedMime ||
+    normalizedMime === "application/octet-stream" ||
+    normalizedMime.includes("pdf");
+
+  return file.name.toLowerCase().endsWith(".pdf") && hasAcceptedMime;
 }
 
 export function resolveServerBaseUrl() {
@@ -93,7 +128,10 @@ export function resolveServerAssetUrl(url: string | null | undefined) {
 function buildAuthHeaders() {
   const token = getStoredAuthToken();
   if (token) {
-    return { Authorization: `Bearer ${token}` } satisfies Record<string, string>;
+    return { Authorization: `Bearer ${token}` } satisfies Record<
+      string,
+      string
+    >;
   }
 
   const session = loadStoredSession();
@@ -133,11 +171,14 @@ export async function uploadProcessoDocumento(
   formData.append("restritoA", JSON.stringify(input.restritoA ?? []));
   formData.append("arquivo", input.arquivo);
 
-  const response = await fetch(`${resolveServerBaseUrl()}/api/planejamento/documentos/upload`, {
-    method: "POST",
-    headers: buildAuthHeaders(),
-    body: formData,
-  });
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/planejamento/documentos/upload`,
+    {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: formData,
+    },
+  );
 
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -147,10 +188,13 @@ export async function uploadProcessoDocumento(
 }
 
 export async function deleteProcessoDocumento(documentoId: number) {
-  const response = await fetch(`${resolveServerBaseUrl()}/api/planejamento/documentos/${documentoId}`, {
-    method: "DELETE",
-    headers: buildAuthHeaders(),
-  });
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/planejamento/documentos/${documentoId}`,
+    {
+      method: "DELETE",
+      headers: buildAuthHeaders(),
+    },
+  );
 
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -161,21 +205,33 @@ export async function deleteProcessoDocumento(documentoId: number) {
 
 export async function processAtaSessaoDocumento(
   arquivo: File,
+  sdArquivo: File,
   options: ProcessAtaSessaoDocumentoOptions = {},
 ): Promise<AtaSessaoStandaloneProcessResult> {
   const formData = new FormData();
   formData.append("arquivo", arquivo);
-  if (options.processoId) formData.append("processoId", String(options.processoId));
+  formData.append("sdArquivo", sdArquivo);
+  if (options.processoId)
+    formData.append("processoId", String(options.processoId));
   if (options.edital?.trim()) formData.append("edital", options.edital.trim());
-  if (options.processoAdministrativo?.trim()) formData.append("processoAdministrativo", options.processoAdministrativo.trim());
-  if (options.arquivoOrigem?.trim()) formData.append("arquivoOrigem", options.arquivoOrigem.trim());
-  if (options.dataGeracao?.trim()) formData.append("dataGeracao", options.dataGeracao.trim());
+  if (options.processoAdministrativo?.trim())
+    formData.append(
+      "processoAdministrativo",
+      options.processoAdministrativo.trim(),
+    );
+  if (options.arquivoOrigem?.trim())
+    formData.append("arquivoOrigem", options.arquivoOrigem.trim());
+  if (options.dataGeracao?.trim())
+    formData.append("dataGeracao", options.dataGeracao.trim());
 
-  const response = await fetch(`${resolveServerBaseUrl()}/api/relatorios/ata-sessao/processar`, {
-    method: "POST",
-    headers: buildAuthHeaders(),
-    body: formData,
-  });
+  const response = await fetch(
+    `${resolveServerBaseUrl()}/api/relatorios/ata-sessao/processar`,
+    {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: formData,
+    },
+  );
 
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -277,4 +333,3 @@ export async function applyAtaSessaoSyncPreview(
 
 export const uploadPlanejamentoDocumento = uploadProcessoDocumento;
 export const deletePlanejamentoDocumento = deleteProcessoDocumento;
-

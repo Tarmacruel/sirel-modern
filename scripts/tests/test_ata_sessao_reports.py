@@ -333,6 +333,44 @@ class AtaSessaoParserTests(unittest.TestCase):
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 1000)
 
+    def test_write_ata_institucional_pdf_splits_oversized_item_row(self) -> None:
+        long_description = " ".join(
+            [
+                "Equipamento hospitalar com especificacoes tecnicas completas,"
+                " controles microprocessados e acessorios inclusos."
+            ]
+            * 40
+        )
+        result = AtaSessaoParseResult(
+            source_path='AtaSessaoFinal_descricao_extensa.pdf',
+            generated_at='2026-07-20T10:00:00',
+            lotes=[
+                LotRecord(
+                    numero_lote=1,
+                    status='ADJUDICADO',
+                    titulo='Equipamento hospitalar',
+                    itens=[
+                        LotItemData(
+                            item_numero='1',
+                            unidade='UNID.',
+                            descricao=long_description,
+                            quantidade=1,
+                            valor_unitario=1000.0,
+                            valor_total=1000.0,
+                        )
+                    ],
+                )
+            ],
+        )
+        normalized = normalize_report_data(result)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            artifacts = write_ata_institucional_pdf(result, normalized, tmp_dir)
+            output_path = Path(artifacts['ata_institucional_pdf'])
+
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 1000)
+
     def test_apply_estimated_value_enrichment_fills_failed_lot(self) -> None:
         result = AtaSessaoParseResult(
             source_path='ata.pdf',

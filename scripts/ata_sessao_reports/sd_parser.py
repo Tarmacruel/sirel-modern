@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 from .models import LotItemData
 
@@ -637,6 +639,7 @@ def parse_sd_pdf(pdf_path: str | Path, logger: logging.Logger | None = None) -> 
 def map_sd_item_to_lot_item(sd_item: SDItem) -> LotItemData:
     return LotItemData(
         item_numero=str(sd_item.numero).zfill(3),
+        catmat_catser=sd_item.catmat_catser,
         unidade=sd_item.unidade,
         descricao=sd_item.descricao,
         quantidade=float(sd_item.quantidade),
@@ -646,3 +649,58 @@ def map_sd_item_to_lot_item(sd_item: SDItem) -> LotItemData:
         marca=None,
         modelo=None,
     )
+
+
+def sd_item_to_dict(item: SDItem) -> dict[str, Any]:
+    return {
+        "numero": item.numero,
+        "catmat_catser": item.catmat_catser,
+        "descricao": item.descricao,
+        "quantidade": float(item.quantidade),
+        "percentual": float(item.percentual),
+        "unidade": item.unidade,
+        "preco_unitario": float(item.preco_unitario),
+        "preco_total": float(item.preco_total),
+        "raw_line": item.raw_line,
+    }
+
+
+def sd_record_to_dict(record: SDRecord, *, generated_at: str | None = None) -> dict[str, Any]:
+    """Serializa a SD no mesmo contrato usado pelo processador avulso."""
+    return {
+        "source_path": record.source_path,
+        "generated_at": generated_at or datetime.now().isoformat(),
+        "summary": {
+            "total_itens": len(record.itens),
+            "warnings": len(record.warnings),
+            "parsing_errors": len(record.parsing_errors),
+        },
+        "metadata": {
+            "numero_sd": record.metadata.numero_sd,
+            "data_emissao": record.metadata.data_emissao,
+            "centro_custo": record.metadata.centro_custo,
+            "unidade_orcamentaria": record.metadata.unidade_orcamentaria,
+            "elemento_despesa": record.metadata.elemento_despesa,
+            "fonte_recurso": record.metadata.fonte_recurso,
+            "valor_total": (
+                float(record.metadata.valor_total)
+                if record.metadata.valor_total is not None
+                else None
+            ),
+            "assunto_objeto": record.metadata.assunto_objeto,
+            "processo_administrativo": record.metadata.processo_administrativo,
+            "classificacoes_orcamentarias": [
+                {
+                    "codigo_reduzido": item.codigo_reduzido,
+                    "unidade_orcamentaria": item.unidade_orcamentaria,
+                    "projeto_atividade": item.projeto_atividade,
+                    "elemento_despesa": item.elemento_despesa,
+                    "fonte_recurso": item.fonte_recurso,
+                }
+                for item in record.metadata.classificacoes_orcamentarias
+            ],
+        },
+        "warnings": list(record.warnings),
+        "parsing_errors": list(record.parsing_errors),
+        "itens": [sd_item_to_dict(item) for item in record.itens],
+    }

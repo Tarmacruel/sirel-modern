@@ -1,5 +1,3 @@
-﻿import { existsSync } from "node:fs";
-
 import { ataSessaoProcessInputSchema } from "@sirel/shared/schemas/ata-sessao";
 
 import { generateAtaSessaoReports } from "../lib/ata-sessao-reports.js";
@@ -11,6 +9,7 @@ function parseArg(flag: string) {
 
 async function main() {
   const sourcePath = parseArg("--input");
+  const sdSourcePath = parseArg("--sd-input");
   const documentoIdArg = parseArg("--documento-id");
   const processoIdArg = parseArg("--processo-id");
   const outputDir = parseArg("--output-dir");
@@ -22,6 +21,7 @@ async function main() {
 
   const input = ataSessaoProcessInputSchema.parse({
     sourcePath,
+    sdSourcePath,
     documentoId: documentoIdArg ? Number(documentoIdArg) : undefined,
     processoId: processoIdArg ? Number(processoIdArg) : undefined,
     outputDir,

@@ -83,6 +83,7 @@ class MovimentoLote:
 @dataclass(slots=True)
 class LotItemData:
     item_numero: str | None = None
+    catmat_catser: str | None = None
     unidade: str | None = None
     descricao: str | None = None
     quantidade: float | None = None
@@ -93,6 +94,8 @@ class LotItemData:
     valor_estimado_fonte: str | None = None
     valor_estimado_confianca: str | None = None
     valor_estimado_processo_fonte: str | None = None
+    valor_estimado_conciliacao: str | None = None
+    valor_estimado_correspondencia: str | None = None
     marca: str | None = None
     modelo: str | None = None
 
@@ -131,6 +134,7 @@ class AtaSessaoParseResult:
     lotes: list[LotRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     parsing_errors: list[dict[str, str]] = field(default_factory=list)
+    estimated_value_reconciliation: dict[str, Any] | None = None
 
     @property
     def em_andamento(self) -> list[LotRecord]:
@@ -160,7 +164,7 @@ class AtaSessaoParseResult:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "source_path": self.source_path,
             "generated_at": self.generated_at,
             "edital": self.edital,
@@ -170,6 +174,9 @@ class AtaSessaoParseResult:
             "parsing_errors": self.parsing_errors,
             "lotes": [lot.to_dict() for lot in self.lotes],
         }
+        if self.estimated_value_reconciliation is not None:
+            payload["estimated_value_reconciliation"] = self.estimated_value_reconciliation
+        return payload
 
 
 def build_output_stamp() -> str:

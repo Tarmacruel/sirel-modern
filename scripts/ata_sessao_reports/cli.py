@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 
 from .data_normalizer import normalize_report_data
@@ -11,6 +12,8 @@ from .excel import write_reports_workbooks
 from .models import ensure_directory
 from .parser import normalize_ascii_slug, parse_ata_sessao_pdf
 from .pdf_renderer import write_ata_institucional_pdf, write_report_pdfs
+from .reconciliation import reconcile_estimated_values
+from .sd_parser import SDParsingError, parse_sd_pdf, sd_record_to_dict
 
 
 def build_logger(output_dir: Path) -> logging.Logger:
@@ -60,6 +63,10 @@ def _load_enrichment(path: str | None) -> dict[str, object] | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Processa atas de sessão e gera relatórios estruturados.")
     parser.add_argument("--input", required=True, help="Caminho do PDF de ata de sessão.")
+    parser.add_argument(
+        "--sd-input",
+        help="Caminho opcional do PDF da Solicitação de Despesa usado nos valores estimados.",
+    )
     parser.add_argument("--output-dir", required=True, help="Diretório de saída para os artefatos.")
     parser.add_argument("--json-out", help="Caminho opcional do JSON consolidado.")
     parser.add_argument("--generated-by", help="Nome do usuário que gerou o relatório.")
@@ -83,6 +90,39 @@ def main() -> int:
         _load_enrichment(args.enrichment_json),
         logger=render_logger,
     )
+
+    sd_record = None
+    sd_parsed_path = None
+    if args.sd_input:
+        sd_path = Path(args.sd_input).expanduser().resolve()
+        try:
+            sd_record = parse_sd_pdf(sd_path, logger=logger)
+        except SDParsingError as exc:
+            message = f"Falha ao ler Solicitação de Despesa (SD): {exc}"
+            logger.error(message)
+            print(message, file=sys.stderr)
+            return 2
+        except Exception as exc:  # noqa: BLE001 - fronteira da CLI
+            message = (
+                "Falha ao ler Solicitação de Despesa (SD): "
+                f"PDF inválido ou estrutura não reconhecida ({exc})."
+            )
+            logger.error(message)
+            print(message, file=sys.stderr)
+            return 2
+        reconcile_estimated_values(result, sd_record, logger=logger)
+        if enrichment_metadata is not None:
+            enrichment_metadata["mode"] = "COMPARACAO_SIREL_SD"
+            enrichment_metadata["values_applied_to_output"] = False
+        sd_parsed_path = output_dir / "sd-parsed.json"
+        sd_parsed_path.write_text(
+            json.dumps(
+                sd_record_to_dict(sd_record, generated_at=result.generated_at),
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     normalized = normalize_report_data(
         result,
         metadata={
@@ -112,6 +152,8 @@ def main() -> int:
             logger=render_logger,
         )
     )
+    if sd_parsed_path is not None:
+        artifacts["sd_parsed_json"] = str(sd_parsed_path)
 
     payload = result.to_dict()
     payload["report_metadata"] = {
@@ -132,6 +174,7 @@ def main() -> int:
         "json_path": str(json_out),
         "summary": payload["summary"],
         "artifacts": artifacts,
+        "estimated_value_reconciliation": result.estimated_value_reconciliation,
     }, ensure_ascii=False))
     return 0
 

@@ -11,7 +11,7 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import CondPageBreak, HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .data_normalizer import (
     NormalizedItem,
@@ -211,7 +211,17 @@ def _make_table(
             rendered_row.append(Paragraph(_text(value), styles[style_key]))
         data.append(rendered_row)
 
-    table = Table(data, colWidths=scaled_widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
+    table = Table(
+        data,
+        colWidths=scaled_widths,
+        repeatRows=1,
+        hAlign="LEFT",
+        splitByRow=1,
+        # Algumas atas trazem especificacoes tecnicas extensas em uma unica
+        # celula. Permitir a quebra interna evita LayoutError quando uma linha
+        # isolada e mais alta do que a area util da pagina.
+        splitInRow=1,
+    )
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
         ("TEXTCOLOR", (0, 0), (-1, 0), INK),
@@ -248,24 +258,33 @@ def _summary_rows_operacionais(lots: list[NormalizedLot], styles: dict[str, Para
 def _summary_rows_malsucedidos(lots: list[NormalizedLot], styles: dict[str, ParagraphStyle]) -> list[list[Any]]:
     rows: list[list[Any]] = []
     for lot in lots:
+        provenance_item = next(
+            (item for item in lot.itens if item.valor_total_estimado is not None),
+            lot.itens[0] if lot.itens else None,
+        )
         rows.append([
             _text(lot.numero_lote),
             _text(lot.status),
             Paragraph(_text(_shorten(lot.descricao, 120)), styles["table_cell_justify"]),
             f"{lot.total_itens} ite(ns)",
             _text(lot.participantes_totais),
-            _format_currency(lot.itens[0].valor_unitario_estimado if lot.itens else None),
-            _format_currency(lot.itens[0].valor_total_estimado if lot.itens else None),
-            _shorten(lot.itens[0].valor_estimado_processo_fonte if lot.itens else None, 16),
-            _shorten(lot.itens[0].valor_estimado_fonte if lot.itens else None, 38),
-            _shorten(lot.itens[0].valor_estimado_confianca if lot.itens else None, 18),
+            _format_currency(provenance_item.valor_unitario_estimado if provenance_item and lot.total_itens == 1 else None),
+            _format_currency(lot.valor_total_estimado),
+            lot.valor_estimado_cobertura,
+            _shorten(provenance_item.valor_estimado_processo_fonte if provenance_item else None, 16),
+            _shorten(provenance_item.valor_estimado_fonte if provenance_item else None, 38),
             Paragraph(_text(_shorten(lot.motivo_falha, 140)), styles["table_cell_justify"]),
         ])
     return rows
 
 
 def _participant_table_for_section(section: str, participants: list[NormalizedParticipant], styles: dict[str, ParagraphStyle]) -> list[Any]:
-    story: list[Any] = [Paragraph(SECTION_LABELS[section].upper(), styles["section_center"])]
+    # Mantém o título acompanhado ao menos pelo cabeçalho e pela primeira
+    # linha, evitando uma seção órfã junto ao rodapé.
+    story: list[Any] = [
+        CondPageBreak(28 * mm),
+        Paragraph(SECTION_LABELS[section].upper(), styles["section_center"]),
+    ]
 
     if section == "MOVIMENTOS":
         rows = [[_text(item.participante_numero), item.razao_social, _format_currency(item.oferta_registrada)] for item in participants]
@@ -331,6 +350,7 @@ def _items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle])
     for item in items:
         rows.append([
             _text(item.item_numero),
+            _text(item.catmat_catser),
             Paragraph(_text(_shorten(item.descricao, 80)), styles["table_cell_justify"]),
             _format_number(item.quantidade),
             _format_currency(item.valor_unitario),
@@ -339,15 +359,14 @@ def _items_table(items: list[NormalizedItem], styles: dict[str, ParagraphStyle])
             _format_currency(item.valor_total_estimado),
             _shorten(item.valor_estimado_processo_fonte, 14),
             _shorten(item.valor_estimado_fonte, 28),
-            _shorten(item.valor_estimado_confianca, 14),
             _shorten(item.marca, 18),
             _shorten(item.modelo, 18),
         ])
 
     return _make_table(
-        ["Item", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Marca", "Modelo"],
+        ["Item", "CATMAT/ CATSER", "Descrição", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Marca", "Modelo"],
         rows,
-        [24, 154, 32, 52, 54, 58, 62, 38, 62, 34, 34, 34],
+        [28, 52, 151, 32, 46, 48, 54, 58, 44, 64, 45, 45],
         styles,
         justify_columns={1},
     )
@@ -364,6 +383,8 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
         ("Inabilitados", _text(lot.inabilitados)),
         ("Melhor oferta", _format_currency(lot.melhor_oferta)),
     ]
+    if is_malsucedido_status(lot.status):
+        cards.append(("Cobertura estimada", lot.valor_estimado_cobertura))
     intro: list[Any] = [
         Paragraph(f"LOTE {lot.numero_lote} - {lot.status}", styles["lot_title"]),
         Paragraph(_text(lot.descricao), styles["body_justify"]),
@@ -379,18 +400,24 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
 
     if lot.itens:
         if len(lot.itens) > 1:
+            # Reserve espaço para o título e o início da tabela. Sem isso, o
+            # título pode ficar órfão logo acima do rodapé enquanto a tabela é
+            # movida integralmente para a página seguinte.
+            story.append(CondPageBreak(55 * mm))
             story.append(Spacer(1, 10))
             story.append(Paragraph("DETALHAMENTO DOS ITENS", styles["section_center"]))
             story.append(_items_table(lot.itens, styles))
             story.append(Spacer(1, 10))
         else:
             item = lot.itens[0]
+            story.append(CondPageBreak(55 * mm))
             story.append(Spacer(1, 10))
             story.append(Paragraph("DETALHAMENTO DO ITEM", styles["section_center"]))
             story.append(_make_table(
                 ["Campo", "Valor"],
                 [
                     ["Item", _text(item.item_numero)],
+                    ["CATMAT/CATSER", _text(item.catmat_catser)],
                     ["Descrição", item.descricao or lot.descricao],
                     ["Unidade", _text(item.unidade)],
                     ["Quantidade", _format_number(item.quantidade)],
@@ -400,7 +427,6 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
                     ["Valor Total Estimado", _format_currency(item.valor_total_estimado)],
                     ["Processo fonte do valor estimado", _text(item.valor_estimado_processo_fonte)],
                     ["Fonte do Valor Estimado", _text(item.valor_estimado_fonte)],
-                    ["Confiança do Valor Estimado", _text(item.valor_estimado_confianca)],
                     ["Marca", _text(item.marca)],
                     ["Modelo", _text(item.modelo)],
                 ],
@@ -414,14 +440,16 @@ def _lot_story(lot: NormalizedLot, styles: dict[str, ParagraphStyle], include_re
     for participant in lot.participantes_exibidos:
         sections.setdefault(participant.section, []).append(participant)
 
-    for section in ["CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS"]:
-        participants = sections.get(section) or []
-        if not participants:
-            continue
+    participant_sections = [
+        (section, sections[section])
+        for section in ["CLASSIFICACAO", "DESCLASSIFICADOS", "INABILITADOS", "MOVIMENTOS"]
+        if sections.get(section)
+    ]
+    for index, (section, participants) in enumerate(participant_sections):
         story.extend(_participant_table_for_section(section, participants, styles))
-        story.append(Spacer(1, 8))
+        if index < len(participant_sections) - 1:
+            story.append(Spacer(1, 8))
 
-    story.append(HRFlowable(color=BORDER, thickness=0.8, width="100%", spaceBefore=0, spaceAfter=12))
     return story
 
 
@@ -490,6 +518,8 @@ def _build_pdf(
         Spacer(1, 8),
         _cards_table(report_cards, styles, columns=4),
         Spacer(1, 2),
+    ]
+    story.extend([
         Paragraph("RESUMO CONSOLIDADO", styles["section_center"]),
         _make_table(
             summary_headers,
@@ -499,10 +529,20 @@ def _build_pdf(
             justify_columns={1 if len(summary_headers) > 1 else 0, len(summary_headers) - 1},
         ),
         Spacer(1, 10),
-    ]
+    ])
 
-    for lot in lots:
+    for index, lot in enumerate(lots):
         story.extend(_lot_story(lot, styles, include_reason, logger))
+        if index < len(lots) - 1:
+            story.append(
+                HRFlowable(
+                    color=BORDER,
+                    thickness=0.8,
+                    width="100%",
+                    spaceBefore=0,
+                    spaceAfter=12,
+                )
+            )
 
     doc.build(
         story,
@@ -551,6 +591,23 @@ def _normalized_lot_pairs(
     return pairs
 
 
+def _reconciliation_warning_texts(reconciliation: object) -> set[str]:
+    if not isinstance(reconciliation, dict):
+        return set()
+    warnings = reconciliation.get("warnings")
+    if not isinstance(warnings, list):
+        return set()
+    return {str(warning).strip() for warning in warnings if str(warning).strip()}
+
+
+def _pdf_warning_count(normalized: NormalizedReportData) -> int:
+    warning_count = int(normalized.summary.get("warnings", 0) or 0)
+    reconciliation_warning_count = len(
+        _reconciliation_warning_texts(normalized.estimated_value_reconciliation)
+    )
+    return max(0, warning_count - reconciliation_warning_count)
+
+
 def _complete_summary_cards(normalized: NormalizedReportData) -> list[tuple[str, str]]:
     return [
         ("Lotes totais", str(normalized.summary.get("total_lotes", 0))),
@@ -558,7 +615,7 @@ def _complete_summary_cards(normalized: NormalizedReportData) -> list[tuple[str,
         ("Adjudicados", str(normalized.summary.get("adjudicados", 0))),
         ("Fase recursal", str(normalized.summary.get("fase_recursal", 0))),
         ("Malsucedidos", str(normalized.summary.get("malsucedidos", 0))),
-        ("Warnings", str(normalized.summary.get("warnings", 0))),
+        ("Warnings", str(_pdf_warning_count(normalized))),
         ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
         ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
     ]
@@ -604,6 +661,7 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
     for item in items:
         rows.append([
             item.item_numero,
+            item.catmat_catser,
             Paragraph(_text(item.descricao), styles["table_cell_justify"]),
             item.unidade,
             _format_number(item.quantidade),
@@ -613,7 +671,6 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
             _format_currency(item.valor_total_estimado),
             _shorten(item.valor_estimado_processo_fonte, 14),
             _shorten(item.valor_estimado_fonte, 28),
-            _shorten(item.valor_estimado_confianca, 14),
             item.marca,
             item.modelo,
         ])
@@ -623,9 +680,9 @@ def _complete_items_table(items: list[NormalizedItem], styles: dict[str, Paragra
         empty_row.append("")
 
     return _make_table(
-        ["Item", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Marca", "Modelo"],
+        ["Item", "CATMAT/ CATSER", "Descrição", "Unid.", "Qtd.", "Valor Unit.", "Valor Total", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Marca", "Modelo"],
         rows or [empty_row],
-        [28, 172, 34, 36, 54, 58, 58, 62, 42, 68, 38, 38, 38],
+        [28, 48, 162, 34, 36, 52, 54, 56, 60, 42, 68, 39, 39],
         styles,
         justify_columns={1},
     )
@@ -731,6 +788,8 @@ def _complete_lot_story(
         ("Inabilitados", str(lot.inabilitados)),
         ("Melhor oferta", _format_currency(lot.melhor_oferta)),
     ]
+    if is_malsucedido_status(lot.status):
+        cards.append(("Cobertura estimada", lot.valor_estimado_cobertura))
     story: list[Any] = [
         KeepTogether([
             Paragraph(f"LOTE {lot.numero_lote} - {lot.status}", styles["lot_title"]),
@@ -779,7 +838,12 @@ def _technical_annex_story(
     styles: dict[str, ParagraphStyle],
 ) -> list[Any]:
     rows: list[list[Any]] = []
+    reconciliation_warnings = _reconciliation_warning_texts(
+        result.estimated_value_reconciliation
+    )
     for warning in result.warnings:
+        if str(warning).strip() in reconciliation_warnings:
+            continue
         rows.append(["Warning", "Geral", Paragraph(_text(warning), styles["table_cell_justify"])])
     for lot in result.lotes:
         for warning in lot.warnings:
@@ -903,7 +967,7 @@ def write_report_pdfs(
         subtitle,
         [
             ("Lotes no relatório", str(len(normalized.em_andamento))),
-            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Warnings de parsing", str(_pdf_warning_count(normalized))),
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
@@ -924,7 +988,7 @@ def write_report_pdfs(
         subtitle,
         [
             ("Lotes no relatório", str(len(normalized.adjudicados))),
-            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Warnings de parsing", str(_pdf_warning_count(normalized))),
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
@@ -945,7 +1009,7 @@ def write_report_pdfs(
         subtitle,
         [
             ("Lotes no relatório", str(len(normalized.fase_recursal))),
-            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Warnings de parsing", str(_pdf_warning_count(normalized))),
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
         ],
@@ -960,19 +1024,34 @@ def write_report_pdfs(
     )
 
     malsucedidos_pdf = output_dir / "Relatorio_MalSucedidos.pdf"
+    reconciliation = normalized.estimated_value_reconciliation or {}
+    reconciliation_cards = []
+    if reconciliation:
+        reconciliation_cards = [
+            ("SD", str(reconciliation.get("sd_number") or "-")),
+            (
+                "Lotes conciliados",
+                f"{reconciliation.get('fully_matched_lots', 0)}/{reconciliation.get('total_failed_lots', 0)}",
+            ),
+            (
+                "Itens conciliados",
+                f"{reconciliation.get('matched_items', 0)}/{reconciliation.get('total_failed_items', 0)}",
+            ),
+        ]
     _build_pdf(
         malsucedidos_pdf,
         "Relatório de lotes malsucedidos",
         subtitle,
         [
             ("Lotes no relatório", str(len(normalized.malsucedidos))),
-            ("Warnings de parsing", str(normalized.summary.get("warnings", 0))),
+            ("Warnings de parsing", str(_pdf_warning_count(normalized))),
             ("Erros de parsing", str(normalized.summary.get("parsing_errors", 0))),
             ("Gerado em", normalized.header.data_geracao.replace("T", " ")[:19]),
+            *reconciliation_cards,
         ],
-        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Valor Est. Unit.", "Valor Est. Total", "Proc.", "Fonte", "Conf.", "Motivo resumido"],
+        ["Lote", "Status", "Descrição", "Itens", "Partic.", "Valor Est. Unit.", "Valor Est. Total", "Cobertura", "Proc.", "Fonte", "Motivo resumido"],
         _summary_rows_malsucedidos(normalized.malsucedidos, _styles()),
-        [28, 54, 162, 32, 34, 62, 66, 44, 64, 40, 148],
+        [28, 52, 142, 30, 32, 52, 60, 68, 42, 64, 148],
         normalized.malsucedidos,
         normalized.header,
         config,

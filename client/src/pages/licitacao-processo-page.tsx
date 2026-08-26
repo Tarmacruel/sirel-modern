@@ -43,6 +43,7 @@ import {
 } from "@sirel/shared/const";
 import { calcularPrazoLegalMinimo } from "@sirel/shared/prazos-legais";
 import { CollapsibleSectionCard } from "@/components/shared/collapsible-section-card";
+import { AtaSessaoProcessingOverlay } from "@/components/licitacao/ata-sessao-processing-overlay";
 import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal";
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-audit-drawer";
@@ -637,6 +638,9 @@ export function LicitacaoProcessoPage({
   const [ataSyncPreview, setAtaSyncPreview] = useState<AtaSessaoPreview | null>(
     null,
   );
+  const [ataSyncProcessingFileName, setAtaSyncProcessingFileName] = useState<
+    string | null
+  >(null);
   const [ataSyncApplyLoading, setAtaSyncApplyLoading] = useState(false);
   const [toastItems, setToastItems] = useState<ToastStackItem[]>([]);
   const [deletingDocumentoId, setDeletingDocumentoId] = useState<number | null>(
@@ -2162,9 +2166,14 @@ export function LicitacaoProcessoPage({
       return;
     }
 
+    const isAtaSyncCategory = ATA_SESSION_SYNC_CATEGORIES.has(item.category);
+
     try {
       setFeedback(null);
       setErrorMessage(null);
+      if (isAtaSyncCategory) {
+        setAtaSyncProcessingFileName(current.arquivo.name);
+      }
       const createdDocumento = await uploadProcessoDocumento({
         processoId,
         tipo:
@@ -2183,10 +2192,6 @@ export function LicitacaoProcessoPage({
         descricao: current.descricao.trim() || item.description,
         arquivo: current.arquivo,
       });
-      const isAtaSyncCategory = ATA_SESSION_SYNC_CATEGORIES.has(
-        item.category,
-      );
-
       if (isAtaSyncCategory) {
         const preview = await createAtaSessaoPreviewFromDocumento({
           processoId,
@@ -2210,6 +2215,10 @@ export function LicitacaoProcessoPage({
       setErrorMessage(
         error instanceof Error ? error.message : "Falha ao anexar o documento.",
       );
+    } finally {
+      if (isAtaSyncCategory) {
+        setAtaSyncProcessingFileName(null);
+      }
     }
   }
 
@@ -7862,6 +7871,12 @@ export function LicitacaoProcessoPage({
         applyLoading={ataSyncApplyLoading}
         onClose={() => setAtaSyncPreview(null)}
         onApply={() => void handleApplyAtaSyncPreview()}
+      />
+
+      <AtaSessaoProcessingOverlay
+        open={ataSyncProcessingFileName !== null}
+        fileName={ataSyncProcessingFileName}
+        context="preview"
       />
 
       {showCIReservaModal ? (

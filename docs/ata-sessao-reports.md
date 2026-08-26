@@ -1,7 +1,8 @@
 ﻿# Relatórios de Ata de Sessão
 
 ## Objetivo
-Processar atas de sessão de Pregão Eletrônico ou Dispensa em PDF textual e gerar:
+
+Processar atas de sessão de Pregão Eletrônico ou Dispensa em PDF textual e, quando fornecida uma Solicitação de Despesa (SD), conciliar os valores estimados dos lotes fracassados, desertos e cancelados antes de gerar:
 
 - `Ata_Institucional_Completa.pdf`
 - `Relatorio_EmAndamento.pdf`
@@ -14,12 +15,14 @@ Processar atas de sessão de Pregão Eletrônico ou Dispensa em PDF textual e ge
 - `Relatorio_MalSucedidos.xlsx`
 
 ## Arquitetura
+
 - `scripts/ata_sessao_reports/`: parser Python, geração de Excel e testes.
 - `server/src/lib/ata-sessao-reports.ts`: integração nativa com o backend do SIREL e geração dos PDFs no padrão institucional.
 - `server/src/routers/relatorios.ts`: mutation tRPC `processAtaSessao`.
 - `server/src/scripts/generate-ata-sessao-reports.ts`: execução via linha de comando.
 
 ## Dependências Python
+
 Instalar quando necessário:
 
 ```bash
@@ -27,56 +30,82 @@ py -3.12 -m pip install -r scripts/requirements-ata-sessao.txt
 ```
 
 ## Execução via CLI
+
 ```bash
-npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf"
+npm run ata-sessao:process -- --input "caminho/da/ata.pdf" --sd-input "caminho/da/sd.pdf"
 ```
 
 Opcionalmente:
 
 ```bash
-npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf" --output-dir "storage/reports/minha-saida"
+npm run ata-sessao:process -- --input "caminho/da/ata.pdf" --sd-input "caminho/da/sd.pdf" --output-dir "storage/reports/minha-saida"
 ```
 
-Para forçar o enriquecimento por um processo interno específico:
+Para comparar os valores da SD com um processo interno específico:
 
 ```bash
-npm run ata-sessao:process -- --input "caminho/do/arquivo.pdf" --processo-id 123
+npm run ata-sessao:process -- --input "caminho/da/ata.pdf" --sd-input "caminho/da/sd.pdf" --processo-id 123
 ```
 
+`--sd-input` é opcional para manter compatibilidade com consumidores internos do serviço. Informe-o para que lotes malsucedidos recebam os valores estimados da SD; no processamento avulso da Central de Documentos, a SD é obrigatória.
+
 ## Execução via backend
+
+Endpoint multipart usado pela Central de Documentos:
+
+- `POST /api/relatorios/ata-sessao/processar`
+- campo `arquivo`: PDF da Ata BLL, obrigatório;
+- campo `sdArquivo`: PDF da Solicitação de Despesa, obrigatório.
+
+Arquivos ausentes ou que não sejam PDF retornam `400`. PDFs sem camada de texto/OCR ou com estrutura de Ata/SD não reconhecida retornam `422`.
+Em caso de sucesso, a resposta inclui `originalFileName`, `originalSdFileName` e a cobertura em `estimatedValueReconciliation`.
+Os dois PDFs do upload avulso são temporários e removidos ao fim da requisição; somente os relatórios gerados são mantidos para download.
+
 Procedure tRPC:
+
 - `relatorios.processAtaSessao`
 
 Input aceito:
+
 ```ts
 {
   sourcePath?: string;
+  sdSourcePath?: string;
   documentoId?: number;
   outputDir?: string;
 }
 ```
 
 Regras:
+
 - é obrigatório informar `sourcePath` ou `documentoId`;
+- `sdSourcePath` aponta para o PDF da SD usado na conciliação e permanece opcional para consumidores internos existentes;
 - `documentoId` usa o documento já cadastrado no SIREL como origem do PDF;
 - `outputDir` é opcional; sem ele, o sistema gera uma pasta carimbada em `storage/reports/atas-sessao/`.
 
 ## Saída
+
 A mutation e o script retornam:
+
 - arquivo de origem;
 - diretório de saída;
 - sumário de lotes em andamento, adjudicados, fase recursal e malsucedidos;
+- cobertura da conciliação em `estimatedValueReconciliation`, ou `null` quando não houver SD;
 - lista de artefatos gerados.
+
+`estimatedValueReconciliation` possui a fonte (`SD`), número da SD, totais de lotes e itens conciliados, lotes parcialmente conciliados, listas numéricas de lotes ambíguos/não encontrados e warnings de conciliação.
 
 O artefato `Ata_Institucional_Completa.pdf` consolida a ata em aparência institucional, reorganizada por lote, com metadados, resumo geral, itens, participantes, movimentos e anexo técnico quando houver warnings ou erros de parsing.
 
-Quando a ata possui lotes malsucedidos e a BLL não exibe o valor estimado, o backend tenta enriquecer a saída com os valores já registrados no SIREL. A prioridade é: valores consolidados do dossiê por item, valores base do item do processo e, por fim, valor estimado do lote. Em processamento avulso, o processo é sugerido pelos identificadores extraídos da ata; quando a correspondência não é perfeita, o relatório mostra a fonte e a confiança do valor estimado.
+Quando a ata possui lotes malsucedidos e a BLL não exibe o valor estimado, a SD informada é a fonte oficial dos valores. O resultado identifica a SD, informa totais conciliados, parciais, ambíguos e não encontrados e inclui warnings para os lotes afetados. Esses warnings e os detalhes técnicos da correspondência são exibidos na tela do sistema e preservados nos artefatos de auditoria, mas não são renderizados no PDF. A geração continua quando a cobertura é parcial; correspondências inseguras permanecem sem valor.
 
 ## Logs e tolerância a falhas
+
 - warnings: `warnings.log`
 - blocos com falha de parsing: `erros_parsing.log`
 
 O parser continua o processamento mesmo quando encontra:
+
 - lotes sem tabela;
 - lotes sem participantes;
 - campos monetários inválidos;
@@ -84,11 +113,13 @@ O parser continua o processamento mesmo quando encontra:
 - blocos incompletos por quebra de página.
 
 ## Testes
+
 ```bash
-py -3.12 -m unittest scripts.tests.test_ata_sessao_reports
+py -3.12 -m pytest scripts/tests/test_ata_sessao_reports.py scripts/tests/test_sd_parser.py scripts/tests/test_sd_reconciliation.py scripts/tests/test_ata_sd_cli.py
 ```
 
 ## Observações de integração
-- Os PDFs são gerados no backend com `pdfkit`, seguindo o padrão institucional já usado no SIREL.
+
+- Os PDFs são gerados em Python com `ReportLab`, seguindo o padrão institucional já usado no SIREL.
 - Os arquivos Excel são gerados em Python com `pandas` + `openpyxl`.
 - O parser foi validado com o modelo real `ATA DE SESSÃO.pdf` fornecido.

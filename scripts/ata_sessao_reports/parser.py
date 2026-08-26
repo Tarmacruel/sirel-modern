@@ -245,6 +245,14 @@ def parse_item_section(block: str, logger: logging.Logger) -> list[LotItemData]:
             item.marca = normalize_whitespace(header_match.group("marca")) or None
             item.modelo = normalize_whitespace(header_match.group("modelo")) or None
 
+        catalog_match = re.search(
+            r"\b(?:CATMAT(?:\s*/\s*CATSER)?|CATSER)\s*:?\s*(?P<catalogo>\d{5,12})\b",
+            part,
+            flags=re.IGNORECASE,
+        )
+        if catalog_match:
+            item.catmat_catser = normalize_whitespace(catalog_match.group("catalogo"))
+
         # Extração de descrição e valores
         desc_match = re.search(
             r"Descrição:\s*(?P<descricao>.*?)\s+Quantidade:\s*(?P<quantidade>[\d\.,]+)\s+Valor Unit\.:\s*(?P<valor_unitario>[\d\.,]+)\s+Valor Total:\s*(?P<valor_total>[\d\.,]+)",
@@ -253,6 +261,13 @@ def parse_item_section(block: str, logger: logging.Logger) -> list[LotItemData]:
         )
         if desc_match:
             item.descricao = normalize_whitespace(desc_match.group("descricao"))
+            if item.catmat_catser is None:
+                description_catalog = re.match(
+                    r"\s*(?P<catalogo>\d{5,12})\b",
+                    item.descricao,
+                )
+                if description_catalog:
+                    item.catmat_catser = description_catalog.group("catalogo")
             item.quantidade = parse_brazilian_number(desc_match.group("quantidade"))
             item.valor_unitario = parse_brazilian_number(desc_match.group("valor_unitario"))
             item.valor_total = parse_brazilian_number(desc_match.group("valor_total"))

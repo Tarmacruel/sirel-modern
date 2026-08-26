@@ -21,6 +21,7 @@ import type {
 } from "@sirel/shared/schemas/ata-sessao";
 import { documentoAccessRoleOptions } from "@sirel/shared/schemas/documentos";
 
+import { AtaSessaoProcessingOverlay } from "@/components/licitacao/ata-sessao-processing-overlay";
 import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal";
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
@@ -46,9 +47,11 @@ import {
   createAtaSessaoPreviewFromDiscovery,
   deleteProcessoDocumento,
   discoverAtaSessaoProcess,
+  isPdfFile,
   processAtaSessaoDocumento,
   resolveServerAssetUrl,
   uploadProcessoDocumento,
+  type AtaSessaoEstimatedValueReconciliation,
   type AtaSessaoStandaloneProcessResult,
   type DocumentoTipo,
   type UploadProcessoDocumentoResult,
@@ -127,6 +130,98 @@ function parseKeywords(value: string) {
   );
 }
 
+function sortLotNumbers(lots: number[]) {
+  return Array.from(new Set(lots)).sort((left, right) => left - right);
+}
+
+function EstimatedValueCoverage({
+  reconciliation,
+}: {
+  reconciliation: AtaSessaoEstimatedValueReconciliation | null | undefined;
+}) {
+  if (!reconciliation) {
+    return (
+      <Alert variant="warning" title="Cobertura dos valores indisponível">
+        O processamento terminou, mas não informou a cobertura da conciliação
+        com a Solicitação de Despesa.
+      </Alert>
+    );
+  }
+
+  const isComplete =
+    reconciliation.fullyMatchedLots === reconciliation.totalFailedLots &&
+    reconciliation.partiallyMatchedLots === 0 &&
+    reconciliation.unmatchedLots.length === 0 &&
+    reconciliation.ambiguousLots.length === 0 &&
+    reconciliation.matchedItems === reconciliation.totalFailedItems &&
+    reconciliation.ambiguousItems === 0 &&
+    reconciliation.unmatchedItems === 0;
+  const sdLabel = reconciliation.sdNumber
+    ? `SD ${reconciliation.sdNumber}`
+    : "SD sem número identificado";
+  const unmatchedLots = sortLotNumbers(reconciliation.unmatchedLots);
+  const ambiguousLots = sortLotNumbers(reconciliation.ambiguousLots);
+
+  return (
+    <Alert
+      variant={isComplete ? "success" : "warning"}
+      title={
+        isComplete
+          ? "Cobertura completa dos valores estimados"
+          : "Cobertura parcial dos valores estimados"
+      }
+    >
+      <div className="space-y-2">
+        <p>
+          {reconciliation.totalFailedLots === 0
+            ? `${sdLabel} lida; não há lotes malsucedidos para conciliar.`
+            : `${reconciliation.fullyMatchedLots} de ${reconciliation.totalFailedLots} lotes e ${reconciliation.matchedItems} de ${reconciliation.totalFailedItems} itens foram conciliados com a ${sdLabel}.`}
+        </p>
+
+        {!isComplete ? (
+          <ul className="list-disc space-y-1 pl-5">
+            {reconciliation.partiallyMatchedLots > 0 ? (
+              <li>
+                Lotes parcialmente conciliados:{" "}
+                {reconciliation.partiallyMatchedLots}
+              </li>
+            ) : null}
+            {unmatchedLots.length > 0 ? (
+              <li>
+                Lotes com itens sem correspondência: {unmatchedLots.join(", ")}
+              </li>
+            ) : null}
+            {ambiguousLots.length > 0 ? (
+              <li>
+                Lotes com correspondência ambígua: {ambiguousLots.join(", ")}
+              </li>
+            ) : null}
+            {reconciliation.unmatchedItems > 0 ? (
+              <li>
+                Itens sem correspondência: {reconciliation.unmatchedItems}
+              </li>
+            ) : null}
+            {reconciliation.ambiguousItems > 0 ? (
+              <li>Itens ambíguos: {reconciliation.ambiguousItems}</li>
+            ) : null}
+          </ul>
+        ) : null}
+
+        {reconciliation.warnings.length > 0 ? (
+          <div className="border-t border-current/15 pt-2">
+            <p className="font-semibold">Avisos da conciliação</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {reconciliation.warnings.map((warning, index) => (
+                <li key={`${index}-${warning}`}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </Alert>
+  );
+}
+
 export function DocumentosPage() {
   const utils = trpc.useUtils();
   const [page, setPage] = useState(1);
@@ -154,6 +249,8 @@ export function DocumentosPage() {
   );
   const [ataSyncApplyLoading, setAtaSyncApplyLoading] = useState(false);
   const [ataFile, setAtaFile] = useState<File | null>(null);
+  const [sdFile, setSdFile] = useState<File | null>(null);
+  const [ataInputResetKey, setAtaInputResetKey] = useState(0);
   const [ataFeedback, setAtaFeedback] = useState<string | null>(null);
   const [ataError, setAtaError] = useState<string | null>(null);
   const [ataProcessing, setAtaProcessing] = useState(false);
@@ -451,27 +548,48 @@ export function DocumentosPage() {
     event.preventDefault();
     setAtaFeedback(null);
     setAtaError(null);
+    setAtaResult(null);
+
+    if (!ataFile && !sdFile) {
+      setAtaError(
+        "Selecione os PDFs da ata e da Solicitação de Despesa para gerar os relatórios avulsos.",
+      );
+      return;
+    }
 
     if (!ataFile) {
       setAtaError("Selecione o PDF da ata para gerar os relatórios avulsos.");
       return;
     }
 
-    if (!ataFile.name.toLowerCase().endsWith(".pdf")) {
+    if (!sdFile) {
+      setAtaError(
+        "Selecione o PDF da Solicitação de Despesa para informar os valores estimados.",
+      );
+      return;
+    }
+
+    if (!isPdfFile(ataFile)) {
       setAtaError("Envie um arquivo PDF de ata de sessão.");
+      return;
+    }
+
+    if (!isPdfFile(sdFile)) {
+      setAtaError("Envie um arquivo PDF de Solicitação de Despesa.");
       return;
     }
 
     try {
       setAtaProcessing(true);
-      const result = await processAtaSessaoDocumento(ataFile);
+      const result = await processAtaSessaoDocumento(ataFile, sdFile);
       setAtaResult(result);
       setAtaFeedback(
-        "Ata processada com sucesso. Os relatórios foram gerados sem vínculo com o acervo do processo.",
+        "Ata e SD processadas com sucesso. Os relatórios foram gerados sem vínculo com o acervo do processo.",
       );
       setAtaFile(null);
+      setSdFile(null);
+      setAtaInputResetKey((current) => current + 1);
     } catch (processingError) {
-      setAtaResult(null);
       setAtaFeedback(null);
       setAtaError(
         processingError instanceof Error
@@ -564,33 +682,62 @@ export function DocumentosPage() {
               <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
                 <div className="space-y-4">
                   {ataFeedback ? (
-                    <Alert variant="success">{ataFeedback}</Alert>
+                    <div role="status" aria-live="polite" aria-atomic="true">
+                      <Alert variant="success">{ataFeedback}</Alert>
+                    </div>
                   ) : null}
-                  {ataError ? <Alert variant="error">{ataError}</Alert> : null}
+                  {ataError ? (
+                    <div role="alert" aria-live="assertive" aria-atomic="true">
+                      <Alert variant="error">{ataError}</Alert>
+                    </div>
+                  ) : null}
 
                   <SectionCard
-                    title="Processamento avulso de ata"
-                    description="Envie uma ata de sessão em PDF para gerar os relatórios sem gravar nada no acervo nem criar vínculo com documentos do processo."
+                    title="Processamento avulso de Ata + SD"
+                    description="Envie a Ata BLL e a Solicitação de Despesa em PDF para gerar os relatórios com os valores estimados dos lotes malsucedidos."
                   >
                     <form className="space-y-4" onSubmit={handleProcessAta}>
                       <Alert
                         variant="info"
-                        title="Sem vínculo com o acervo do processo"
+                        title="A SD é a fonte oficial dos valores estimados"
                       >
-                        Esse botão processa a ata apenas para gerar os
-                        relatórios de trabalho. O arquivo enviado e os artefatos
-                        não são cadastrados na tabela de documentos do processo.
+                        Os valores dos lotes fracassados, desertos e cancelados
+                        serão conciliados com a SD enviada. Os dois arquivos e
+                        os relatórios gerados não serão cadastrados no acervo do
+                        processo.
                       </Alert>
-                      <FormField label="Arquivo PDF da ata">
-                        <Input
-                          key={ataResult?.generatedAt ?? "ata-sessao-input"}
-                          type="file"
-                          accept=".pdf,application/pdf"
-                          onChange={(event) =>
-                            setAtaFile(event.target.files?.[0] ?? null)
-                          }
-                        />
-                      </FormField>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <FormField
+                          label="Ata de sessão BLL (PDF)"
+                          description="Define os lotes, participantes e resultados da sessão."
+                        >
+                          <Input
+                            key={`ata-sessao-input-${ataInputResetKey}`}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            aria-required="true"
+                            disabled={ataProcessing}
+                            onChange={(event) =>
+                              setAtaFile(event.target.files?.[0] ?? null)
+                            }
+                          />
+                        </FormField>
+                        <FormField
+                          label="Solicitação de Despesa (PDF)"
+                          description="Fornece os valores estimados usados na conciliação."
+                        >
+                          <Input
+                            key={`sd-input-${ataInputResetKey}`}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            aria-required="true"
+                            disabled={ataProcessing}
+                            onChange={(event) =>
+                              setSdFile(event.target.files?.[0] ?? null)
+                            }
+                          />
+                        </FormField>
+                      </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
                         <p className="font-semibold text-slate-900">
                           Regras desta leitura
@@ -670,8 +817,8 @@ export function DocumentosPage() {
                         icon={<FileCog className="h-4 w-4" />}
                       >
                         {ataProcessing
-                          ? "Processando ata..."
-                          : "Gerar relatórios da ata"}
+                          ? "Conciliando Ata e SD..."
+                          : "Gerar relatórios com valores estimados"}
                       </Button>
                     </form>
                   </SectionCard>
@@ -689,6 +836,12 @@ export function DocumentosPage() {
                       </Alert>
                     ) : (
                       <div className="space-y-5">
+                        <EstimatedValueCoverage
+                          reconciliation={
+                            ataResult.estimatedValueReconciliation
+                          }
+                        />
+
                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                           {[
                             {
@@ -737,10 +890,19 @@ export function DocumentosPage() {
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
                           <p>
                             <span className="font-semibold text-slate-900">
-                              Arquivo de origem:
+                              Ata de origem:
                             </span>{" "}
                             {ataResult.originalFileName ??
                               ataResult.sourceFile.split(/[\\/]/).pop()}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-900">
+                              Solicitação de Despesa:
+                            </span>{" "}
+                            {ataResult.originalSdFileName ??
+                              (ataResult.estimatedValueReconciliation?.sdNumber
+                                ? `SD ${ataResult.estimatedValueReconciliation.sdNumber}`
+                                : "Nome não informado")}
                           </p>
                           <p>
                             <span className="font-semibold text-slate-900">
@@ -1527,6 +1689,15 @@ export function DocumentosPage() {
         applyLoading={ataSyncApplyLoading}
         onClose={() => setAtaSyncPreview(null)}
         onApply={() => void handleApplyAtaSync()}
+      />
+
+      <AtaSessaoProcessingOverlay
+        open={ataProcessing || ataDiscoveryLoading}
+        fileName={ataProcessing ? ataFile?.name : uploadForm.arquivo?.name}
+        sdFileName={ataProcessing ? sdFile?.name : undefined}
+        context={
+          ataProcessing ? "reports" : ataDiscovery ? "preview" : "discovery"
+        }
       />
     </SectionCard>
   );

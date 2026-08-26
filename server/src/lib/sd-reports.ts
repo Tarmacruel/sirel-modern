@@ -1,14 +1,20 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+
+import { projectRoot } from "./project-root.js";
 
 const execFileAsync = promisify(execFile);
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(currentDir, "../../..");
-const reportsRoot = resolve(repoRoot, "storage/reports/sd");
-const pythonScriptPath = resolve(repoRoot, "scripts/process_sd_reports.py");
+
+export function resolveSdReportRuntimePaths(root = projectRoot) {
+  return {
+    reportsRoot: resolve(root, "storage/reports/sd"),
+    pythonScriptPath: resolve(root, "scripts/process_sd_reports.py"),
+  };
+}
+
+const { reportsRoot, pythonScriptPath } = resolveSdReportRuntimePaths();
 
 export interface SdProcessResult {
   sourcePath: string;
@@ -59,7 +65,7 @@ export async function parseSdReport(sourceFile: string): Promise<SdProcessResult
     await execFileAsync(
       python.command,
       [...python.args, pythonScriptPath, "--input", sourceFile, "--json-out", jsonOutput],
-      { cwd: repoRoot, windowsHide: true, maxBuffer: 1024 * 1024 * 10 },
+      { cwd: projectRoot, windowsHide: true, maxBuffer: 1024 * 1024 * 10 },
     );
   } catch (error) {
     const stderr = String((error as { stderr?: string })?.stderr ?? "").trim();

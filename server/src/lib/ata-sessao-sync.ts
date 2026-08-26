@@ -6,8 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { extname, join, relative, resolve } from "node:path";
 
 import { and, asc, desc, eq, ilike, inArray, like, or } from "drizzle-orm";
 
@@ -47,6 +46,7 @@ import {
   slugifyAtaSessaoFileName,
   type AtaSessaoParsedPayload,
 } from "./ata-sessao-reports.js";
+import { projectRoot } from "./project-root.js";
 
 type DbClient = ReturnType<typeof requireDb>;
 type AtaDiscoveryMode =
@@ -293,8 +293,7 @@ type AtaAnalysis = {
   }>;
 };
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(currentDir, "../../..");
+const repoRoot = projectRoot;
 const uploadsRoot = resolve(repoRoot, "storage/uploads");
 const reportsRoot = resolve(repoRoot, "storage/reports/atas-sessao");
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Any, Iterable, Literal
 
 from .models import AtaSessaoParseResult, LotItemData, LotParticipant, LotRecord, is_malsucedido_status
 
@@ -42,6 +42,7 @@ class NormalizedParticipant:
 @dataclass(slots=True)
 class NormalizedItem:
     item_numero: str | None
+    catmat_catser: str | None
     unidade: str | None
     descricao: str | None
     quantidade: float | None
@@ -52,6 +53,8 @@ class NormalizedItem:
     valor_estimado_fonte: str | None
     valor_estimado_confianca: str | None
     valor_estimado_processo_fonte: str | None
+    valor_estimado_conciliacao: str | None
+    valor_estimado_correspondencia: str | None
     marca: str | None
     modelo: str | None
 
@@ -65,6 +68,9 @@ class NormalizedLot:
     total_itens: int
     quantidade_total: float | None
     valor_total_lote: float | None
+    valor_total_estimado: float | None
+    valor_estimado_cobertura: str
+    itens_estimados: int
     marca: str | None
     modelo: str | None
     vencedor: str | None
@@ -90,6 +96,7 @@ class NormalizedReportData:
     adjudicados: list[NormalizedLot]
     fase_recursal: list[NormalizedLot]
     malsucedidos: list[NormalizedLot]
+    estimated_value_reconciliation: dict[str, Any] | None
 
 
 def _warn(logger: logging.Logger | None, message: str) -> None:
@@ -127,6 +134,7 @@ def _normalize_reason(reason: str | None) -> str | None:
 def _normalize_item(item: LotItemData) -> NormalizedItem:
     return NormalizedItem(
         item_numero=item.item_numero,
+        catmat_catser=item.catmat_catser,
         unidade=item.unidade,
         descricao=item.descricao,
         quantidade=item.quantidade,
@@ -137,6 +145,8 @@ def _normalize_item(item: LotItemData) -> NormalizedItem:
         valor_estimado_fonte=item.valor_estimado_fonte,
         valor_estimado_confianca=item.valor_estimado_confianca,
         valor_estimado_processo_fonte=item.valor_estimado_processo_fonte,
+        valor_estimado_conciliacao=item.valor_estimado_conciliacao,
+        valor_estimado_correspondencia=item.valor_estimado_correspondencia,
         marca=item.marca,
         modelo=item.modelo,
     )
@@ -191,6 +201,23 @@ def prepare_lote_data(lot: LotRecord, logger: logging.Logger | None = None) -> N
     quantidade_total_raw = sum(i.quantidade or 0 for i in lot.itens)
     valor_total_lote_raw = sum(i.valor_total or 0 for i in lot.itens)
     total_itens = len(lot.itens)
+    itens_estimados = sum(
+        1
+        for item in lot.itens
+        if item.valor_unitario_estimado is not None and item.valor_total_estimado is not None
+    )
+    cobertura_estimativa = (
+        f"Completa ({itens_estimados}/{total_itens})"
+        if total_itens > 0 and itens_estimados == total_itens
+        else f"Parcial ({itens_estimados}/{total_itens})"
+        if itens_estimados > 0
+        else f"Não conciliada (0/{total_itens})"
+    )
+    valor_total_estimado = (
+        sum(float(item.valor_total_estimado or 0) for item in lot.itens)
+        if total_itens > 0 and itens_estimados == total_itens
+        else None
+    )
 
     quantidade_total = quantidade_total_raw if quantidade_total_raw > 0 else None
     valor_total_lote = valor_total_lote_raw if valor_total_lote_raw > 0 else None
@@ -224,6 +251,9 @@ def prepare_lote_data(lot: LotRecord, logger: logging.Logger | None = None) -> N
         total_itens=total_itens,
         quantidade_total=quantidade_total,
         valor_total_lote=valor_total_lote,
+        valor_total_estimado=valor_total_estimado,
+        valor_estimado_cobertura=cobertura_estimativa,
+        itens_estimados=itens_estimados,
         marca=marca,
         modelo=modelo,
         vencedor=lot.vencedor,
@@ -267,4 +297,5 @@ def normalize_report_data(
         adjudicados=[prepare_lote_data(lot, logger) for lot in result.adjudicados],
         fase_recursal=[prepare_lote_data(lot, logger) for lot in result.fase_recursal],
         malsucedidos=[prepare_lote_data(lot, logger) for lot in result.malsucedidos],
+        estimated_value_reconciliation=result.estimated_value_reconciliation,
     )
