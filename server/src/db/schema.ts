@@ -478,6 +478,61 @@ export const userSubsystemAccess = pgTable(
   }),
 );
 
+export const cargos = pgTable(
+  "cargos",
+  {
+    id: serial("id").primaryKey(),
+    codigo: varchar("codigo", { length: 40 }),
+    nome: varchar("nome", { length: 255 }).notNull(),
+    nomeNormalizado: varchar("nome_normalizado", { length: 255 }).notNull(),
+    categoria: varchar("categoria", { length: 120 }),
+    descricao: text("descricao"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqNomeNormalizado: uniqueIndex("cargos_nome_normalizado_uq").on(
+      table.nomeNormalizado,
+    ),
+    uqCodigo: uniqueIndex("cargos_codigo_uq")
+      .on(table.codigo)
+      .where(sql`${table.codigo} is not null`),
+    idxAtivo: index("cargos_ativo_idx").on(table.ativo),
+  }),
+);
+
+export const funcoes = pgTable(
+  "funcoes",
+  {
+    id: serial("id").primaryKey(),
+    codigo: varchar("codigo", { length: 40 }),
+    nome: varchar("nome", { length: 255 }).notNull(),
+    nomeNormalizado: varchar("nome_normalizado", { length: 255 }).notNull(),
+    descricao: text("descricao"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqNomeNormalizado: uniqueIndex("funcoes_nome_normalizado_uq").on(
+      table.nomeNormalizado,
+    ),
+    uqCodigo: uniqueIndex("funcoes_codigo_uq")
+      .on(table.codigo)
+      .where(sql`${table.codigo} is not null`),
+    idxAtivo: index("funcoes_ativo_idx").on(table.ativo),
+  }),
+);
+
 export const pessoas = pgTable(
   "pessoas",
   {
@@ -486,7 +541,13 @@ export const pessoas = pgTable(
     cpf: varchar("cpf", { length: 18 }),
     matricula: varchar("matricula", { length: 40 }),
     dataNascimento: date("data_nascimento"),
-    cargo: varchar("cargo", { length: 120 }),
+    cargo: varchar("cargo", { length: 255 }),
+    cargoId: integer("cargo_id").references(() => cargos.id, {
+      onDelete: "restrict",
+    }),
+    funcaoId: integer("funcao_id").references(() => funcoes.id, {
+      onDelete: "restrict",
+    }),
     secretariaId: integer("secretaria_id").references(() => secretarias.id),
     ativo: boolean("ativo").notNull().default(true),
     criadoEm: timestamp("criado_em", { withTimezone: true })
@@ -502,6 +563,8 @@ export const pessoas = pgTable(
     idxDataNascimento: index("pessoas_data_nascimento_idx").on(
       table.dataNascimento,
     ),
+    idxCargo: index("pessoas_cargo_idx").on(table.cargoId),
+    idxFuncao: index("pessoas_funcao_idx").on(table.funcaoId),
   }),
 );
 
@@ -2452,7 +2515,9 @@ export const importacaoBllItensEspecificados = pgTable(
     idxProcesso: index("importacao_bll_itens_proc_idx").on(
       table.processoImportadoId,
     ),
-    idxLote: index("importacao_bll_itens_lote_idx").on(table.loteImportadoId),
+    idxLote: index("importacao_bll_itens_especificados_lote_idx").on(
+      table.loteImportadoId,
+    ),
     idxFornecedorImportado: index(
       "importacao_bll_itens_fornecedor_importado_idx",
     ).on(table.fornecedorImportadoId),

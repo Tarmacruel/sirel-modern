@@ -5,6 +5,8 @@ export const cadastroEntityOptions = [
   "itens",
   "fornecedores",
   "secretarias",
+  "cargos",
+  "funcoes",
   "pessoas",
   "servidores",
   "departamentos",
@@ -82,6 +84,20 @@ export const secretariaCadastroSchema = z.object({
   ativo: z.boolean().default(true),
 });
 
+const catalogoFuncionalBaseSchema = z.object({
+  id: z.number().int().positive().optional(),
+  codigo: z.string().trim().max(40).nullable().optional(),
+  nome: z.string().trim().min(2, "Informe o nome.").max(255),
+  descricao: z.string().trim().max(2_000).nullable().optional(),
+  ativo: z.boolean().default(true),
+});
+
+export const cargoCadastroSchema = catalogoFuncionalBaseSchema.extend({
+  categoria: z.string().trim().max(120).nullable().optional(),
+});
+
+export const funcaoCadastroSchema = catalogoFuncionalBaseSchema;
+
 const dataNascimentoSchema = z
   .string()
   .trim()
@@ -116,33 +132,19 @@ function validateBirthDate(
   }
 }
 
-export const pessoaCadastroSchema = z.object({
-  id: z.number().int().positive().optional(),
-  nome: z.string().trim().min(3, "Informe o nome da pessoa."),
-  cpf: z.string().trim().optional(),
-  matricula: z.string().trim().max(40).nullable().optional(),
-  dataNascimento: dataNascimentoSchema,
-  cargo: z.string().trim().optional(),
-  secretariaId: z.number().int().positive().optional().nullable(),
-  ativo: z.boolean().default(true),
-}).superRefine((value, ctx) => {
-  const cpfDigits = value.cpf?.replace(/\D/g, "") ?? "";
-  if (cpfDigits && cpfDigits.length !== 11) {
+function validateServidorRequiredFields(
+  value: {
+    cargoId?: number | null;
+    matricula?: string | null;
+    dataNascimento?: string | null;
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (!value.cargoId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["cpf"],
-      message: "Informe um CPF valido com 11 digitos.",
-    });
-  }
-  validateBirthDate(value.dataNascimento, ctx, "dataNascimento");
-});
-
-export const servidorCadastroSchema = pessoaCadastroSchema.superRefine((value, ctx) => {
-  if (!value.secretariaId) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["secretariaId"],
-      message: "Vincule o servidor a uma secretaria.",
+      path: ["cargoId"],
+      message: "Selecione o cargo do servidor.",
     });
   }
   if (!value.matricula?.trim()) {
@@ -158,6 +160,44 @@ export const servidorCadastroSchema = pessoaCadastroSchema.superRefine((value, c
       path: ["dataNascimento"],
       message: "Informe a data de nascimento do servidor.",
     });
+  }
+}
+
+export const pessoaCadastroSchema = z.object({
+  id: z.number().int().positive().optional(),
+  nome: z.string().trim().min(3, "Informe o nome da pessoa."),
+  cpf: z.string().trim().optional(),
+  matricula: z.string().trim().max(40).nullable().optional(),
+  dataNascimento: dataNascimentoSchema,
+  cargoId: z.number().int().positive().nullable().optional(),
+  funcaoId: z.number().int().positive().nullable().optional(),
+  // Compatibilidade temporaria para importacoes e registros anteriores a R2.1.
+  cargo: z.string().trim().optional(),
+  secretariaId: z.number().int().positive().optional().nullable(),
+  ativo: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  const cpfDigits = value.cpf?.replace(/\D/g, "") ?? "";
+  if (cpfDigits && cpfDigits.length !== 11) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cpf"],
+      message: "Informe um CPF valido com 11 digitos.",
+    });
+  }
+  validateBirthDate(value.dataNascimento, ctx, "dataNascimento");
+  // Em toda a base, Pessoa com secretaria é classificada como Servidor.
+  // Impedir que a rota genérica crie um Servidor incompleto por esse atalho.
+  if (value.secretariaId) validateServidorRequiredFields(value, ctx);
+});
+
+export const servidorCadastroSchema = pessoaCadastroSchema.superRefine((value, ctx) => {
+  if (!value.secretariaId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["secretariaId"],
+      message: "Vincule o servidor a uma secretaria.",
+    });
+    validateServidorRequiredFields(value, ctx);
   }
 });
 
@@ -220,12 +260,41 @@ export const cadastroSaveInputSchema = z.discriminatedUnion("entity", [
   z.object({ entity: z.literal("itens"), data: itemCadastroSchema }),
   z.object({ entity: z.literal("fornecedores"), data: fornecedorCadastroSchema }),
   z.object({ entity: z.literal("secretarias"), data: secretariaCadastroSchema }),
+  z.object({ entity: z.literal("cargos"), data: cargoCadastroSchema }),
+  z.object({ entity: z.literal("funcoes"), data: funcaoCadastroSchema }),
   z.object({ entity: z.literal("pessoas"), data: pessoaCadastroSchema }),
   z.object({ entity: z.literal("servidores"), data: servidorCadastroSchema }),
   z.object({ entity: z.literal("departamentos"), data: departamentoCadastroSchema }),
   z.object({ entity: z.literal("usuarios"), data: usuarioCadastroSchema }),
   z.object({ entity: z.literal("parametros"), data: parametroCadastroSchema }),
 ]);
+
+export const cadastroGetByIdInputSchema = z.object({
+  entity: z.enum(cadastroEntityOptions),
+  id: z.number().int().positive(),
+});
+
+export const cadastroLookupEntityOptions = [
+  "pessoas",
+  "servidores",
+  "secretarias",
+  "cargos",
+  "funcoes",
+  "departamentos",
+  "fornecedores",
+  "itens",
+] as const;
+
+export const cadastroLookupInputSchema = z.object({
+  entity: z.enum(cadastroLookupEntityOptions),
+  search: z.string().trim().max(160).optional(),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(50).default(20),
+  excludeIds: z.array(z.number().int().positive()).max(100).optional(),
+  secretariaId: z.number().int().positive().optional(),
+  preferSecretariaId: z.number().int().positive().optional(),
+  activeOnly: z.boolean().default(true),
+});
 
 export const fornecedorMergeInputSchema = z.object({
   sourceId: z.number().int().positive(),
@@ -328,6 +397,9 @@ export type CadastroEntity = (typeof cadastroEntityOptions)[number];
 export type CadastroStatus = (typeof cadastroStatusOptions)[number];
 export type CadastrosListInput = z.infer<typeof cadastrosListInputSchema>;
 export type CadastroSaveInput = z.infer<typeof cadastroSaveInputSchema>;
+export type CadastroGetByIdInput = z.infer<typeof cadastroGetByIdInputSchema>;
+export type CadastroLookupEntity = (typeof cadastroLookupEntityOptions)[number];
+export type CadastroLookupInput = z.infer<typeof cadastroLookupInputSchema>;
 export type FornecedorMergeInput = z.infer<typeof fornecedorMergeInputSchema>;
 export type PessoaMergeInput = z.infer<typeof pessoaMergeInputSchema>;
 export type CadastroBulkMergeInput = z.infer<typeof cadastroBulkMergeInputSchema>;

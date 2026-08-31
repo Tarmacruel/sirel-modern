@@ -1,4 +1,4 @@
-﻿ALTER TABLE licitacoes
+ALTER TABLE licitacoes
   ADD COLUMN IF NOT EXISTS exige_declaracao_nao_fracionamento boolean NOT NULL DEFAULT false;
 
 ALTER TABLE licitacoes

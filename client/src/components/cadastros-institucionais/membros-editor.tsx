@@ -7,14 +7,37 @@ import {
 } from "@sirel/shared/schemas/cadastros-institucionais";
 
 import { Button } from "@/components/ui/button";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
+import { trpc } from "@/lib/trpc";
 
 export interface PessoaOption {
   id: number;
-  nome: string;
-  cargo: string | null;
-  secretariaId?: number | null;
+  label: string;
+  subtitle?: string;
+  metadata?: {
+    cargoNome?: string | null;
+    secretariaNome?: string | null;
+  };
+}
+
+function toPessoaOption(item: Record<string, unknown>): PessoaOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      cargoNome: metadata.cargoNome ? String(metadata.cargoNome) : null,
+      secretariaNome: metadata.secretariaNome
+        ? String(metadata.secretariaNome)
+        : null,
+    },
+  };
 }
 
 export interface GrupoMembroForm {
@@ -23,10 +46,10 @@ export interface GrupoMembroForm {
   ordem: number;
   titular: boolean;
   ativo: boolean;
+  pessoaOption?: PessoaOption | null;
 }
 
 interface MembrosEditorProps {
-  pessoas: PessoaOption[];
   value: GrupoMembroForm[];
   onChange: (value: GrupoMembroForm[]) => void;
 }
@@ -41,7 +64,8 @@ function createMember(ordem: number): GrupoMembroForm {
   };
 }
 
-export function MembrosEditor({ pessoas, value, onChange }: MembrosEditorProps) {
+export function MembrosEditor({ value, onChange }: MembrosEditorProps) {
+  const utils = trpc.useUtils();
   const selectedPessoaIds = new Set(
     value.map((member) => member.pessoaId).filter((pessoaId) => pessoaId > 0),
   );
@@ -83,30 +107,45 @@ export function MembrosEditor({ pessoas, value, onChange }: MembrosEditorProps) 
               key={`${member.pessoaId}-${index}`}
               className="grid gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3 lg:grid-cols-[minmax(220px,1fr)_190px_90px_120px_40px]"
             >
-              <Select
-                value={member.pessoaId ? String(member.pessoaId) : ""}
-                onChange={(event) =>
+              <AsyncCombobox<PessoaOption>
+                value={member.pessoaId || null}
+                initialOption={member.pessoaOption ?? null}
+                onChange={(pessoa) =>
                   updateMember(index, {
-                    pessoaId: Number(event.target.value || 0),
+                    pessoaId: pessoa?.id ?? 0,
+                    pessoaOption: pessoa,
                   })
                 }
-                aria-label="Pessoa do membro"
-              >
-                <option value="">Pessoa</option>
-                {pessoas.map((pessoa) => (
-                  <option
-                    key={pessoa.id}
-                    value={pessoa.id}
-                    disabled={
-                      selectedPessoaIds.has(pessoa.id) &&
-                      pessoa.id !== member.pessoaId
-                    }
-                  >
-                    {pessoa.nome}
-                    {pessoa.cargo ? ` - ${pessoa.cargo}` : ""}
-                  </option>
-                ))}
-              </Select>
+                query={async (search, limit) => {
+                  const result = await utils.client.cadastros.lookup.query({
+                    entity: "pessoas",
+                    search: search || undefined,
+                    page: 1,
+                    pageSize: limit,
+                    excludeIds: Array.from(selectedPessoaIds).filter(
+                      (pessoaId) => pessoaId !== member.pessoaId,
+                    ),
+                    activeOnly: true,
+                  });
+                  return result.items.map(toPessoaOption);
+                }}
+                getOptionValue={(pessoa) => pessoa.id}
+                getOptionLabel={(pessoa) => pessoa.label}
+                renderOption={(pessoa) => (
+                  <span className="min-w-0">
+                    <span className="block truncate">{pessoa.label}</span>
+                    {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                      <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                        {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                      </span>
+                    ) : null}
+                  </span>
+                )}
+                placeholder="Pessoa"
+                searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+                allowClear
+                ariaLabel="Pessoa do membro"
+              />
               <Select
                 value={member.funcao}
                 onChange={(event) =>

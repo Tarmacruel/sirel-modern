@@ -1,6 +1,15 @@
 ﻿import { describe, expect, it } from "vitest";
 
-import { buildCadastroPayload, maskCnpj, maskPhone, validateCadastroForm } from "@/features/cadastros/form";
+import {
+  applyPessoaToServidorForm,
+  applyPessoaToUsuarioForm,
+  buildCadastroPayload,
+  maskCnpj,
+  maskPhone,
+  persistenceMismatchFields,
+  resolveCadastroIdentityStatus,
+  validateCadastroForm,
+} from "@/features/cadastros/form";
 
 describe("cadastros form", () => {
   it("aplica máscara de CNPJ", () => {
@@ -58,6 +67,7 @@ describe("cadastros form", () => {
       matricula: " MAT-001 ",
       dataNascimento: "1990-05-12",
       cargo: "Agente",
+      cargoId: "4",
       secretariaId: "2",
       ativo: true,
     });
@@ -87,5 +97,88 @@ describe("cadastros form", () => {
       pessoaId: 7,
       secretariaId: 3,
     });
+  });
+
+  it("reutiliza o ID da Pessoa ao completar o cadastro como Servidor", () => {
+    const form = applyPessoaToServidorForm(
+      {
+        nome: "",
+        cpf: "",
+        matricula: "",
+        dataNascimento: "",
+        cargoId: "",
+        funcaoId: "",
+        secretariaId: "",
+        ativo: true,
+      },
+      {
+        id: 42,
+        nome: "Maria Servidora",
+        cpf: "12345678901",
+        dataNascimento: "1985-04-20",
+        secretariaId: 3,
+        cargoId: 8,
+        funcaoId: 5,
+      },
+    );
+
+    const payload = buildCadastroPayload("servidores", {
+      ...form,
+      matricula: "MAT-42",
+    });
+    expect(payload).toMatchObject({
+      id: 42,
+      nome: "Maria Servidora",
+      matricula: "MAT-42",
+      secretariaId: 3,
+      cargoId: 8,
+      funcaoId: 5,
+    });
+  });
+
+  it("autopreenche nome e secretaria do Usuário pela Pessoa selecionada", () => {
+    const form = applyPessoaToUsuarioForm(
+      { name: "Nome anterior", secretariaId: "", pessoaId: "" },
+      { id: 17, nome: "Pessoa Canônica", secretariaId: 9, secretariaNome: "Administração" },
+    );
+
+    expect(form).toMatchObject({
+      pessoaId: "17",
+      name: "Pessoa Canônica",
+      secretariaId: "9",
+      identityStatus: "incompleto",
+    });
+  });
+
+  it("marca como completo o vínculo com Pessoa que possui os campos de identidade", () => {
+    const form = applyPessoaToUsuarioForm(
+      { name: "", secretariaId: "", pessoaId: "" },
+      {
+        id: 18,
+        nome: "Pessoa Completa",
+        cpf: "12345678901",
+        matricula: "MAT-18",
+        dataNascimento: "1990-01-02",
+      },
+    );
+
+    expect(form.identityStatus).toBe("completo");
+  });
+
+  it("detecta divergência na leitura de confirmação", () => {
+    expect(
+      persistenceMismatchFields(
+        "servidores",
+        { matricula: "MAT-10", dataNascimento: "1991-02-03", cargoId: 4 },
+        { matricula: "MAT-ANTIGA", dataNascimento: "1991-02-03T00:00:00.000Z", cargoId: 4 },
+      ),
+    ).toEqual(["matricula"]);
+  });
+
+  it("classifica explicitamente o estado do vínculo de identidade", () => {
+    expect(resolveCadastroIdentityStatus({ pessoaId: null })).toBe("sem-vinculo");
+    expect(resolveCadastroIdentityStatus({ pessoaId: 1, identityStatus: "incompleto" })).toBe("incompleto");
+    expect(resolveCadastroIdentityStatus({ pessoaId: 1, identityStatus: "completo" })).toBe("completo");
+    expect(resolveCadastroIdentityStatus({ pessoaId: 1, identityStatus: "conflito" })).toBe("conflito");
   });
 });

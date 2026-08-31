@@ -20,6 +20,7 @@ export const usuarioListInputSchema = z.object({
 });
 
 export const usuarioCreateInputSchema = z.object({
+  pessoaId: z.number().int().positive().nullable().optional(),
   username: z.string().trim().min(3).max(80),
   name: z.string().trim().min(3).max(255),
   email: z.string().trim().email().optional(),
@@ -32,6 +33,7 @@ export const usuarioCreateInputSchema = z.object({
 
 export const usuarioUpdateInputSchema = z.object({
   userId: z.number().int().positive(),
+  pessoaId: z.number().int().positive().nullable().optional(),
   name: z.string().trim().min(3).max(255),
   email: z.string().trim().email().optional(),
   role: z.enum(["user", "admin", "gestor", "operador", "auditor"]),

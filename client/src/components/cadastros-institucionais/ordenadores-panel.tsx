@@ -9,6 +9,7 @@ import {
 } from "@sirel/shared/schemas/cadastros-institucionais";
 
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +30,56 @@ interface OrdenadorFormState {
   versao: string;
   observacao: string;
   ativo: boolean;
+  pessoaOption: PessoaLookupOption | null;
+  secretariaOptions: SecretariaLookupOption[];
+}
+
+interface PessoaLookupOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: { cargoNome?: string | null };
+}
+
+interface SecretariaLookupOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: { sigla?: string | null };
+}
+
+function toPessoaLookupOption(
+  item: Record<string, unknown>,
+): PessoaLookupOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      cargoNome: metadata.cargoNome ? String(metadata.cargoNome) : null,
+    },
+  };
+}
+
+function toSecretariaLookupOption(
+  item: Record<string, unknown>,
+): SecretariaLookupOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      sigla: metadata.sigla ? String(metadata.sigla) : null,
+    },
+  };
 }
 
 function createOrdenadorFormState(): OrdenadorFormState {
@@ -42,6 +93,8 @@ function createOrdenadorFormState(): OrdenadorFormState {
     versao: "1",
     observacao: "",
     ativo: true,
+    pessoaOption: null,
+    secretariaOptions: [],
   };
 }
 
@@ -60,9 +113,6 @@ export function OrdenadoresPanel() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const optionsQuery = trpc.cadastros.formOptions.useQuery(undefined, {
-    retry: false,
-  });
   const atosQuery = trpc.cadastrosInstitucionais.atos.list.useQuery(
     { ativo: true, page: 1, pageSize: 100 },
     { retry: false },
@@ -99,8 +149,6 @@ export function OrdenadoresPanel() {
       onError: (cause) => setError(cause.message),
     });
 
-  const pessoas = optionsQuery.data?.pessoas ?? [];
-  const secretarias = optionsQuery.data?.secretarias ?? [];
   const atos = atosQuery.data?.items ?? [];
   const rows = listQuery.data?.items ?? [];
   const selectedSecretarias = useMemo(
@@ -112,11 +160,21 @@ export function OrdenadoresPanel() {
     setForm((current) => ({ ...current, ...patchValue }));
   }
 
-  function toggleSecretaria(secretariaId: number, checked: boolean) {
-    const next = new Set(form.secretariaIds);
-    if (checked) next.add(secretariaId);
-    else next.delete(secretariaId);
-    patch({ secretariaIds: Array.from(next) });
+  function addSecretaria(secretaria: SecretariaLookupOption | null) {
+    if (!secretaria || selectedSecretarias.has(secretaria.id)) return;
+    patch({
+      secretariaIds: [...form.secretariaIds, secretaria.id],
+      secretariaOptions: [...form.secretariaOptions, secretaria],
+    });
+  }
+
+  function removeSecretaria(secretariaId: number) {
+    patch({
+      secretariaIds: form.secretariaIds.filter((id) => id !== secretariaId),
+      secretariaOptions: form.secretariaOptions.filter(
+        (secretaria) => secretaria.id !== secretariaId,
+      ),
+    });
   }
 
   function edit(row: any) {
@@ -133,6 +191,25 @@ export function OrdenadoresPanel() {
       versao: String(row.versao ?? 1),
       observacao: row.observacao ?? "",
       ativo: Boolean(row.ativo),
+      pessoaOption: row.pessoaId
+        ? {
+            id: Number(row.pessoaId),
+            label:
+              row.pessoa?.nome ??
+              row.pessoaNome ??
+              `Pessoa #${row.pessoaId}`,
+            metadata: {
+              cargoNome: row.pessoa?.cargo ?? row.pessoaCargo ?? null,
+            },
+          }
+        : null,
+      secretariaOptions: (row.secretarias ?? []).map((item: any) => ({
+        id: Number(item.secretariaId),
+        label:
+          item.secretariaNome ?? `Secretaria #${item.secretariaId}`,
+        subtitle: item.secretariaSigla ?? undefined,
+        metadata: { sigla: item.secretariaSigla ?? null },
+      })),
     });
     setEditing(true);
     setFeedback(null);
@@ -182,18 +259,42 @@ export function OrdenadoresPanel() {
       >
         <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_220px_170px]">
           <FormField label="Pessoa">
-            <Select
-              value={form.pessoaId}
-              onChange={(event) => patch({ pessoaId: event.target.value })}
-            >
-              <option value="">Selecione</option>
-              {pessoas.map((pessoa) => (
-                <option key={pessoa.id} value={pessoa.id}>
-                  {pessoa.nome}
-                  {pessoa.cargo ? ` - ${pessoa.cargo}` : ""}
-                </option>
-              ))}
-            </Select>
+            <AsyncCombobox<PessoaLookupOption>
+              value={form.pessoaId ? Number(form.pessoaId) : null}
+              initialOption={form.pessoaOption}
+              onChange={(pessoa) =>
+                patch({
+                  pessoaId: pessoa ? String(pessoa.id) : "",
+                  pessoaOption: pessoa,
+                })
+              }
+              query={async (search, limit) => {
+                const result = await utils.client.cadastros.lookup.query({
+                  entity: "pessoas",
+                  search: search || undefined,
+                  page: 1,
+                  pageSize: limit,
+                  activeOnly: true,
+                });
+                return result.items.map(toPessoaLookupOption);
+              }}
+              getOptionValue={(pessoa) => pessoa.id}
+              getOptionLabel={(pessoa) => pessoa.label}
+              renderOption={(pessoa) => (
+                <span className="min-w-0">
+                  <span className="block truncate">{pessoa.label}</span>
+                  {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                    <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                      {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                    </span>
+                  ) : null}
+                </span>
+              )}
+              placeholder="Selecione a pessoa"
+              searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+              allowClear
+              ariaLabel="Pessoa do ordenador"
+            />
           </FormField>
           <FormField label="Ato de designacao">
             <Select
@@ -261,21 +362,64 @@ export function OrdenadoresPanel() {
           <p className="text-sm font-semibold text-[var(--text-primary)]">
             Secretarias abrangidas
           </p>
+          <div className="mt-3 max-w-xl">
+            <AsyncCombobox<SecretariaLookupOption>
+              value={null}
+              initialOption={null}
+              onChange={addSecretaria}
+              query={async (search, limit) => {
+                const result = await utils.client.cadastros.lookup.query({
+                  entity: "secretarias",
+                  search: search || undefined,
+                  page: 1,
+                  pageSize: limit,
+                  excludeIds: form.secretariaIds,
+                  activeOnly: true,
+                });
+                return result.items.map(toSecretariaLookupOption);
+              }}
+              getOptionValue={(secretaria) => secretaria.id}
+              getOptionLabel={(secretaria) =>
+                [secretaria.metadata?.sigla ?? secretaria.subtitle, secretaria.label]
+                  .filter(Boolean)
+                  .join(" - ")
+              }
+              placeholder="Adicionar secretaria"
+              searchPlaceholder="Buscar secretaria por nome ou sigla"
+              ariaLabel="Adicionar secretaria abrangida"
+            />
+          </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {secretarias.map((secretaria) => (
-              <label
+            {form.secretariaOptions.map((secretaria) => (
+              <div
                 key={secretaria.id}
-                className="flex items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+                className="flex min-h-11 items-center justify-between gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-sm text-[var(--text-secondary)]"
               >
-                <Checkbox
-                  checked={selectedSecretarias.has(secretaria.id)}
-                  onCheckedChange={(checked) =>
-                    toggleSecretaria(secretaria.id, checked)
-                  }
-                />
-                {secretaria.sigla} - {secretaria.nome}
-              </label>
+                <span className="min-w-0 truncate">
+                  {[
+                    secretaria.metadata?.sigla ?? secretaria.subtitle,
+                    secretaria.label,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                </span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  aria-label={`Remover ${secretaria.label}`}
+                  onClick={() => removeSecretaria(secretaria.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             ))}
+            {!form.secretariaOptions.length ? (
+              <p className="text-sm text-[var(--text-secondary)]">
+                Nenhuma secretaria selecionada.
+              </p>
+            ) : null}
           </div>
         </div>
 

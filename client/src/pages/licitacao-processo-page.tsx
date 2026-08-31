@@ -71,6 +71,7 @@ import {
   type LicitacaoGuidedPhaseKey,
 } from "@/lib/licitacao-phase-config";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -119,6 +120,35 @@ import { trpc } from "@/lib/trpc";
 
 interface LicitacaoProcessoPageProps {
   processoId: number;
+}
+
+interface CadastroLookupOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: {
+    cnpj?: string | null;
+    cargoNome?: string | null;
+  };
+}
+
+function mapCadastroLookupOption(item: {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: { cnpj?: string | null; cargoNome?: string | null };
+}): CadastroLookupOption {
+  return {
+    id: item.id,
+    label: item.label,
+    subtitle: item.subtitle,
+    metadata: item.metadata
+      ? {
+          cnpj: item.metadata.cnpj,
+          cargoNome: item.metadata.cargoNome,
+        }
+      : undefined,
+  };
 }
 
 interface UploadFormState {
@@ -724,6 +754,10 @@ export function LicitacaoProcessoPage({
     observacao: "",
   });
   const [licitanteFornecedorId, setLicitanteFornecedorId] = useState("");
+  const [licitanteFornecedorOption, setLicitanteFornecedorOption] =
+    useState<CadastroLookupOption | null>(null);
+  const [condutorProcessoOption, setCondutorProcessoOption] =
+    useState<CadastroLookupOption | null>(null);
   const [propostaForm, setPropostaForm] = useState(initialPropostaForm);
   const [lanceForm, setLanceForm] = useState(initialLanceForm);
   const [habilitacaoForm, setHabilitacaoForm] = useState(
@@ -889,13 +923,17 @@ export function LicitacaoProcessoPage({
         : `Publicacao do processo ${detail.processo.numeroSirel}`,
       observacao: detail.licitacao.observacoes ?? "",
     });
-
-    setLicitanteFornecedorId(
-      (current) =>
-        current ||
-        (catalogsQuery.data?.fornecedores[0]?.id
-          ? String(catalogsQuery.data.fornecedores[0].id)
-          : ""),
+    setCondutorProcessoOption(
+      detail.processo.condutorProcesso
+        ? {
+            id: detail.processo.condutorProcesso.id,
+            label: detail.processo.condutorProcesso.nome,
+            subtitle: detail.processo.condutorProcesso.cargo ?? undefined,
+            metadata: {
+              cargoNome: detail.processo.condutorProcesso.cargo ?? null,
+            },
+          }
+        : null,
     );
     setPropostaForm((current) => ({
       ...current,
@@ -952,9 +990,11 @@ export function LicitacaoProcessoPage({
       });
       return next;
     });
-  }, [catalogsQuery.data, detailQuery.data]);
+  }, [detailQuery.data]);
 
   useEffect(() => {
+    setLicitanteFornecedorId("");
+    setLicitanteFornecedorOption(null);
     setSdFile(null);
     setSdParsing(false);
     setSdError(null);
@@ -2435,6 +2475,21 @@ export function LicitacaoProcessoPage({
           .filter(Boolean)
           .join(" | ") || undefined,
     });
+  }
+
+  async function queryCadastroLookup(
+    entity: "pessoas" | "fornecedores",
+    search: string,
+    limit: number,
+  ) {
+    const result = await utils.client.cadastros.lookup.query({
+      entity,
+      search: search || undefined,
+      page: 1,
+      pageSize: limit,
+      activeOnly: true,
+    });
+    return result.items.map(mapCadastroLookupOption);
   }
 
   async function handleAddLicitante() {
@@ -5979,22 +6034,45 @@ export function LicitacaoProcessoPage({
                       </div>
                     </FormField>
                     <FormField label="Condutor do processo">
-                      <Select
-                        value={publishForm.condutorProcessoId}
-                        onChange={(event) =>
+                      <AsyncCombobox<CadastroLookupOption>
+                        value={
+                          publishForm.condutorProcessoId
+                            ? Number(publishForm.condutorProcessoId)
+                            : null
+                        }
+                        initialOption={condutorProcessoOption}
+                        query={(search, limit) =>
+                          queryCadastroLookup("pessoas", search, limit)
+                        }
+                        getOptionValue={(option) => option.id}
+                        getOptionLabel={(option) => option.label}
+                        renderOption={(option) => (
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold">
+                              {option.label}
+                            </div>
+                            {option.subtitle ? (
+                              <div className="truncate text-xs text-[var(--text-secondary)]">
+                                {option.subtitle}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                        onChange={(option) => {
+                          setCondutorProcessoOption(option);
                           setPublishForm((current) => ({
                             ...current,
-                            condutorProcessoId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione</option>
-                        {catalogsQuery.data?.pessoas.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.nome}
-                          </option>
-                        ))}
-                      </Select>
+                            condutorProcessoId: option
+                              ? String(option.id)
+                              : "",
+                          }));
+                        }}
+                        placeholder="Selecione o condutor"
+                        searchPlaceholder="Busque por nome, CPF ou matricula"
+                        minSearchLength={0}
+                        allowClear
+                        ariaLabel="Condutor do processo"
+                      />
                     </FormField>
                     <FormField label="Status do processo">
                       <Select
@@ -6385,20 +6463,44 @@ export function LicitacaoProcessoPage({
                 >
                   <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto]">
                     <FormField label="Fornecedor">
-                      <Select
-                        value={licitanteFornecedorId}
-                        onChange={(event) =>
-                          setLicitanteFornecedorId(event.target.value)
+                      <AsyncCombobox<CadastroLookupOption>
+                        value={
+                          licitanteFornecedorId
+                            ? Number(licitanteFornecedorId)
+                            : null
                         }
-                      >
-                        <option value="">Selecione</option>
-                        {catalogsQuery.data?.fornecedores.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.razaoSocial}{" "}
-                            {item.cnpj ? `- ${item.cnpj}` : ""}
-                          </option>
-                        ))}
-                      </Select>
+                        initialOption={licitanteFornecedorOption}
+                        query={(search, limit) =>
+                          queryCadastroLookup("fornecedores", search, limit)
+                        }
+                        getOptionValue={(option) => option.id}
+                        getOptionLabel={(option) => option.label}
+                        renderOption={(option) => (
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold">
+                              {option.label}
+                            </div>
+                            {option.metadata?.cnpj || option.subtitle ? (
+                              <div className="truncate text-xs text-[var(--text-secondary)]">
+                                {[option.metadata?.cnpj, option.subtitle]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                        onChange={(option) => {
+                          setLicitanteFornecedorOption(option);
+                          setLicitanteFornecedorId(
+                            option ? String(option.id) : "",
+                          );
+                        }}
+                        placeholder="Selecione o fornecedor"
+                        searchPlaceholder="Busque por razao social ou CNPJ"
+                        minSearchLength={0}
+                        allowClear
+                        ariaLabel="Fornecedor licitante"
+                      />
                     </FormField>
                     <div className="flex items-end">
                       <Button

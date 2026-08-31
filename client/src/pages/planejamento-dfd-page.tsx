@@ -19,6 +19,7 @@ import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
 import { AlertDialog } from "@/components/ui/alert-dialog";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,6 +64,41 @@ interface CatalogCartItem {
   descricao: string;
   quantidade: string;
   unidade: string;
+}
+
+interface PessoaOption {
+  id: number;
+  nome: string;
+  cargo: string | null;
+  subtitle?: string;
+}
+
+function lookupItemToPessoaOption(
+  item: Record<string, unknown>,
+): PessoaOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    nome: String(item.label ?? ""),
+    cargo: metadata.cargoNome ? String(metadata.cargoNome) : null,
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+  };
+}
+
+function pessoaRecordToOption(record: unknown): PessoaOption | null {
+  if (!record || typeof record !== "object") return null;
+  const row = record as Record<string, unknown>;
+  const id = Number(row.id);
+  const nome = String(row.nome ?? "").trim();
+  if (!Number.isInteger(id) || id <= 0 || !nome) return null;
+  return {
+    id,
+    nome,
+    cargo: row.cargo ? String(row.cargo) : null,
+  };
 }
 
 const initialDfdForm: DfdFormState = {
@@ -133,6 +169,11 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogCart, setCatalogCart] = useState<CatalogCartItem[]>([]);
   const [form, setForm] = useState(initialDfdForm);
+  const [solicitanteOption, setSolicitanteOption] =
+    useState<PessoaOption | null>(null);
+  const [responsavelOptions, setResponsavelOptions] = useState<PessoaOption[]>(
+    [],
+  );
   const [newCatalogItemForm, setNewCatalogItemForm] = useState(
     initialCatalogItemForm,
   );
@@ -183,8 +224,49 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
       dataPrevistaConclusao: detail.dfd?.dataPrevistaConclusao ?? "",
       concluir: detail.dfd?.concluido ?? false,
     });
+    setSolicitanteOption(pessoaRecordToOption(detail.dfd?.solicitante));
+    setResponsavelOptions(
+      (detail.dfd?.responsaveis ?? [])
+        .map(pessoaRecordToOption)
+        .filter((item): item is PessoaOption => Boolean(item)),
+    );
     setCatalogCart([]);
   }, [detailQuery.data]);
+
+  async function queryPessoas(
+    search: string,
+    limit: number,
+    excludeIds?: number[],
+  ) {
+    const result = await utils.client.cadastros.lookup.query({
+      entity: "pessoas",
+      search: search || undefined,
+      page: 1,
+      pageSize: limit,
+      excludeIds,
+      activeOnly: true,
+    });
+    return result.items.map(lookupItemToPessoaOption);
+  }
+
+  function addResponsavel(pessoa: PessoaOption | null) {
+    if (!pessoa || form.responsavelIds.includes(pessoa.id)) return;
+    setResponsavelOptions((current) => [...current, pessoa]);
+    setForm((current) => ({
+      ...current,
+      responsavelIds: [...current.responsavelIds, pessoa.id],
+    }));
+  }
+
+  function removeResponsavel(pessoaId: number) {
+    setResponsavelOptions((current) =>
+      current.filter((pessoa) => pessoa.id !== pessoaId),
+    );
+    setForm((current) => ({
+      ...current,
+      responsavelIds: current.responsavelIds.filter((id) => id !== pessoaId),
+    }));
+  }
 
   useEffect(() => {
     const adminSecretaria = findSecretariaAdministracao(
@@ -489,12 +571,13 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
     ) ??
     detalhe?.dfd?.secretariaDemandante ??
     null;
-  const solicitanteSelecionado =
-    catalogQuery.data?.pessoas.find(
-      (item) => String(item.id) === form.solicitanteId,
-    ) ??
-    detalhe?.dfd?.solicitante ??
-    null;
+  const solicitanteSelecionado = form.solicitanteId
+    ? solicitanteOption?.id === Number(form.solicitanteId)
+      ? solicitanteOption
+      : detalhe?.dfd?.solicitante?.id === Number(form.solicitanteId)
+        ? detalhe.dfd.solicitante
+        : null
+    : null;
 
   const selectedSecretarias = useMemo(
     () =>
@@ -506,10 +589,10 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
 
   const selectedResponsaveis = useMemo(
     () =>
-      catalogQuery.data?.pessoas.filter((item) =>
+      responsavelOptions.filter((item) =>
         form.responsavelIds.includes(item.id),
-      ) ?? [],
-    [catalogQuery.data?.pessoas, form.responsavelIds],
+      ),
+    [form.responsavelIds, responsavelOptions],
   );
 
   const assinaturaResponsavelSelecionada = useMemo(
@@ -791,24 +874,44 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
                       label="Solicitante"
                       error={fieldErrors.solicitanteId}
                     >
-                      <Select
-                        value={form.solicitanteId}
-                        error={Boolean(fieldErrors.solicitanteId)}
-                        onChange={(event) =>
+                      <AsyncCombobox<PessoaOption>
+                        value={
+                          form.solicitanteId
+                            ? Number(form.solicitanteId)
+                            : null
+                        }
+                        initialOption={solicitanteOption}
+                        onChange={(solicitante) => {
+                          setSolicitanteOption(solicitante);
                           setForm((current) => ({
                             ...current,
-                            solicitanteId: event.target.value,
-                          }))
+                            solicitanteId: solicitante
+                              ? String(solicitante.id)
+                              : "",
+                          }));
+                        }}
+                        query={(search, limit) =>
+                          queryPessoas(search, limit)
                         }
-                      >
-                        <option value="">Selecione o solicitante</option>
-                        {catalogQuery.data?.pessoas.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.nome}
-                            {item.cargo ? ` · ${item.cargo}` : ""}
-                          </option>
-                        ))}
-                      </Select>
+                        getOptionValue={(pessoa) => pessoa.id}
+                        getOptionLabel={(pessoa) => pessoa.nome}
+                        renderOption={(pessoa) => (
+                          <span className="min-w-0">
+                            <span className="block truncate">
+                              {pessoa.nome}
+                            </span>
+                            {pessoa.cargo || pessoa.subtitle ? (
+                              <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                                {pessoa.cargo ?? pessoa.subtitle}
+                              </span>
+                            ) : null}
+                          </span>
+                        )}
+                        placeholder="Selecione o solicitante"
+                        searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+                        allowClear
+                        ariaLabel="Solicitante"
+                      />
                     </FormField>
                   </div>
 
@@ -1348,41 +1451,64 @@ export function PlanejamentoDfdPage({ processoId }: PlanejamentoDfdPageProps) {
           </div>
         }
       >
-        <div className="grid gap-3 md:grid-cols-2">
-          {catalogQuery.data?.pessoas.map((item) => {
-            const selected = form.responsavelIds.includes(item.id);
-
-            return (
-              <label
-                key={item.id}
-                className={[
-                  "flex items-start gap-3 rounded-2xl border px-4 py-4 text-sm transition",
-                  selected
-                    ? "border-sky-300 bg-sky-50 text-sky-900"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
-                ].join(" ")}
-              >
-                <Checkbox
-                  checked={selected}
-                  onChange={() =>
-                    setForm((current) => ({
-                      ...current,
-                      responsavelIds: toggleNumberInArray(
-                        current.responsavelIds,
-                        item.id,
-                      ),
-                    }))
-                  }
-                />
-                <span>
-                  <span className="block font-semibold">{item.nome}</span>
-                  <span className="block text-xs text-slate-500">
-                    {item.cargo ?? "Cargo não informado"}
+        <div className="space-y-4">
+          <AsyncCombobox<PessoaOption>
+            value={null}
+            initialOption={null}
+            onChange={addResponsavel}
+            query={(search, limit) =>
+              queryPessoas(search, limit, form.responsavelIds)
+            }
+            getOptionValue={(pessoa) => pessoa.id}
+            getOptionLabel={(pessoa) => pessoa.nome}
+            renderOption={(pessoa) => (
+              <span className="min-w-0">
+                <span className="block truncate">{pessoa.nome}</span>
+                {pessoa.cargo || pessoa.subtitle ? (
+                  <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                    {pessoa.cargo ?? pessoa.subtitle}
                   </span>
-                </span>
-              </label>
-            );
-          })}
+                ) : null}
+              </span>
+            )}
+            placeholder="Adicionar responsável"
+            searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+            ariaLabel="Adicionar responsável pela DFD"
+          />
+
+          {selectedResponsaveis.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {selectedResponsaveis.map((pessoa) => (
+                <div
+                  key={pessoa.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">
+                      {pessoa.nome}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500">
+                      {pessoa.cargo ?? "Cargo não informado"}
+                    </span>
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    aria-label={`Remover ${pessoa.nome}`}
+                    onClick={() => removeResponsavel(pessoa.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              Nenhum responsável selecionado.
+            </div>
+          )}
         </div>
       </Modal>
 

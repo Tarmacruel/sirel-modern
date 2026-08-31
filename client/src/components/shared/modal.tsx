@@ -34,7 +34,7 @@ export function Modal({ open, title, description, onClose, actions, size = "lg",
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         event.preventDefault();
         onClose();
       }

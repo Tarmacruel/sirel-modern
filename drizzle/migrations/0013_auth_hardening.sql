@@ -1,4 +1,4 @@
-﻿ALTER TYPE "public"."user_role" ADD VALUE IF NOT EXISTS 'auditor';
+ALTER TYPE "public"."user_role" ADD VALUE IF NOT EXISTS 'auditor';
 --> statement-breakpoint
 DO $$
 BEGIN

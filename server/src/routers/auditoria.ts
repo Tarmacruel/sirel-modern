@@ -2,6 +2,7 @@ import { and, count, desc, eq, gte, ilike, inArray, or } from "drizzle-orm";
 
 import { auditoriaListInputSchema } from "@sirel/shared/schemas/auditoria";
 
+import { hasRole } from "../auth.js";
 import { requireDb } from "../db/client.js";
 import {
   auditoriaLog,
@@ -13,6 +14,7 @@ import {
   users,
   workflowProcesso,
 } from "../db/schema.js";
+import { sanitizeAuditData } from "../lib/audit-data.js";
 import { protectedProcedure, router } from "../trpc.js";
 
 export const auditoriaRouter = router({
@@ -55,8 +57,9 @@ export const auditoriaRouter = router({
     };
   }),
 
-  list: protectedProcedure.input(auditoriaListInputSchema).query(async ({ input }) => {
+  list: protectedProcedure.input(auditoriaListInputSchema).query(async ({ ctx, input }) => {
     const db = requireDb();
+    const canReadSnapshots = hasRole(ctx, ["admin", "gestor", "auditor"]);
     const offset = (input.page - 1) * input.pageSize;
     const filters: any[] = [];
 
@@ -198,6 +201,10 @@ export const auditoriaRouter = router({
 
         return {
           ...row,
+          dadosAnteriores: canReadSnapshots
+            ? sanitizeAuditData(row.dadosAnteriores)
+            : null,
+          dadosNovos: canReadSnapshots ? sanitizeAuditData(row.dadosNovos) : null,
           processoId,
           processoNumeroSirel: processo?.numeroSirel ?? null,
           processoObjeto: processo?.objeto ?? null,

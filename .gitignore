@@ -31,3 +31,4 @@ storage/migration/*.json
 !output/.gitkeep
 storage/uploads/
 storage/backups/
+storage/backups-mirror/

@@ -8,6 +8,7 @@ import {
   type SubsystemAccessDraft,
 } from "@/components/usuarios/subsystem-access-matrix";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
@@ -46,6 +47,8 @@ const accessEventLabels = {
 } as const;
 
 const initialCreateForm = {
+  pessoaId: "",
+  pessoaOption: null as PessoaLookupOption | null,
   username: "",
   name: "",
   email: "",
@@ -54,6 +57,30 @@ const initialCreateForm = {
   ativo: true,
   password: "",
 };
+
+type PessoaLookupOption = {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: {
+    matricula?: string | null;
+    secretariaId?: number | null;
+    secretariaNome?: string | null;
+    cargoNome?: string | null;
+    cpfMascarado?: string | null;
+  };
+};
+
+function pessoaOptionDetails(option: PessoaLookupOption) {
+  return [
+    option.metadata?.matricula ? `Matrícula ${option.metadata.matricula}` : null,
+    option.metadata?.secretariaNome,
+    option.metadata?.cargoNome,
+    option.metadata?.cpfMascarado,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const initialPasswordForm = {
   currentPassword: "",
@@ -70,7 +97,15 @@ export function UsuariosPage() {
   const [filterAtivo, setFilterAtivo] = useState("todos");
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [createForm, setCreateForm] = useState(initialCreateForm);
-  const [editForm, setEditForm] = useState({ name: "", email: "", role: "operador", secretariaId: "", ativo: true });
+  const [editForm, setEditForm] = useState({
+    pessoaId: "",
+    pessoaOption: null as PessoaLookupOption | null,
+    name: "",
+    email: "",
+    role: "operador",
+    secretariaId: "",
+    ativo: true,
+  });
   const [createSubsystemAccess, setCreateSubsystemAccess] = useState<SubsystemAccessDraft[]>(() =>
     buildDefaultSubsystemAccessDraft(initialCreateForm.role),
   );
@@ -116,6 +151,21 @@ export function UsuariosPage() {
   useEffect(() => {
     if (!selectedUser) return;
     setEditForm({
+      pessoaId: selectedUser.pessoaId ? String(selectedUser.pessoaId) : "",
+      pessoaOption: selectedUser.pessoaId
+        ? {
+            id: selectedUser.pessoaId,
+            label: selectedUser.pessoaNome ?? selectedUser.name,
+            subtitle: [selectedUser.pessoaMatricula, selectedUser.secretaria]
+              .filter(Boolean)
+              .join(" · ") || undefined,
+            metadata: {
+              matricula: selectedUser.pessoaMatricula,
+              secretariaId: selectedUser.secretariaId,
+              secretariaNome: selectedUser.secretaria,
+            },
+          }
+        : null,
       name: selectedUser.name,
       email: selectedUser.email ?? "",
       role: selectedUser.role,
@@ -129,6 +179,22 @@ export function UsuariosPage() {
     );
   }, [selectedUser]);
 
+  async function queryPessoas(
+    searchValue: string,
+    limit: number,
+    preferSecretariaId?: number,
+  ) {
+    const result = await utils.client.cadastros.lookup.query({
+      entity: "pessoas",
+      search: searchValue || undefined,
+      page: 1,
+      pageSize: limit,
+      preferSecretariaId,
+      activeOnly: true,
+    });
+    return result.items as PessoaLookupOption[];
+  }
+
   useEffect(() => {
     if (!catalogQuery.data?.secretarias.length) return;
 
@@ -140,7 +206,11 @@ export function UsuariosPage() {
 
   const createMutation = trpc.usuarios.create.useMutation({
     onSuccess: async () => {
-      await Promise.all([utils.usuarios.list.invalidate(), utils.usuarios.accessLog.invalidate()]);
+      await Promise.all([
+        utils.usuarios.list.invalidate(),
+        utils.usuarios.accessLog.invalidate(),
+        utils.cadastros.lookup.invalidate(),
+      ]);
       setCreateForm((current) => ({ ...initialCreateForm, role: current.role, secretariaId: current.secretariaId }));
       setCreateSubsystemAccess(buildDefaultSubsystemAccessDraft(createForm.role));
       setCreateErrors({});
@@ -155,7 +225,11 @@ export function UsuariosPage() {
 
   const updateMutation = trpc.usuarios.update.useMutation({
     onSuccess: async (updated) => {
-      await Promise.all([utils.usuarios.list.invalidate(), utils.auth.me.invalidate()]);
+      await Promise.all([
+        utils.usuarios.list.invalidate(),
+        utils.auth.me.invalidate(),
+        utils.cadastros.lookup.invalidate(),
+      ]);
       setSelectedUserId(updated.id);
       setEditErrors({});
       setAdminError(null);
@@ -200,6 +274,7 @@ export function UsuariosPage() {
     setAdminError(null);
 
     const parsed = validateCreateUserForm({
+      pessoaId: toOptionalId(createForm.pessoaId) ?? null,
       username: createForm.username.trim().toLowerCase(),
       name: createForm.name.trim(),
       email: createForm.email.trim() || undefined,
@@ -228,6 +303,7 @@ export function UsuariosPage() {
 
     const parsed = validateUpdateUserForm({
       userId: selectedUser.id,
+      pessoaId: toOptionalId(editForm.pessoaId) ?? null,
       name: editForm.name.trim(),
       email: editForm.email.trim() || undefined,
       role: editForm.role,
@@ -466,6 +542,51 @@ export function UsuariosPage() {
                   }
                 >
                   <form className="space-y-4" onSubmit={handleCreateUser}>
+                    <FormField
+                      label="Pessoa/servidor vinculado"
+                      error={createErrors.pessoaId}
+                      description="Ao selecionar, nome e secretaria são preenchidos pela identidade funcional."
+                    >
+                      <AsyncCombobox<PessoaLookupOption>
+                        value={createForm.pessoaId || null}
+                        initialOption={createForm.pessoaOption}
+                        onChange={(pessoa) =>
+                          setCreateForm((current) => ({
+                            ...current,
+                            pessoaId: pessoa ? String(pessoa.id) : "",
+                            pessoaOption: pessoa,
+                            name: pessoa?.label ?? current.name,
+                            secretariaId: pessoa?.metadata?.secretariaId
+                              ? String(pessoa.metadata.secretariaId)
+                              : current.secretariaId,
+                          }))
+                        }
+                        query={(searchValue, limit) =>
+                          queryPessoas(
+                            searchValue,
+                            limit,
+                            toOptionalId(createForm.secretariaId),
+                          )
+                        }
+                        getOptionValue={(pessoa) => pessoa.id}
+                        getOptionLabel={(pessoa) => pessoa.label}
+                        renderOption={(pessoa) => (
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate font-semibold">{pessoa.label}</span>
+                            {pessoaOptionDetails(pessoa) ? (
+                              <span className="truncate text-xs text-slate-500">
+                                {pessoaOptionDetails(pessoa)}
+                              </span>
+                            ) : null}
+                          </span>
+                        )}
+                        placeholder="Sem vínculo de identidade"
+                        searchPlaceholder="Nome, CPF ou matrícula"
+                        minSearchLength={2}
+                        allowClear
+                        ariaLabel="Pessoa vinculada ao novo usuário"
+                      />
+                    </FormField>
                     <div className="grid gap-3 md:grid-cols-2">
                       <FormField label="Login" error={createErrors.username}>
                         <Input
@@ -479,6 +600,7 @@ export function UsuariosPage() {
                         <Input
                           autoComplete="name"
                           value={createForm.name}
+                          disabled={Boolean(createForm.pessoaId)}
                           error={Boolean(createErrors.name)}
                           onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))}
                         />
@@ -526,6 +648,7 @@ export function UsuariosPage() {
                       <FormField label="Secretaria" error={createErrors.secretariaId}>
                         <Select
                           value={createForm.secretariaId}
+                          disabled={Boolean(createForm.pessoaId)}
                           error={Boolean(createErrors.secretariaId)}
                           onChange={(event) => setCreateForm((current) => ({ ...current, secretariaId: event.target.value }))}
                         >
@@ -581,11 +704,58 @@ export function UsuariosPage() {
                           <p className="mt-1 text-sm text-slate-600">{selectedUser.username}</p>
                         </div>
 
+                        <FormField
+                          label="Pessoa/servidor vinculado"
+                          error={editErrors.pessoaId}
+                          description="A identidade selecionada define o nome e a secretaria funcionais."
+                        >
+                          <AsyncCombobox<PessoaLookupOption>
+                            value={editForm.pessoaId || null}
+                            initialOption={editForm.pessoaOption}
+                            onChange={(pessoa) =>
+                              setEditForm((current) => ({
+                                ...current,
+                                pessoaId: pessoa ? String(pessoa.id) : "",
+                                pessoaOption: pessoa,
+                                name: pessoa?.label ?? current.name,
+                                secretariaId: pessoa?.metadata?.secretariaId
+                                  ? String(pessoa.metadata.secretariaId)
+                                  : current.secretariaId,
+                              }))
+                            }
+                            query={(searchValue, limit) =>
+                              queryPessoas(
+                                searchValue,
+                                limit,
+                                toOptionalId(editForm.secretariaId),
+                              )
+                            }
+                            getOptionValue={(pessoa) => pessoa.id}
+                            getOptionLabel={(pessoa) => pessoa.label}
+                            renderOption={(pessoa) => (
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate font-semibold">{pessoa.label}</span>
+                                {pessoaOptionDetails(pessoa) ? (
+                                  <span className="truncate text-xs text-slate-500">
+                                    {pessoaOptionDetails(pessoa)}
+                                  </span>
+                                ) : null}
+                              </span>
+                            )}
+                            placeholder="Sem vínculo de identidade"
+                            searchPlaceholder="Nome, CPF ou matrícula"
+                            minSearchLength={2}
+                            allowClear
+                            ariaLabel="Pessoa vinculada ao usuário selecionado"
+                          />
+                        </FormField>
+
                         <div className="grid gap-3 md:grid-cols-2">
                           <FormField label="Nome" error={editErrors.name}>
                             <Input
                               autoComplete="name"
                               value={editForm.name}
+                              disabled={Boolean(editForm.pessoaId)}
                               error={Boolean(editErrors.name)}
                               onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))}
                             />
@@ -621,6 +791,7 @@ export function UsuariosPage() {
                           <FormField label="Secretaria" error={editErrors.secretariaId}>
                             <Select
                               value={editForm.secretariaId}
+                              disabled={Boolean(editForm.pessoaId)}
                               error={Boolean(editErrors.secretariaId)}
                               onChange={(event) => setEditForm((current) => ({ ...current, secretariaId: event.target.value }))}
                             >

@@ -12,6 +12,10 @@ Versao oficial atual:
 
 O SIREL 1.0.1 consolida a substituicao da base antiga por uma arquitetura moderna, organizada para operacao on-premise, publicacao web e evolucao por modulos.
 
+A branch `fase-2-seguranca-evolucoes` contém mudanças ainda sujeitas à
+homologação doméstica e aos bloqueadores registrados no plano da Fase 2; ela não
+deve ser promovida para produção enquanto esses gates permanecerem abertos.
+
 Diretrizes atuais:
 
 - operacao local e confiavel;
@@ -145,6 +149,11 @@ Ja implementado:
 
 ### Inicializacao guiada
 
+`start:local` aplica migrations automaticamente. Em banco com dados, primeiro
+conclua a reconstrução em banco vazio, gere e valide o backup e confira
+explicitamente `DATABASE_URL`; não use este comando como primeiro teste de uma
+branch recém-atualizada.
+
 ```powershell
 npm run start:local
 ```
@@ -200,14 +209,19 @@ Esse comando:
 - gera dump PostgreSQL;
 - compacta `storage/uploads`;
 - compacta `storage/reports`;
-- inclui uma cópia do `.env` como `.env.backup`;
+- não inclui `.env` por padrão;
 - gera `metadata.json`, `metadata.txt` e `backup.log`;
 - grava checksums SHA-256 dos componentes e do pacote final;
 - cria sidecars `<backup>.metadata.json` e `<backup>.sha256.txt`;
-- monta um pacote `.zip` em `storage/backups/`;
-- espelha o pacote em `C:\Users\078364\OneDrive\BACKUPS`;
-- mantém os 10 backups mais recentes nos dois destinos;
+- monta um pacote `.zip` em `%LOCALAPPDATA%\SIREL\backups`;
+- não configura espelhamento por padrão;
+- mantém os 10 backups mais recentes no destino local;
 - impede execução simultânea com arquivo de lock.
+
+Até a criptografia AES-256-GCM da Fase 2 ser concluída, o script recusa qualquer
+`MirrorRoot` e também recusa `IncludeEnv=true`. O backup deve permanecer em
+armazenamento local com ACL restrita e não pode ser sincronizado manualmente com
+nuvem.
 
 Script utilizado:
 
@@ -232,8 +246,9 @@ Configuração padrão do agendamento:
 - nome da tarefa: `SIREL Backup Automatico`
 - horários: `00:00`, `12:00` e `19:00`
 - retenção: `10` backups
-- destino local: `storage/backups`
-- cópia espelhada: `C:\Users\078364\OneDrive\BACKUPS`
+- destino local: `%LOCALAPPDATA%\SIREL\backups`
+- cópia espelhada: desativada
+- execução: somente enquanto a conta configurada estiver em sessão interativa
 
 ### Restauração assistida
 
@@ -243,18 +258,27 @@ Validação do pacote sem aplicar alterações:
 npm run backup:restore -- -BackupArchivePath "caminho\do\sirel-backup-YYYYMMDD-HHmmss.zip"
 ```
 
-Restauração efetiva:
+Restauração efetiva do banco exige uma URL explícita para um banco vazio. O
+script recusa usar `DATABASE_URL` implicitamente e não restaura uploads,
+relatórios ou `.env` por padrão:
 
 ```powershell
-npm run backup:restore -- -BackupArchivePath "caminho\do\sirel-backup-YYYYMMDD-HHmmss.zip" -Apply
+$env:SIREL_RESTORE_TEST_DATABASE_URL = "postgresql://usuario:senha@localhost:5432/sirel_restore_test"
+& .\scripts\restore-backup.ps1 -BackupArchivePath "caminho\do\sirel-backup-YYYYMMDD-HHmmss.zip" -TargetDatabaseUrl $env:SIREL_RESTORE_TEST_DATABASE_URL -Apply
 ```
 
 A restauração assistida:
 
 - valida checksums SHA-256 antes de restaurar;
-- restaura banco, `storage/uploads` e `storage/reports` conforme os parâmetros;
+- exige `metadata.status=SUCESSO` e recusa checksums ausentes, salvo confirmação explícita de backup legado;
+- verifica que o banco de destino está vazio antes de aplicar o dump;
+- restaura banco, `storage/uploads` e `storage/reports` somente conforme os parâmetros explícitos;
 - só restaura `.env` quando `-RestoreEnv $true` for informado;
 - preserva conteúdo anterior como `*.before-restore-YYYYMMDD-HHmmss` antes de sobrescrever diretórios.
+
+`-AllowLegacyBackup` é uma exceção deliberada para pacote antigo sem status ou
+checksums e exige conferência independente de origem; nunca o combine com
+`-AllowOperationalTarget`.
 
 ## Banco e seed basico
 
@@ -307,11 +331,13 @@ Exemplo de `.env`:
 
 ```env
 DATABASE_URL=postgresql://sirel_user:senha_segura@localhost:5432/sirel_db
+TEST_DATABASE_URL=postgresql://sirel_test_user:senha_segura@localhost:5432/sirel_test_db
+RUN_DB_INTEGRATION_TESTS=false
 HOST=0.0.0.0
 PORT=3030
 CLIENT_URL=http://localhost:5173
 VITE_API_URL=/api/trpc
-JWT_SECRET=troque_esta_chave
+JWT_SECRET=
 SIREL_DEFAULT_PASSWORD=defina_localmente
 SIREL_ADMIN_USERNAME=usuario_admin
 SIREL_ADMIN_NAME=Nome do Administrador
@@ -323,6 +349,8 @@ IMPORT_BLL_TIMEZONE=America/Sao_Paulo
 
 Observacoes:
 
+- gere `JWT_SECRET` localmente com pelo menos 32 caracteres aleatórios; a aplicação recusa iniciar com valor ausente ou curto;
+- `TEST_DATABASE_URL` deve apontar para banco vazio e diferente de `DATABASE_URL`; a execução integrada recusa a mesma identidade de host, porta e banco;
 - valores reais de producao, credenciais operacionais, chaves e procedimentos de recuperacao devem ficar apenas no arquivo local `OPERACAO_LOCAL_SENSIVEL.txt`;
 - nao documente segredos diretamente no Git, em issues, PRs, prints ou mensagens publicas;
 - o bootstrap legado ainda aceita `BETA_DEFAULT_PASSWORD`, `BETA_ADMIN_USERNAME`, `BETA_ADMIN_NAME` e `BETA_ADMIN_EMAIL` como fallback de compatibilidade.

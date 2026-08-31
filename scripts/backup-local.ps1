@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
-  [string]$BackupRoot = "storage\backups",
-  [string]$MirrorRoot = "C:\Users\078364\OneDrive\BACKUPS",
+  [string]$BackupRoot = "",
+  [string]$MirrorRoot = "",
+  [ValidateRange(1, 365)]
   [int]$RetentionCount = 10,
   [bool]$IncludeReports = $true,
-  [bool]$IncludeEnv = $true
+  [bool]$IncludeEnv = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +21,7 @@ function Get-EnvValue([string]$Path, [string]$Name) {
   $line = Get-Content $Path | Where-Object { $_ -match "^$Name=" } | Select-Object -First 1
   if (-not $line) { return $null }
 
-  return ($line -replace "^$Name=", "").Trim()
+  return ($line -replace "^$Name=", "").Trim().Trim([char]34).Trim([char]39)
 }
 
 function Find-PgDump {
@@ -101,8 +102,26 @@ function Apply-Retention([string]$TargetPath, [int]$KeepCount) {
 }
 
 $root = (Get-Location).Path
-$backupRootAbsolute = if ([System.IO.Path]::IsPathRooted($BackupRoot)) { $BackupRoot } else { Join-Path $root $BackupRoot }
-$mirrorRootAbsolute = $MirrorRoot
+$backupRootAbsolute = if (-not $BackupRoot) {
+  Join-Path $env:LOCALAPPDATA "SIREL\backups"
+} elseif ([System.IO.Path]::IsPathRooted($BackupRoot)) {
+  $BackupRoot
+} else {
+  Join-Path $root $BackupRoot
+}
+$mirrorRootAbsolute = if (-not $MirrorRoot) {
+  $null
+} elseif ([System.IO.Path]::IsPathRooted($MirrorRoot)) {
+  $MirrorRoot
+} else {
+  Join-Path $root $MirrorRoot
+}
+if ($mirrorRootAbsolute) {
+  throw "Espelhamento de backup esta desabilitado ate a entrega da criptografia AES-256-GCM."
+}
+if ($IncludeEnv) {
+  throw "Inclusao de .env no backup esta desabilitada enquanto o pacote nao for criptografado."
+}
 $envFile = Join-Path $root ".env"
 $databaseUrl = Get-EnvValue -Path $envFile -Name "DATABASE_URL"
 if (-not $databaseUrl) {
@@ -110,15 +129,20 @@ if (-not $databaseUrl) {
 }
 
 $uri = [System.Uri]$databaseUrl
-$dbName = $uri.AbsolutePath.TrimStart("/")
+if ($uri.Scheme -notin @("postgres", "postgresql")) {
+  throw "DATABASE_URL deve usar o esquema postgres ou postgresql."
+}
+$dbName = [System.Uri]::UnescapeDataString($uri.AbsolutePath.TrimStart("/"))
 $userInfo = $uri.UserInfo.Split(":", 2)
-$dbUser = $userInfo[0]
-$dbPassword = if ($userInfo.Count -gt 1) { $userInfo[1] } else { "" }
+$dbUser = [System.Uri]::UnescapeDataString($userInfo[0])
+$dbPassword = if ($userInfo.Count -gt 1) { [System.Uri]::UnescapeDataString($userInfo[1]) } else { "" }
 $dbHost = $uri.Host
 $dbPort = if ($uri.Port -gt 0) { $uri.Port } else { 5432 }
 
 Ensure-Directory $backupRootAbsolute
-Ensure-Directory $mirrorRootAbsolute
+if ($mirrorRootAbsolute) {
+  Ensure-Directory $mirrorRootAbsolute
+}
 
 $lockPath = Join-Path $backupRootAbsolute ".backup.lock"
 if (Test-Path $lockPath) {
@@ -126,16 +150,16 @@ if (Test-Path $lockPath) {
   throw "Já existe uma rotina de backup em andamento. Lock encontrado em $lockPath. Detalhes: $lockInfo"
 }
 
-$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmssfff"
 $executionStart = Get-Date
 $workingDir = Join-Path $backupRootAbsolute ".tmp-$timestamp"
 $archiveName = "sirel-backup-$timestamp.zip"
 $archivePath = Join-Path $backupRootAbsolute $archiveName
-$mirrorArchivePath = Join-Path $mirrorRootAbsolute $archiveName
+$mirrorArchivePath = if ($mirrorRootAbsolute) { Join-Path $mirrorRootAbsolute $archiveName } else { $null }
 $archiveMetadataPath = Join-Path $backupRootAbsolute ("$archiveName.metadata.json")
-$mirrorMetadataPath = Join-Path $mirrorRootAbsolute ("$archiveName.metadata.json")
+$mirrorMetadataPath = if ($mirrorRootAbsolute) { Join-Path $mirrorRootAbsolute ("$archiveName.metadata.json") } else { $null }
 $archiveShaPath = Join-Path $backupRootAbsolute ("$archiveName.sha256.txt")
-$mirrorShaPath = Join-Path $mirrorRootAbsolute ("$archiveName.sha256.txt")
+$mirrorShaPath = if ($mirrorRootAbsolute) { Join-Path $mirrorRootAbsolute ("$archiveName.sha256.txt") } else { $null }
 $sqlPath = Join-Path $workingDir "database.sql"
 $uploadsArchivePath = Join-Path $workingDir "uploads.zip"
 $reportsArchivePath = Join-Path $workingDir "reports.zip"
@@ -198,6 +222,7 @@ try {
   Write-Log "Iniciando backup robusto do SIREL $version."
   Write-Log "Gerando dump PostgreSQL em $sqlPath."
 
+  $previousPgPassword = [Environment]::GetEnvironmentVariable("PGPASSWORD", "Process")
   $env:PGPASSWORD = $dbPassword
   try {
     $quotedSqlPath = '"' + $sqlPath + '"'
@@ -215,7 +240,11 @@ try {
     }
     $metadata.checksums.databaseSqlSha256 = Get-FileSha256 $sqlPath
   } finally {
-    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    if ($null -eq $previousPgPassword) {
+      Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    } else {
+      $env:PGPASSWORD = $previousPgPassword
+    }
   }
 
   if (Test-DirectoryHasContent $uploadsDir) {
@@ -254,6 +283,7 @@ try {
   $metadata.durationSeconds = [math]::Round(((Get-Date) - $executionStart).TotalSeconds, 2)
   $metadata.retentionCount = $RetentionCount
 
+  $mirrorDescription = if ($mirrorArchivePath) { $mirrorArchivePath } else { "DESATIVADO" }
   $metadataText = @(
     "SIREL $version - Backup robusto local"
     "Data de inicio: $($executionStart.ToString("dd/MM/yyyy HH:mm:ss"))"
@@ -266,7 +296,7 @@ try {
     "Reports incluidos: $($metadata.includes.reports)"
     "Env incluido: $($metadata.includes.env)"
     "Destino local: $archivePath"
-    "Destino espelhado: $mirrorArchivePath"
+    "Destino espelhado: $mirrorDescription"
   )
   $metadataText | Set-Content -Path $metadataTxtPath -Encoding utf8
   ($metadata | ConvertTo-Json -Depth 6) | Set-Content -Path $metadataJsonPath -Encoding utf8
@@ -280,27 +310,36 @@ try {
     throw "O pacote final não foi criado em $archivePath."
   }
 
-  Write-Log "Espelhando pacote para $mirrorArchivePath."
-  Copy-Item -LiteralPath $archivePath -Destination $mirrorArchivePath -Force
-  if (-not (Test-Path $mirrorArchivePath)) {
-    throw "A cópia espelhada não foi criada em $mirrorArchivePath."
-  }
-
   $metadata.checksums.localArchiveSha256 = Get-FileSha256 $archivePath
-  $metadata.checksums.mirrorArchiveSha256 = Get-FileSha256 $mirrorArchivePath
+  if ($mirrorArchivePath) {
+    Write-Log "Espelhando pacote para $mirrorArchivePath."
+    Copy-Item -LiteralPath $archivePath -Destination $mirrorArchivePath -Force
+    if (-not (Test-Path $mirrorArchivePath)) {
+      throw "A cópia espelhada não foi criada em $mirrorArchivePath."
+    }
+    $metadata.checksums.mirrorArchiveSha256 = Get-FileSha256 $mirrorArchivePath
+  } else {
+    Write-Log "Espelhamento desativado; o backup permanece somente no destino local."
+  }
   ($metadata | ConvertTo-Json -Depth 8) | Set-Content -Path $archiveMetadataPath -Encoding utf8
-  ($metadata | ConvertTo-Json -Depth 8) | Set-Content -Path $mirrorMetadataPath -Encoding utf8
   $metadata.checksums.localArchiveSha256 | Set-Content -Path $archiveShaPath -Encoding ascii
-  $metadata.checksums.mirrorArchiveSha256 | Set-Content -Path $mirrorShaPath -Encoding ascii
+  if ($mirrorArchivePath) {
+    ($metadata | ConvertTo-Json -Depth 8) | Set-Content -Path $mirrorMetadataPath -Encoding utf8
+    $metadata.checksums.mirrorArchiveSha256 | Set-Content -Path $mirrorShaPath -Encoding ascii
+  }
 
   Write-Log "Aplicando retenção de $RetentionCount backups no destino local."
   Apply-Retention -TargetPath $backupRootAbsolute -KeepCount $RetentionCount
-  Write-Log "Aplicando retenção de $RetentionCount backups no destino espelhado."
-  Apply-Retention -TargetPath $mirrorRootAbsolute -KeepCount $RetentionCount
+  if ($mirrorRootAbsolute) {
+    Write-Log "Aplicando retenção de $RetentionCount backups no destino espelhado."
+    Apply-Retention -TargetPath $mirrorRootAbsolute -KeepCount $RetentionCount
+  }
 
   Write-Log "Backup concluído com sucesso: $archivePath"
   Write-Host "✅ Backup concluído: $archivePath" -ForegroundColor Green
-  Write-Host "☁️ Cópia espelhada: $mirrorArchivePath" -ForegroundColor Green
+  if ($mirrorArchivePath) {
+    Write-Host "☁️ Cópia espelhada: $mirrorArchivePath" -ForegroundColor Green
+  }
 }
 catch {
   $metadata.status = "ERRO"

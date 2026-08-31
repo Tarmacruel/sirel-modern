@@ -12,7 +12,8 @@
     "backfill:fornecedor-vencedor": "tsx src/scripts/backfill-fornecedor-vencedor-ids.ts",
     "import:legacy": "tsx src/scripts/import-legacy-snapshot.ts",
     "reset:production-baseline": "tsx src/scripts/reset-production-baseline.ts",
-    "db:check-seeded": "tsx src/scripts/check-seeded.ts"
+    "db:check-seeded": "tsx src/scripts/check-seeded.ts",
+    "db:check-r21": "tsx src/scripts/check-r21-migration.ts"
   },
   "dependencies": {
     "@sirel/shared": "1.0.1",

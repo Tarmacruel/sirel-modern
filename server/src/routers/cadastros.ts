@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, notInArray, or, sql } from "drizzle-orm";
 
 import {
   cadastroBulkMergeInputSchema,
@@ -11,7 +11,9 @@ import {
   cadastroFornecedorVencedorBackfillConfirmInputSchema,
   cadastroFornecedorVencedorBackfillPreviewInputSchema,
   cadastroFornecedorVencedorBackfillRunInputSchema,
+  cadastroGetByIdInputSchema,
   cadastroHistoryInputSchema,
+  cadastroLookupInputSchema,
   cadastroSaveInputSchema,
   cadastrosListInputSchema,
   fornecedorMergeInputSchema,
@@ -28,10 +30,12 @@ import {
   workflowModuleOptions,
 } from "@sirel/shared/const";
 
+import { hasRole, requireAdmin } from "../auth.js";
 import { logAuditoria } from "../db/auditoria.js";
 import { requireDb } from "../db/client.js";
 import {
   auditoriaLog,
+  cargos,
   catalogoItens,
   contratoItens,
   contratos,
@@ -40,6 +44,7 @@ import {
   dfdResponsaveis,
   departamentos,
   fornecedores,
+  funcoes,
   importacaoBllItensEspecificados,
   itensProcesso,
   itensProcessoValores,
@@ -56,6 +61,7 @@ import {
   users,
 } from "../db/schema.js";
 import { hashPassword } from "../lib/auth-password.js";
+import { sanitizeAuditData } from "../lib/audit-data.js";
 import {
   confirmFornecedorVencedorLinksBatch,
   confirmFornecedorVencedorLink,
@@ -769,6 +775,84 @@ async function mergePessoaRecords(
     throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa de destino nÃ£o encontrada." });
   }
 
+  const conflictingFields: string[] = [];
+  const sourceCpfDigits = normalizePessoaCpf(source.cpf);
+  const targetCpfDigits = normalizePessoaCpf(target.cpf);
+  if (
+    sourceCpfDigits.length === 11 &&
+    targetCpfDigits.length === 11 &&
+    sourceCpfDigits !== targetCpfDigits
+  ) {
+    conflictingFields.push("CPF");
+  }
+
+  const sourceMatricula = normalizePessoaMatricula(source.matricula).toLowerCase();
+  const targetMatricula = normalizePessoaMatricula(target.matricula).toLowerCase();
+  if (sourceMatricula && targetMatricula && sourceMatricula !== targetMatricula) {
+    conflictingFields.push("matricula");
+  }
+
+  const normalizeDate = (value: string | Date | null | undefined) => {
+    if (!value) return null;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+    }
+    const normalized = String(value).trim();
+    return normalized ? normalized.slice(0, 10) : null;
+  };
+  const sourceBirthDate = normalizeDate(source.dataNascimento);
+  const targetBirthDate = normalizeDate(target.dataNascimento);
+  if (sourceBirthDate && targetBirthDate && sourceBirthDate !== targetBirthDate) {
+    conflictingFields.push("data de nascimento");
+  }
+
+  const structuredIdFields = [
+    ["cargo", source.cargoId, target.cargoId],
+    ["funcao", source.funcaoId, target.funcaoId],
+    ["secretaria", source.secretariaId, target.secretariaId],
+  ] as const;
+  for (const [label, sourceValue, targetValue] of structuredIdFields) {
+    if (sourceValue != null && targetValue != null && sourceValue !== targetValue) {
+      conflictingFields.push(label);
+    }
+  }
+
+  if (conflictingFields.length) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `As pessoas possuem dados estruturados divergentes (${conflictingFields.join(", ")}). Resolva os campos antes de unificar.`,
+    });
+  }
+
+  const linkedUsers = await tx
+    .select({
+      id: users.id,
+      pessoaId: users.pessoaId,
+      name: users.name,
+      secretariaId: users.secretariaId,
+      identityProfileCompletedAt: users.identityProfileCompletedAt,
+      sessionVersion: users.sessionVersion,
+      ativo: users.ativo,
+    })
+    .from(users)
+    .where(inArray(users.pessoaId, [source.id, target.id]));
+  const sourceLinkedUsers = linkedUsers.filter((row: any) => row.pessoaId === source.id);
+  const targetLinkedUsers = linkedUsers.filter((row: any) => row.pessoaId === target.id);
+  if (sourceLinkedUsers.length > 1 || targetLinkedUsers.length > 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "Ha mais de um usuario vinculado a uma das pessoas. Regularize os vinculos antes de unificar.",
+    });
+  }
+  if (sourceLinkedUsers.length && targetLinkedUsers.length) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "As duas pessoas possuem usuarios distintos. Desvincule um dos usuarios antes de unificar.",
+    });
+  }
+  const sourceLinkedUser = sourceLinkedUsers[0] ?? null;
+  const targetLinkedUser = targetLinkedUsers[0] ?? null;
+
   const now = new Date();
   const canonicalCpf = resolveCanonicalPessoaCpf(target.cpf, source.cpf);
   const canonicalCpfDigits = normalizePessoaCpf(canonicalCpf);
@@ -787,14 +871,36 @@ async function mergePessoaRecords(
     }
   }
 
+  const mergedCargoId = target.cargoId ?? source.cargoId ?? null;
+  const mergedCargoText = target.cargoId != null
+    ? chooseFornecedorText(target.cargo, source.cargo)
+    : source.cargoId != null
+      ? chooseFornecedorText(source.cargo, target.cargo)
+      : chooseFornecedorText(target.cargo, source.cargo);
   const targetPatch = {
     nome: chooseFornecedorText(target.nome, source.nome) ?? target.nome,
     cpf: targetCpf,
-    cargo: chooseFornecedorText(target.cargo, source.cargo),
+    matricula: toNullableString(target.matricula) ?? toNullableString(source.matricula),
+    dataNascimento: target.dataNascimento ?? source.dataNascimento ?? null,
+    cargo: mergedCargoText,
+    cargoId: mergedCargoId,
+    funcaoId: target.funcaoId ?? source.funcaoId ?? null,
     secretariaId: target.secretariaId ?? source.secretariaId ?? null,
     ativo: target.ativo || source.ativo,
     atualizadoEm: now,
   };
+  if (
+    targetPatch.secretariaId != null &&
+    (!targetPatch.cargoId ||
+      !targetPatch.matricula ||
+      !targetPatch.dataNascimento)
+  ) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "A unificacao produziria um servidor incompleto. Regularize cargo, matricula e data de nascimento antes de continuar.",
+    });
+  }
 
   const [updatedTarget] = await tx
     .update(pessoas)
@@ -804,6 +910,81 @@ async function mergePessoaRecords(
 
   if (!updatedTarget) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa de destino nÃ£o encontrada." });
+  }
+
+  let remappedUser: typeof sourceLinkedUser = null;
+  if (sourceLinkedUser) {
+    const completedAt = hasCompleteIdentityFields(updatedTarget)
+      ? sourceLinkedUser.identityProfileCompletedAt ?? now
+      : null;
+    [remappedUser] = await tx
+      .update(users)
+      .set({
+        pessoaId: updatedTarget.id,
+        name: updatedTarget.nome,
+        secretariaId: updatedTarget.secretariaId,
+        identityProfileCompletedAt: completedAt,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
+        updatedAt: now,
+      })
+      .where(eq(users.id, sourceLinkedUser.id))
+      .returning({
+        id: users.id,
+        pessoaId: users.pessoaId,
+        name: users.name,
+        secretariaId: users.secretariaId,
+        identityProfileCompletedAt: users.identityProfileCompletedAt,
+        sessionVersion: users.sessionVersion,
+        ativo: users.ativo,
+      });
+    if (!remappedUser) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "Nao foi possivel remapear o usuario vinculado para a pessoa de destino.",
+      });
+    }
+  }
+
+  let synchronizedTargetUser: typeof targetLinkedUser = null;
+  if (targetLinkedUser) {
+    const completedAt = hasCompleteIdentityFields(updatedTarget)
+      ? targetLinkedUser.identityProfileCompletedAt ?? now
+      : null;
+    const claimsChanged =
+      targetLinkedUser.name !== updatedTarget.nome ||
+      targetLinkedUser.secretariaId !== updatedTarget.secretariaId;
+    const completionChanged =
+      (targetLinkedUser.identityProfileCompletedAt?.getTime() ?? null) !==
+      (completedAt?.getTime() ?? null);
+    if (claimsChanged || completionChanged) {
+      [synchronizedTargetUser] = await tx
+        .update(users)
+        .set({
+          name: updatedTarget.nome,
+          secretariaId: updatedTarget.secretariaId,
+          identityProfileCompletedAt: completedAt,
+          sessionVersion: claimsChanged
+            ? sql`${users.sessionVersion} + 1`
+            : targetLinkedUser.sessionVersion,
+          updatedAt: now,
+        })
+        .where(eq(users.id, targetLinkedUser.id))
+        .returning({
+          id: users.id,
+          pessoaId: users.pessoaId,
+          name: users.name,
+          secretariaId: users.secretariaId,
+          identityProfileCompletedAt: users.identityProfileCompletedAt,
+          sessionVersion: users.sessionVersion,
+          ativo: users.ativo,
+        });
+      if (!synchronizedTargetUser) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Nao foi possivel sincronizar o usuario da pessoa de destino.",
+        });
+      }
+    }
   }
 
   const departamentosAtualizados = await tx
@@ -882,7 +1063,21 @@ async function mergePessoaRecords(
     });
   }
 
-  await tx.insert(auditoriaLog).values([
+  const mergeSummary = {
+    sourceId: source.id,
+    sourceNome: source.nome,
+    departamentosAtualizados: departamentosAtualizados.length,
+    processosAutoridadeAtualizados: processosAutoridadeAtualizados.length,
+    processosCondutorAtualizados: processosCondutorAtualizados.length,
+    dfdSolicitanteAtualizados: dfdSolicitanteAtualizados.length,
+    dfdAssinaturasAtualizadas: dfdAssinaturasAtualizadas.length,
+    dfdResponsaveisRemapeados,
+    dfdResponsaveisMesclados,
+    usuariosRemapeados: remappedUser ? 1 : 0,
+    usuariosDestinoPreservados: targetLinkedUser ? 1 : 0,
+    usuariosDestinoSincronizados: synchronizedTargetUser ? 1 : 0,
+  };
+  const auditEntries: Array<typeof auditoriaLog.$inferInsert> = [
     {
       usuarioId: userId,
       tabela: "pessoas",
@@ -891,17 +1086,7 @@ async function mergePessoaRecords(
       dadosAnteriores: target,
       dadosNovos: {
         ...updatedTarget,
-        mergeSummary: {
-          sourceId: source.id,
-          sourceNome: source.nome,
-          departamentosAtualizados: departamentosAtualizados.length,
-          processosAutoridadeAtualizados: processosAutoridadeAtualizados.length,
-          processosCondutorAtualizados: processosCondutorAtualizados.length,
-          dfdSolicitanteAtualizados: dfdSolicitanteAtualizados.length,
-          dfdAssinaturasAtualizadas: dfdAssinaturasAtualizadas.length,
-          dfdResponsaveisRemapeados,
-          dfdResponsaveisMesclados,
-        },
+        mergeSummary,
       },
       descricao: `Pessoa ${source.nome} unificada em ${updatedTarget.nome}`,
     },
@@ -917,13 +1102,41 @@ async function mergePessoaRecords(
       },
       descricao: `Pessoa ${source.nome} absorvida por ${updatedTarget.nome}`,
     },
-  ]);
+  ];
+  if (sourceLinkedUser && remappedUser) {
+    auditEntries.push({
+      usuarioId: userId,
+      tabela: "users",
+      registroId: remappedUser.id,
+      acao: "UPDATE",
+      dadosAnteriores: sanitizeAuditData(sourceLinkedUser),
+      dadosNovos: sanitizeAuditData(remappedUser),
+      descricao: `Usuario ${remappedUser.name} remapeado para a pessoa ${updatedTarget.nome}`,
+    });
+  }
+  if (targetLinkedUser && synchronizedTargetUser) {
+    auditEntries.push({
+      usuarioId: userId,
+      tabela: "users",
+      registroId: synchronizedTargetUser.id,
+      acao: "UPDATE",
+      dadosAnteriores: sanitizeAuditData(targetLinkedUser),
+      dadosNovos: sanitizeAuditData(synchronizedTargetUser),
+      descricao: `Usuario ${synchronizedTargetUser.name} sincronizado apos unificacao da pessoa ${updatedTarget.nome}`,
+    });
+  }
+  await tx.insert(auditoriaLog).values(auditEntries);
 
   return {
     pessoaMantida: {
       id: updatedTarget.id,
       nome: updatedTarget.nome,
       cpf: updatedTarget.cpf,
+      matricula: updatedTarget.matricula,
+      dataNascimento: updatedTarget.dataNascimento,
+      cargo: updatedTarget.cargo,
+      cargoId: updatedTarget.cargoId,
+      funcaoId: updatedTarget.funcaoId,
       secretariaId: updatedTarget.secretariaId,
     },
     pessoaRemovida: {
@@ -932,15 +1145,7 @@ async function mergePessoaRecords(
       cpf: source.cpf,
       secretariaId: source.secretariaId,
     },
-    summary: {
-      departamentosAtualizados: departamentosAtualizados.length,
-      processosAutoridadeAtualizados: processosAutoridadeAtualizados.length,
-      processosCondutorAtualizados: processosCondutorAtualizados.length,
-      dfdSolicitanteAtualizados: dfdSolicitanteAtualizados.length,
-      dfdAssinaturasAtualizadas: dfdAssinaturasAtualizadas.length,
-      dfdResponsaveisRemapeados,
-      dfdResponsaveisMesclados,
-    },
+    summary: mergeSummary,
   };
 }
 
@@ -956,7 +1161,7 @@ function itemCodeFromId(id: number) {
   return `ITM-${new Date().getFullYear()}-${String(id).padStart(5, "0")}`;
 }
 
-function entityTableName(entity: "itens" | "fornecedores" | "secretarias" | "pessoas" | "servidores" | "departamentos" | "usuarios" | "parametros") {
+function entityTableName(entity: "itens" | "fornecedores" | "secretarias" | "cargos" | "funcoes" | "pessoas" | "servidores" | "departamentos" | "usuarios" | "parametros") {
   switch (entity) {
     case "itens":
       return "catalogo_itens";
@@ -964,6 +1169,10 @@ function entityTableName(entity: "itens" | "fornecedores" | "secretarias" | "pes
       return "fornecedores";
     case "secretarias":
       return "secretarias";
+    case "cargos":
+      return "cargos";
+    case "funcoes":
+      return "funcoes";
     case "pessoas":
     case "servidores":
       return "pessoas";
@@ -988,6 +1197,328 @@ function withPagination(page: number, pageSize: number) {
     limit: safePageSize,
     offset: (safePage - 1) * safePageSize,
   };
+}
+
+export function normalizeCadastroLookupText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+export function buildCadastroLookupTrigrams(value: string | null | undefined) {
+  const trigrams = new Set<string>();
+  for (const word of normalizeCadastroLookupText(value).split(" ")) {
+    if (!/^[a-z]+$/.test(word) || word.length < 2) continue;
+    const chunkSize = word.length <= 5 ? 2 : 3;
+    for (let index = 0; index <= word.length - chunkSize; index += 1) {
+      trigrams.add(word.slice(index, index + chunkSize));
+      if (trigrams.size >= 24) return [...trigrams];
+    }
+  }
+  return [...trigrams];
+}
+
+export function sanitizeCadastroAuditData(value: unknown): unknown {
+  return sanitizeAuditData(value);
+}
+
+export function canUseCadastroCatalogSelection(
+  selectedId: number | null | undefined,
+  selected: { id: number; ativo: boolean } | null | undefined,
+  existingId: number | null | undefined,
+) {
+  if (!selectedId) return true;
+  return Boolean(selected && (selected.ativo || existingId === selectedId));
+}
+
+function normalizedTextSql(column: any) {
+  return sql<string>`lower(regexp_replace(translate(coalesce(${column}, ''), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ', 'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn'), '\\s+', ' ', 'g'))`;
+}
+
+export function maskCadastroCpf(value: string | null | undefined) {
+  const digits = normalizePessoaCpf(value);
+  if (digits.length !== 11) return null;
+  return `***.${digits.slice(3, 6)}.***-${digits.slice(9)}`;
+}
+
+type CadastroLookupItem = {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: {
+    matricula?: string | null;
+    cpfMascarado?: string | null;
+    secretariaId?: number | null;
+    secretariaNome?: string | null;
+    cargoId?: number | null;
+    cargoNome?: string | null;
+    funcaoId?: number | null;
+    funcaoNome?: string | null;
+    sigla?: string | null;
+    codigo?: string | null;
+    cnpj?: string | null;
+    cidade?: string | null;
+    estado?: string | null;
+    unidadePadrao?: string | null;
+    valorReferencia?: number | null;
+  };
+};
+
+async function loadCadastroRecord(
+  db: ReturnType<typeof requireDb>,
+  entity: Parameters<typeof entityTableName>[0],
+  id: number,
+): Promise<any | null> {
+  switch (entity) {
+    case "itens": {
+      const [row] = await db.select().from(catalogoItens).where(eq(catalogoItens.id, id)).limit(1);
+      return row
+        ? {
+            ...row,
+            nome: row.descricao,
+            codigo: itemCodeFromId(row.id),
+            valorReferencia: row.valorReferencia ? Number(row.valorReferencia) : null,
+            status: row.ativo ? "ativo" : "inativo",
+          }
+        : null;
+    }
+    case "fornecedores": {
+      const [row] = await db.select().from(fornecedores).where(eq(fornecedores.id, id)).limit(1);
+      return row ? { ...row, status: row.ativo ? "ativo" : "inativo" } : null;
+    }
+    case "secretarias": {
+      const [row] = await db.select().from(secretarias).where(eq(secretarias.id, id)).limit(1);
+      return row ? { ...row, status: row.ativo ? "ativo" : "inativo" } : null;
+    }
+    case "cargos": {
+      const [row] = await db.select().from(cargos).where(eq(cargos.id, id)).limit(1);
+      return row
+        ? {
+            id: row.id,
+            codigo: row.codigo,
+            nome: row.nome,
+            categoria: row.categoria,
+            descricao: row.descricao,
+            ativo: row.ativo,
+            status: row.ativo ? "ativo" : "inativo",
+            criadoEm: row.criadoEm,
+            atualizadoEm: row.atualizadoEm,
+          }
+        : null;
+    }
+    case "funcoes": {
+      const [row] = await db.select().from(funcoes).where(eq(funcoes.id, id)).limit(1);
+      return row
+        ? {
+            id: row.id,
+            codigo: row.codigo,
+            nome: row.nome,
+            descricao: row.descricao,
+            ativo: row.ativo,
+            status: row.ativo ? "ativo" : "inativo",
+            criadoEm: row.criadoEm,
+            atualizadoEm: row.atualizadoEm,
+          }
+        : null;
+    }
+    case "pessoas":
+    case "servidores": {
+      const [row] = await db
+        .select({
+          id: pessoas.id,
+          nome: pessoas.nome,
+          cpf: pessoas.cpf,
+          matricula: pessoas.matricula,
+          dataNascimento: pessoas.dataNascimento,
+          cargo: pessoas.cargo,
+          cargoId: pessoas.cargoId,
+          cargoNome: cargos.nome,
+          funcaoId: pessoas.funcaoId,
+          funcaoNome: funcoes.nome,
+          secretariaId: pessoas.secretariaId,
+          secretariaNome: secretarias.nome,
+          ativo: pessoas.ativo,
+          criadoEm: pessoas.criadoEm,
+          atualizadoEm: pessoas.atualizadoEm,
+        })
+        .from(pessoas)
+        .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+        .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
+        .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
+        .where(eq(pessoas.id, id))
+        .limit(1);
+      if (!row || (entity === "servidores" && !row.secretariaId)) return null;
+      return {
+        ...row,
+        cargo: row.cargoNome ?? row.cargo,
+        status: row.ativo ? "ativo" : "inativo",
+      };
+    }
+    case "departamentos": {
+      const [row] = await db
+        .select({
+          id: departamentos.id,
+          nome: departamentos.nome,
+          codigoCentroCusto: departamentos.codigoCentroCusto,
+          secretariaId: departamentos.secretariaId,
+          secretariaNome: secretarias.nome,
+          responsavelId: departamentos.responsavelId,
+          responsavelNome: pessoas.nome,
+          descricao: departamentos.descricao,
+          ativo: departamentos.ativo,
+          criadoEm: departamentos.criadoEm,
+          atualizadoEm: departamentos.atualizadoEm,
+        })
+        .from(departamentos)
+        .leftJoin(secretarias, eq(secretarias.id, departamentos.secretariaId))
+        .leftJoin(pessoas, eq(pessoas.id, departamentos.responsavelId))
+        .where(eq(departamentos.id, id))
+        .limit(1);
+      return row ? { ...row, status: row.ativo ? "ativo" : "inativo" } : null;
+    }
+    case "usuarios": {
+      const [row] = await db
+        .select({
+          id: users.id,
+          username: users.username,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          secretariaId: users.secretariaId,
+          secretariaNome: secretarias.nome,
+          pessoaId: users.pessoaId,
+          pessoaNome: pessoas.nome,
+          pessoaCpf: pessoas.cpf,
+          pessoaMatricula: pessoas.matricula,
+          pessoaDataNascimento: pessoas.dataNascimento,
+          identityProfileCompletedAt: users.identityProfileCompletedAt,
+          ativo: users.ativo,
+          lastSignedIn: users.lastSignedIn,
+          criadoEm: users.createdAt,
+          atualizadoEm: users.updatedAt,
+        })
+        .from(users)
+        .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
+        .leftJoin(pessoas, eq(pessoas.id, users.pessoaId))
+        .where(eq(users.id, id))
+        .limit(1);
+      if (!row) return null;
+      const identityStatus = !row.pessoaId
+        ? "sem_vinculo"
+        : !row.pessoaNome
+          ? "conflito"
+          : hasCompleteIdentityFields({
+              cpf: row.pessoaCpf,
+              matricula: row.pessoaMatricula,
+              dataNascimento: row.pessoaDataNascimento,
+            })
+            ? "completo"
+            : "incompleto";
+      return {
+        ...row,
+        identityStatus,
+        status: row.ativo ? "ativo" : "inativo",
+      };
+    }
+    case "parametros": {
+      const [row] = await db
+        .select()
+        .from(parametrosSistema)
+        .where(eq(parametrosSistema.id, id))
+        .limit(1);
+      return row ? { ...row, status: row.ativo ? "ativo" : "inativo" } : null;
+    }
+  }
+}
+
+function identitySignature(entity: Parameters<typeof entityTableName>[0], record: any | null) {
+  if (!record) return null;
+  if (entity === "pessoas" || entity === "servidores") {
+    return JSON.stringify([
+      normalizePessoaCpf(record.cpf),
+      normalizePessoaMatricula(record.matricula),
+      record.dataNascimento ?? null,
+    ]);
+  }
+  if (entity === "usuarios") {
+    return JSON.stringify([
+      record.pessoaId ?? null,
+      record.identityProfileCompletedAt ?? null,
+    ]);
+  }
+  return null;
+}
+
+async function finalizeCadastroSave(
+  db: ReturnType<typeof requireDb>,
+  entity: Parameters<typeof entityTableName>[0],
+  id: number,
+  currentUserId: number | null,
+  beforeRecord: any | null,
+) {
+  const record = await loadCadastroRecord(db, entity, id);
+  if (!record) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "A gravacao nao foi confirmada pela leitura do cadastro.",
+    });
+  }
+
+  let affectsCurrentIdentity = entity === "usuarios" && id === currentUserId;
+  if (!affectsCurrentIdentity && currentUserId && (entity === "pessoas" || entity === "servidores")) {
+    const [currentUser] = await db
+      .select({ pessoaId: users.pessoaId })
+      .from(users)
+      .where(eq(users.id, currentUserId))
+      .limit(1);
+    affectsCurrentIdentity = currentUser?.pessoaId === id;
+  }
+
+  return {
+    ...record,
+    record,
+    affectsCurrentIdentity,
+    identityProfileChanged:
+      identitySignature(entity, beforeRecord) !== identitySignature(entity, record),
+  };
+}
+
+async function syncLinkedUserIdentity(
+  db: ReturnType<typeof requireDb>,
+  pessoaId: number,
+) {
+  const [pessoa] = await db
+    .select({
+      cpf: pessoas.cpf,
+      matricula: pessoas.matricula,
+      dataNascimento: pessoas.dataNascimento,
+    })
+    .from(pessoas)
+    .where(eq(pessoas.id, pessoaId))
+    .limit(1);
+  if (!pessoa) return;
+
+  const linkedUsers = await db
+    .select({
+      id: users.id,
+      identityProfileCompletedAt: users.identityProfileCompletedAt,
+    })
+    .from(users)
+    .where(eq(users.pessoaId, pessoaId));
+  const completed = hasCompleteIdentityFields(pessoa);
+  for (const linkedUser of linkedUsers) {
+    const completedAt = completed
+      ? linkedUser.identityProfileCompletedAt ?? new Date()
+      : null;
+    if (completedAt === linkedUser.identityProfileCompletedAt) continue;
+    await db
+      .update(users)
+      .set({ identityProfileCompletedAt: completedAt, updatedAt: new Date() })
+      .where(eq(users.id, linkedUser.id));
+  }
 }
 
 type DedupeClassification = "ALTA" | "MEDIA" | "BAIXA";
@@ -1431,10 +1962,366 @@ function dedupeRecordPriority(left: DedupeCandidateRecord, right: DedupeCandidat
 }
 
 export const cadastrosRouter = router({
+  getById: protectedProcedure.input(cadastroGetByIdInputSchema).query(async ({ ctx, input }) => {
+    if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
+    const record = await loadCadastroRecord(requireDb(), input.entity, input.id);
+    if (!record) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Cadastro nao encontrado." });
+    }
+    if (
+      (input.entity === "pessoas" || input.entity === "servidores") &&
+      !hasRole(ctx, ["admin", "gestor", "auditor"])
+    ) {
+      return {
+        ...record,
+        cpf: null,
+        cpfMascarado: maskCadastroCpf(record.cpf),
+        dataNascimento: null,
+      };
+    }
+    return record;
+  }),
+
+  lookup: protectedProcedure.input(cadastroLookupInputSchema).query(async ({ input }) => {
+    const db = requireDb();
+    const pagination = withPagination(input.page, input.pageSize);
+    const normalizedSearch = normalizeCadastroLookupText(input.search);
+    const terms = normalizedSearch.split(" ").filter(Boolean);
+    const excludeFilter = (column: any) =>
+      input.excludeIds?.length ? notInArray(column, input.excludeIds) : undefined;
+    const response = (totalValue: unknown, items: CadastroLookupItem[]) => {
+      const total = Number(totalValue ?? 0);
+      return {
+        page: input.page,
+        pageSize: input.pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
+        items,
+      };
+    };
+
+    if (input.entity === "pessoas" || input.entity === "servidores") {
+      const nomeNormalizado = normalizedTextSql(pessoas.nome);
+      const cpfDigits = (input.search ?? "").replace(/\D/g, "");
+      const nameTrigrams = buildCadastroLookupTrigrams(normalizedSearch);
+      const similarityScore = nameTrigrams.length
+        ? sql<number>`(${sql.join(
+            nameTrigrams.map(
+              (trigram) => sql`case when ${nomeNormalizado} like ${`%${trigram}%`} then 1 else 0 end`,
+            ),
+            sql` + `,
+          )})`
+        : sql<number>`0`;
+      const minimumSimilarityScore = Math.max(1, Math.ceil(nameTrigrams.length * 0.25));
+      const approximateNameFilter = nameTrigrams.length
+        ? sql`${similarityScore} >= ${minimumSimilarityScore}`
+        : undefined;
+      const allNameTerms = terms.length
+        ? and(...terms.map((term) => sql`${nomeNormalizado} like ${`%${term}%`}`))
+        : undefined;
+      const searchFilter = normalizedSearch
+        ? or(
+            sql`${nomeNormalizado} like ${`%${normalizedSearch}%`}`,
+            allNameTerms,
+            approximateNameFilter,
+            sql`${normalizedTextSql(pessoas.matricula)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(cargos.nome)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(pessoas.cargo)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(funcoes.nome)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(secretarias.nome)} like ${`%${normalizedSearch}%`}`,
+            cpfDigits
+              ? sql`regexp_replace(coalesce(${pessoas.cpf}, ''), '[^0-9]', '', 'g') like ${`%${cpfDigits}%`}`
+              : undefined,
+          )
+        : undefined;
+      const filters = [
+        input.activeOnly ? eq(pessoas.ativo, true) : undefined,
+        input.entity === "servidores" ? isNotNull(pessoas.secretariaId) : undefined,
+        input.secretariaId ? eq(pessoas.secretariaId, input.secretariaId) : undefined,
+        excludeFilter(pessoas.id),
+        searchFilter,
+      ].filter(Boolean) as any[];
+      const whereClause = filters.length ? and(...filters) : undefined;
+      const ranking = normalizedSearch
+        ? sql<number>`case
+            when ${nomeNormalizado} = ${normalizedSearch} then 0
+            when ${nomeNormalizado} like ${`${normalizedSearch}%`} then 1
+            when ${allNameTerms ?? sql`false`} then 2
+            else 3
+          end`
+        : sql<number>`0`;
+      const preferredSecretariaRanking = input.preferSecretariaId
+        ? sql<number>`case when ${pessoas.secretariaId} = ${input.preferSecretariaId} then 0 else 1 end`
+        : sql<number>`0`;
+      const [totalRows, rows] = await Promise.all([
+        db
+          .select({ total: count() })
+          .from(pessoas)
+          .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+          .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
+          .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
+          .where(whereClause),
+        db
+          .select({
+            id: pessoas.id,
+            nome: pessoas.nome,
+            cpf: pessoas.cpf,
+            matricula: pessoas.matricula,
+            secretariaId: pessoas.secretariaId,
+            secretariaNome: secretarias.nome,
+            cargoId: pessoas.cargoId,
+            cargoNome: cargos.nome,
+            cargoLegado: pessoas.cargo,
+            funcaoId: pessoas.funcaoId,
+            funcaoNome: funcoes.nome,
+          })
+          .from(pessoas)
+          .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+          .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
+          .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
+          .where(whereClause)
+          .orderBy(
+            ranking,
+            desc(similarityScore),
+            preferredSecretariaRanking,
+            asc(pessoas.nome),
+            asc(pessoas.id),
+          )
+          .limit(pagination.limit)
+          .offset(pagination.offset),
+      ]);
+      return response(
+        totalRows[0]?.total,
+        rows.map((row) => {
+          const details = [
+            row.matricula ? `Matricula ${row.matricula}` : null,
+            row.secretariaNome,
+            maskCadastroCpf(row.cpf) ? `CPF ${maskCadastroCpf(row.cpf)}` : null,
+          ].filter(Boolean);
+          return {
+            id: row.id,
+            label: row.nome,
+            subtitle: details.join(" · ") || undefined,
+            metadata: {
+              matricula: row.matricula,
+              cpfMascarado: maskCadastroCpf(row.cpf),
+              secretariaId: row.secretariaId,
+              secretariaNome: row.secretariaNome,
+              cargoId: row.cargoId,
+              cargoNome: row.cargoNome ?? row.cargoLegado,
+              funcaoId: row.funcaoId,
+              funcaoNome: row.funcaoNome,
+            },
+          };
+        }),
+      );
+    }
+
+    if (input.entity === "secretarias") {
+      const searchFilter = normalizedSearch
+        ? or(
+            sql`${normalizedTextSql(secretarias.nome)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(secretarias.sigla)} like ${`%${normalizedSearch}%`}`,
+          )
+        : undefined;
+      const filters = [
+        input.activeOnly ? eq(secretarias.ativo, true) : undefined,
+        excludeFilter(secretarias.id),
+        searchFilter,
+      ].filter(Boolean) as any[];
+      const whereClause = filters.length ? and(...filters) : undefined;
+      const [totalRows, rows] = await Promise.all([
+        db.select({ total: count() }).from(secretarias).where(whereClause),
+        db
+          .select({ id: secretarias.id, nome: secretarias.nome, sigla: secretarias.sigla })
+          .from(secretarias)
+          .where(whereClause)
+          .orderBy(asc(secretarias.nome))
+          .limit(pagination.limit)
+          .offset(pagination.offset),
+      ]);
+      return response(
+        totalRows[0]?.total,
+        rows.map((row) => ({
+          id: row.id,
+          label: row.nome,
+          subtitle: row.sigla,
+          metadata: { sigla: row.sigla },
+        })),
+      );
+    }
+
+    if (input.entity === "cargos" || input.entity === "funcoes") {
+      const table = input.entity === "cargos" ? cargos : funcoes;
+      const searchFilter = normalizedSearch
+        ? or(
+            sql`${table.nomeNormalizado} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(table.codigo)} like ${`%${normalizedSearch}%`}`,
+          )
+        : undefined;
+      const filters = [
+        input.activeOnly ? eq(table.ativo, true) : undefined,
+        excludeFilter(table.id),
+        searchFilter,
+      ].filter(Boolean) as any[];
+      const whereClause = filters.length ? and(...filters) : undefined;
+      const [totalRows, rows] = await Promise.all([
+        db.select({ total: count() }).from(table).where(whereClause),
+        db
+          .select({ id: table.id, nome: table.nome, codigo: table.codigo })
+          .from(table)
+          .where(whereClause)
+          .orderBy(asc(table.nome))
+          .limit(pagination.limit)
+          .offset(pagination.offset),
+      ]);
+      return response(
+        totalRows[0]?.total,
+        rows.map((row) => ({
+          id: row.id,
+          label: row.nome,
+          subtitle: row.codigo ?? undefined,
+          metadata: { codigo: row.codigo },
+        })),
+      );
+    }
+
+    if (input.entity === "departamentos") {
+      const searchFilter = normalizedSearch
+        ? or(
+            sql`${normalizedTextSql(departamentos.nome)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(departamentos.codigoCentroCusto)} like ${`%${normalizedSearch}%`}`,
+            sql`${normalizedTextSql(secretarias.nome)} like ${`%${normalizedSearch}%`}`,
+          )
+        : undefined;
+      const filters = [
+        input.activeOnly ? eq(departamentos.ativo, true) : undefined,
+        input.secretariaId ? eq(departamentos.secretariaId, input.secretariaId) : undefined,
+        excludeFilter(departamentos.id),
+        searchFilter,
+      ].filter(Boolean) as any[];
+      const whereClause = filters.length ? and(...filters) : undefined;
+      const [totalRows, rows] = await Promise.all([
+        db
+          .select({ total: count() })
+          .from(departamentos)
+          .leftJoin(secretarias, eq(secretarias.id, departamentos.secretariaId))
+          .where(whereClause),
+        db
+          .select({
+            id: departamentos.id,
+            nome: departamentos.nome,
+            secretariaId: departamentos.secretariaId,
+            secretariaNome: secretarias.nome,
+            codigo: departamentos.codigoCentroCusto,
+          })
+          .from(departamentos)
+          .leftJoin(secretarias, eq(secretarias.id, departamentos.secretariaId))
+          .where(whereClause)
+          .orderBy(asc(departamentos.nome))
+          .limit(pagination.limit)
+          .offset(pagination.offset),
+      ]);
+      return response(
+        totalRows[0]?.total,
+        rows.map((row) => ({
+          id: row.id,
+          label: row.nome,
+          subtitle: row.secretariaNome ?? undefined,
+          metadata: {
+            codigo: row.codigo,
+            secretariaId: row.secretariaId,
+            secretariaNome: row.secretariaNome,
+          },
+        })),
+      );
+    }
+
+    if (input.entity === "fornecedores") {
+      const cnpjDigits = (input.search ?? "").replace(/\D/g, "");
+      const searchFilter = normalizedSearch
+        ? or(
+            sql`${normalizedTextSql(fornecedores.razaoSocial)} like ${`%${normalizedSearch}%`}`,
+            cnpjDigits
+              ? sql`regexp_replace(coalesce(${fornecedores.cnpj}, ''), '[^0-9]', '', 'g') like ${`%${cnpjDigits}%`}`
+              : undefined,
+          )
+        : undefined;
+      const filters = [
+        input.activeOnly ? eq(fornecedores.ativo, true) : undefined,
+        excludeFilter(fornecedores.id),
+        searchFilter,
+      ].filter(Boolean) as any[];
+      const whereClause = filters.length ? and(...filters) : undefined;
+      const [totalRows, rows] = await Promise.all([
+        db.select({ total: count() }).from(fornecedores).where(whereClause),
+        db
+          .select({
+            id: fornecedores.id,
+            razaoSocial: fornecedores.razaoSocial,
+            cnpj: fornecedores.cnpj,
+            cidade: fornecedores.cidade,
+            estado: fornecedores.estado,
+          })
+          .from(fornecedores)
+          .where(whereClause)
+          .orderBy(asc(fornecedores.razaoSocial))
+          .limit(pagination.limit)
+          .offset(pagination.offset),
+      ]);
+      return response(
+        totalRows[0]?.total,
+        rows.map((row) => ({
+          id: row.id,
+          label: row.razaoSocial,
+          subtitle: [row.cidade, row.estado].filter(Boolean).join("/") || undefined,
+          metadata: { cnpj: row.cnpj, cidade: row.cidade, estado: row.estado },
+        })),
+      );
+    }
+
+    const searchFilter = normalizedSearch
+      ? sql`${normalizedTextSql(catalogoItens.descricao)} like ${`%${normalizedSearch}%`}`
+      : undefined;
+    const filters = [
+      input.activeOnly ? eq(catalogoItens.ativo, true) : undefined,
+      excludeFilter(catalogoItens.id),
+      searchFilter,
+    ].filter(Boolean) as any[];
+    const whereClause = filters.length ? and(...filters) : undefined;
+    const [totalRows, rows] = await Promise.all([
+      db.select({ total: count() }).from(catalogoItens).where(whereClause),
+      db
+        .select({
+          id: catalogoItens.id,
+          descricao: catalogoItens.descricao,
+          unidadePadrao: catalogoItens.unidadePadrao,
+          valorReferencia: catalogoItens.valorReferencia,
+        })
+        .from(catalogoItens)
+        .where(whereClause)
+        .orderBy(asc(catalogoItens.descricao))
+        .limit(pagination.limit)
+        .offset(pagination.offset),
+    ]);
+    return response(
+      totalRows[0]?.total,
+      rows.map((row) => ({
+        id: row.id,
+        label: row.descricao,
+        subtitle: row.unidadePadrao,
+        metadata: {
+          unidadePadrao: row.unidadePadrao,
+          valorReferencia: row.valorReferencia ? Number(row.valorReferencia) : null,
+        },
+      })),
+    );
+  }),
+
   formOptions: protectedProcedure.query(async () => {
     const db = requireDb();
 
-    const [secretariaRows, modalidadeRows, statusRows, pessoaRows, fornecedorRows, departamentoRows, itemRows] = await Promise.all([
+    const [secretariaRows, modalidadeRows, statusRows, departamentoRows, cargoRows, funcaoRows] = await Promise.all([
       db
         .select({ id: secretarias.id, nome: secretarias.nome, sigla: secretarias.sigla })
         .from(secretarias)
@@ -1452,28 +2339,6 @@ export const cadastrosRouter = router({
         .orderBy(asc(statusProcesso.nome)),
       db
         .select({
-          id: pessoas.id,
-          nome: pessoas.nome,
-          cpf: pessoas.cpf,
-          matricula: pessoas.matricula,
-          dataNascimento: pessoas.dataNascimento,
-          cargo: pessoas.cargo,
-          secretariaId: pessoas.secretariaId,
-        })
-        .from(pessoas)
-        .where(eq(pessoas.ativo, true))
-        .orderBy(asc(pessoas.nome)),
-      db
-        .select({
-          id: fornecedores.id,
-          razaoSocial: fornecedores.razaoSocial,
-          cnpj: fornecedores.cnpj,
-        })
-        .from(fornecedores)
-        .where(eq(fornecedores.ativo, true))
-        .orderBy(asc(fornecedores.razaoSocial)),
-      db
-        .select({
           id: departamentos.id,
           nome: departamentos.nome,
           secretariaId: departamentos.secretariaId,
@@ -1482,15 +2347,15 @@ export const cadastrosRouter = router({
         .where(eq(departamentos.ativo, true))
         .orderBy(asc(departamentos.nome)),
       db
-        .select({
-          id: catalogoItens.id,
-          descricao: catalogoItens.descricao,
-          unidadePadrao: catalogoItens.unidadePadrao,
-          valorReferencia: catalogoItens.valorReferencia,
-        })
-        .from(catalogoItens)
-        .where(eq(catalogoItens.ativo, true))
-        .orderBy(asc(catalogoItens.descricao)),
+        .select({ id: cargos.id, codigo: cargos.codigo, nome: cargos.nome })
+        .from(cargos)
+        .where(eq(cargos.ativo, true))
+        .orderBy(asc(cargos.nome)),
+      db
+        .select({ id: funcoes.id, codigo: funcoes.codigo, nome: funcoes.nome })
+        .from(funcoes)
+        .where(eq(funcoes.ativo, true))
+        .orderBy(asc(funcoes.nome)),
     ]);
 
     return {
@@ -1501,15 +2366,9 @@ export const cadastrosRouter = router({
         return leftIndex - rightIndex;
       }),
       statusProcesso: statusRows,
-      pessoas: pessoaRows,
-      fornecedores: fornecedorRows,
+      cargos: cargoRows,
+      funcoes: funcaoRows,
       departamentos: departamentoRows,
-      itens: itemRows.map((row) => ({
-        id: row.id,
-        descricao: row.descricao,
-        unidadePadrao: row.unidadePadrao,
-        valorReferencia: row.valorReferencia ? Number(row.valorReferencia) : null,
-      })),
       workflowModules: workflowModuleOptions,
       modoDisputa: modoDisputaOptions.map((codigo) => ({ codigo, nome: modoDisputaLabels[codigo] })),
       grauPrioridade: grauPrioridadeOptions.map((codigo) => ({ codigo, nome: grauPrioridadeLabels[codigo] })),
@@ -1526,7 +2385,8 @@ export const cadastrosRouter = router({
 
   summary: protectedProcedure
     .input(cadastrosListInputSchema.pick({ entity: true }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
       const db = requireDb();
 
       switch (input.entity) {
@@ -1543,6 +2403,16 @@ export const cadastrosRouter = router({
         case "secretarias": {
           const [totalRow] = await db.select({ total: count() }).from(secretarias);
           const [ativosRow] = await db.select({ total: count() }).from(secretarias).where(eq(secretarias.ativo, true));
+          return { total: Number(totalRow?.total ?? 0), ativos: Number(ativosRow?.total ?? 0) };
+        }
+        case "cargos": {
+          const [totalRow] = await db.select({ total: count() }).from(cargos);
+          const [ativosRow] = await db.select({ total: count() }).from(cargos).where(eq(cargos.ativo, true));
+          return { total: Number(totalRow?.total ?? 0), ativos: Number(ativosRow?.total ?? 0) };
+        }
+        case "funcoes": {
+          const [totalRow] = await db.select({ total: count() }).from(funcoes);
+          const [ativosRow] = await db.select({ total: count() }).from(funcoes).where(eq(funcoes.ativo, true));
           return { total: Number(totalRow?.total ?? 0), ativos: Number(ativosRow?.total ?? 0) };
         }
         case "pessoas": {
@@ -1573,7 +2443,11 @@ export const cadastrosRouter = router({
       }
     }),
 
-  history: protectedProcedure.input(cadastroHistoryInputSchema).query(async ({ input }) => {
+  history: protectedProcedure.input(cadastroHistoryInputSchema).query(async ({ ctx, input }) => {
+    if (!hasRole(ctx, ["admin", "gestor", "auditor"])) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Historico restrito a perfis autorizados." });
+    }
+    if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
     const db = requireDb();
     const pagination = withPagination(input.page, input.pageSize);
     const tabela = entityTableName(input.entity);
@@ -1621,11 +2495,16 @@ export const cadastrosRouter = router({
       pageSize: input.pageSize,
       total,
       totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
-      items: rows,
+      items: rows.map((row) => ({
+        ...row,
+        dadosAnteriores: sanitizeCadastroAuditData(row.dadosAnteriores),
+        dadosNovos: sanitizeCadastroAuditData(row.dadosNovos),
+      })),
     };
   }),
 
-  list: protectedProcedure.input(cadastrosListInputSchema).query(async ({ input }) => {
+  list: protectedProcedure.input(cadastrosListInputSchema).query(async ({ ctx, input }) => {
+    if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
     const db = requireDb();
     const pagination = withPagination(input.page, input.pageSize);
 
@@ -1753,8 +2632,63 @@ export const cadastrosRouter = router({
         };
       }
 
+      case "cargos": {
+        const filters = [
+          buildAtivoFilter(input.status, cargos.ativo),
+          input.search
+            ? or(
+                ilike(cargos.nome, `%${input.search}%`),
+                ilike(cargos.codigo, `%${input.search}%`),
+                ilike(cargos.categoria, `%${input.search}%`),
+              )
+            : undefined,
+        ].filter(Boolean) as any[];
+        const whereClause = filters.length ? and(...filters) : undefined;
+        const [totalRows, rows] = await Promise.all([
+          db.select({ total: count() }).from(cargos).where(whereClause),
+          db.select().from(cargos).where(whereClause).orderBy(asc(cargos.nome)).limit(pagination.limit).offset(pagination.offset),
+        ]);
+        const total = Number(totalRows[0]?.total ?? 0);
+        return {
+          page: input.page,
+          pageSize: input.pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
+          items: rows.map(({ nomeNormalizado: _nomeNormalizado, ...row }) => ({
+            ...row,
+            status: row.ativo ? "ativo" : "inativo",
+          })),
+        };
+      }
+
+      case "funcoes": {
+        const filters = [
+          buildAtivoFilter(input.status, funcoes.ativo),
+          input.search
+            ? or(ilike(funcoes.nome, `%${input.search}%`), ilike(funcoes.codigo, `%${input.search}%`))
+            : undefined,
+        ].filter(Boolean) as any[];
+        const whereClause = filters.length ? and(...filters) : undefined;
+        const [totalRows, rows] = await Promise.all([
+          db.select({ total: count() }).from(funcoes).where(whereClause),
+          db.select().from(funcoes).where(whereClause).orderBy(asc(funcoes.nome)).limit(pagination.limit).offset(pagination.offset),
+        ]);
+        const total = Number(totalRows[0]?.total ?? 0);
+        return {
+          page: input.page,
+          pageSize: input.pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / input.pageSize)),
+          items: rows.map(({ nomeNormalizado: _nomeNormalizado, ...row }) => ({
+            ...row,
+            status: row.ativo ? "ativo" : "inativo",
+          })),
+        };
+      }
+
       case "pessoas":
       case "servidores": {
+        const canReadPii = hasRole(ctx, ["admin", "gestor", "auditor"]);
         const onlyServidores = input.entity === "servidores";
         const filters = [
           buildAtivoFilter(input.status, pessoas.ativo),
@@ -1764,6 +2698,8 @@ export const cadastrosRouter = router({
                 ilike(pessoas.cpf, `%${input.search}%`),
                 ilike(pessoas.matricula, `%${input.search}%`),
                 ilike(pessoas.cargo, `%${input.search}%`),
+                ilike(cargos.nome, `%${input.search}%`),
+                ilike(funcoes.nome, `%${input.search}%`),
                 ilike(secretarias.nome, `%${input.search}%`),
               )
             : undefined,
@@ -1773,7 +2709,7 @@ export const cadastrosRouter = router({
         const whereClause = filters.length ? and(...filters) : undefined;
 
         const [totalRows, rows] = await Promise.all([
-          db.select({ total: count() }).from(pessoas).leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId)).where(whereClause),
+          db.select({ total: count() }).from(pessoas).leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId)).leftJoin(cargos, eq(cargos.id, pessoas.cargoId)).leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId)).where(whereClause),
           db
             .select({
               id: pessoas.id,
@@ -1782,6 +2718,10 @@ export const cadastrosRouter = router({
               matricula: pessoas.matricula,
               dataNascimento: pessoas.dataNascimento,
               cargo: pessoas.cargo,
+              cargoId: pessoas.cargoId,
+              cargoNome: cargos.nome,
+              funcaoId: pessoas.funcaoId,
+              funcaoNome: funcoes.nome,
               secretariaId: pessoas.secretariaId,
               secretariaNome: secretarias.nome,
               ativo: pessoas.ativo,
@@ -1789,6 +2729,8 @@ export const cadastrosRouter = router({
             })
             .from(pessoas)
             .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+            .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
+            .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
             .where(whereClause)
             .orderBy(asc(pessoas.nome))
             .limit(pagination.limit)
@@ -1804,10 +2746,14 @@ export const cadastrosRouter = router({
           items: rows.map((row) => ({
             id: row.id,
             nome: row.nome,
-            cpf: row.cpf,
+            cpf: canReadPii ? row.cpf : maskCadastroCpf(row.cpf),
             matricula: row.matricula,
-            dataNascimento: row.dataNascimento,
-            cargo: row.cargo,
+            dataNascimento: canReadPii ? row.dataNascimento : null,
+            cargo: row.cargoNome ?? row.cargo,
+            cargoId: row.cargoId,
+            cargoNome: row.cargoNome,
+            funcaoId: row.funcaoId,
+            funcaoNome: row.funcaoNome,
             secretariaId: row.secretariaId,
             secretariaNome: row.secretariaNome,
             status: row.ativo ? "ativo" : "inativo",
@@ -1942,11 +2888,17 @@ export const cadastrosRouter = router({
             secretariaNome: row.secretariaNome,
             pessoaId: row.pessoaId,
             pessoaNome: row.pessoaNome,
-            identityStatus: row.pessoaId && hasCompleteIdentityFields({
-              cpf: row.pessoaCpf,
-              matricula: row.pessoaMatricula,
-              dataNascimento: row.pessoaDataNascimento,
-            }) ? "completo" : "pendente",
+            identityStatus: !row.pessoaId
+              ? "sem_vinculo"
+              : !row.pessoaNome
+                ? "conflito"
+                : hasCompleteIdentityFields({
+                    cpf: row.pessoaCpf,
+                    matricula: row.pessoaMatricula,
+                    dataNascimento: row.pessoaDataNascimento,
+                  })
+                  ? "completo"
+                  : "incompleto",
             status: row.ativo ? "ativo" : "inativo",
             lastSignedIn: row.lastSignedIn,
             atualizadoEm: row.updatedAt,
@@ -1998,7 +2950,7 @@ export const cadastrosRouter = router({
     }
   }),
 
-  dedupeSuggestions: protectedProcedure
+  dedupeSuggestions: gestorProcedure
     .input(cadastroDedupeSuggestionsInputSchema)
     .query(async ({ input }) => {
       const db = requireDb();
@@ -2775,7 +3727,8 @@ export const cadastrosRouter = router({
       };
     }),
 
-  exportRows: protectedProcedure.input(cadastroExportInputSchema).query(async ({ input }) => {
+  exportRows: gestorProcedure.input(cadastroExportInputSchema).query(async ({ ctx, input }) => {
+    if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
     const db = requireDb();
 
     switch (input.entity) {
@@ -2866,6 +3819,65 @@ export const cadastrosRouter = router({
         }));
       }
 
+      case "cargos": {
+        const filters = [
+          buildAtivoFilter(input.status, cargos.ativo),
+          input.search
+            ? or(
+                ilike(cargos.nome, `%${input.search}%`),
+                ilike(cargos.codigo, `%${input.search}%`),
+                ilike(cargos.categoria, `%${input.search}%`),
+              )
+            : undefined,
+          input.ids?.length ? inArray(cargos.id, input.ids) : undefined,
+        ].filter(Boolean) as any[];
+        const rows = await db
+          .select({
+            id: cargos.id,
+            codigo: cargos.codigo,
+            nome: cargos.nome,
+            categoria: cargos.categoria,
+            descricao: cargos.descricao,
+            ativo: cargos.ativo,
+            atualizadoEm: cargos.atualizadoEm,
+          })
+          .from(cargos)
+          .where(filters.length ? and(...filters) : undefined)
+          .orderBy(asc(cargos.nome))
+          .limit(5000);
+        return rows.map((row) => ({
+          ...row,
+          status: row.ativo ? "ativo" : "inativo",
+        }));
+      }
+
+      case "funcoes": {
+        const filters = [
+          buildAtivoFilter(input.status, funcoes.ativo),
+          input.search
+            ? or(ilike(funcoes.nome, `%${input.search}%`), ilike(funcoes.codigo, `%${input.search}%`))
+            : undefined,
+          input.ids?.length ? inArray(funcoes.id, input.ids) : undefined,
+        ].filter(Boolean) as any[];
+        const rows = await db
+          .select({
+            id: funcoes.id,
+            codigo: funcoes.codigo,
+            nome: funcoes.nome,
+            descricao: funcoes.descricao,
+            ativo: funcoes.ativo,
+            atualizadoEm: funcoes.atualizadoEm,
+          })
+          .from(funcoes)
+          .where(filters.length ? and(...filters) : undefined)
+          .orderBy(asc(funcoes.nome))
+          .limit(5000);
+        return rows.map((row) => ({
+          ...row,
+          status: row.ativo ? "ativo" : "inativo",
+        }));
+      }
+
       case "pessoas":
       case "servidores": {
         const onlyServidores = input.entity === "servidores";
@@ -2877,6 +3889,8 @@ export const cadastrosRouter = router({
                 ilike(pessoas.cpf, `%${input.search}%`),
                 ilike(pessoas.matricula, `%${input.search}%`),
                 ilike(pessoas.cargo, `%${input.search}%`),
+                ilike(cargos.nome, `%${input.search}%`),
+                ilike(funcoes.nome, `%${input.search}%`),
                 ilike(secretarias.nome, `%${input.search}%`),
               )
             : undefined,
@@ -2893,6 +3907,10 @@ export const cadastrosRouter = router({
             matricula: pessoas.matricula,
             dataNascimento: pessoas.dataNascimento,
             cargo: pessoas.cargo,
+            cargoId: pessoas.cargoId,
+            cargoNome: cargos.nome,
+            funcaoId: pessoas.funcaoId,
+            funcaoNome: funcoes.nome,
             secretariaId: pessoas.secretariaId,
             secretariaNome: secretarias.nome,
             ativo: pessoas.ativo,
@@ -2900,6 +3918,8 @@ export const cadastrosRouter = router({
           })
           .from(pessoas)
           .leftJoin(secretarias, eq(secretarias.id, pessoas.secretariaId))
+          .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
+          .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
           .where(whereClause)
           .orderBy(asc(pessoas.nome))
           .limit(5000);
@@ -2910,7 +3930,11 @@ export const cadastrosRouter = router({
           cpf: row.cpf,
           matricula: row.matricula,
           dataNascimento: row.dataNascimento,
-          cargo: row.cargo,
+          cargo: row.cargoNome ?? row.cargo,
+          cargoId: row.cargoId,
+          cargoNome: row.cargoNome,
+          funcaoId: row.funcaoId,
+          funcaoNome: row.funcaoNome,
           secretariaId: row.secretariaId,
           secretariaNome: row.secretariaNome,
           status: row.ativo ? "ativo" : "inativo",
@@ -3018,11 +4042,17 @@ export const cadastrosRouter = router({
           secretariaNome: row.secretariaNome,
           pessoaId: row.pessoaId,
           pessoaNome: row.pessoaNome,
-          identityStatus: row.pessoaId && hasCompleteIdentityFields({
-            cpf: row.pessoaCpf,
-            matricula: row.pessoaMatricula,
-            dataNascimento: row.pessoaDataNascimento,
-          }) ? "completo" : "pendente",
+          identityStatus: !row.pessoaId
+            ? "sem_vinculo"
+            : !row.pessoaNome
+              ? "conflito"
+              : hasCompleteIdentityFields({
+                  cpf: row.pessoaCpf,
+                  matricula: row.pessoaMatricula,
+                  dataNascimento: row.pessoaDataNascimento,
+                })
+                ? "completo"
+                : "incompleto",
           status: row.ativo ? "ativo" : "inativo",
           lastSignedIn: row.lastSignedIn,
           atualizadoEm: row.atualizadoEm,
@@ -3225,6 +4255,7 @@ export const cadastrosRouter = router({
     }),
 
   save: gestorProcedure.input(cadastroSaveInputSchema).mutation(async ({ ctx, input }) => {
+    if (input.entity === "usuarios" || input.entity === "parametros") requireAdmin(ctx);
     const db = requireDb();
 
     switch (input.entity) {
@@ -3249,7 +4280,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro do item ${updated.descricao} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db
@@ -3263,7 +4294,7 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro do item ${created.descricao} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "fornecedores": {
@@ -3299,7 +4330,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro do fornecedor ${updated.razaoSocial} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db.insert(fornecedores).values({ ...payload, criadoEm: new Date() }).returning();
@@ -3310,7 +4341,7 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro do fornecedor ${created.razaoSocial} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "secretarias": {
@@ -3343,7 +4374,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro da secretaria ${updated.nome} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db.insert(secretarias).values({ ...payload, criadoEm: new Date() }).returning();
@@ -3354,13 +4385,147 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro da secretaria ${created.nome} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
+      }
+
+      case "cargos": {
+        const nomeNormalizado = normalizeCadastroLookupText(input.data.nome);
+        const codigo = toNullableString(input.data.codigo)?.toUpperCase() ?? null;
+        const duplicateFilters = [
+          eq(cargos.nomeNormalizado, nomeNormalizado),
+          codigo ? eq(cargos.codigo, codigo) : undefined,
+        ].filter(Boolean) as any[];
+        const duplicates = duplicateFilters.length
+          ? await db
+              .select({ id: cargos.id })
+              .from(cargos)
+              .where(or(...duplicateFilters))
+          : [];
+        if (duplicates.some((row) => row.id !== input.data.id)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Ja existe cargo com este nome ou codigo.",
+          });
+        }
+        const payload = {
+          codigo,
+          nome: input.data.nome,
+          nomeNormalizado,
+          categoria: toNullableString(input.data.categoria),
+          descricao: toNullableString(input.data.descricao),
+          ativo: input.data.ativo,
+          atualizadoEm: new Date(),
+        };
+        if (input.data.id) {
+          const before = await loadCadastroRecord(db, input.entity, input.data.id);
+          const [updated] = await db
+            .update(cargos)
+            .set(payload)
+            .where(eq(cargos.id, input.data.id))
+            .returning();
+          if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Cargo nao encontrado." });
+          // Alguns módulos ainda leem o texto legado enquanto a adoção do catálogo
+          // é concluída. Sincronizá-lo mantém a edição do cargo retrocompatível.
+          await db
+            .update(pessoas)
+            .set({ cargo: updated.nome, atualizadoEm: new Date() })
+            .where(eq(pessoas.cargoId, updated.id));
+          await logAuditoria(ctx, {
+            tabela: "cargos",
+            registroId: updated.id,
+            acao: "UPDATE",
+            dadosAnteriores: before,
+            dadosNovos: updated,
+            descricao: `Cargo ${updated.nome} atualizado`,
+          });
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
+        }
+        const [created] = await db.insert(cargos).values({ ...payload, criadoEm: new Date() }).returning();
+        await logAuditoria(ctx, {
+          tabela: "cargos",
+          registroId: created.id,
+          acao: "CREATE",
+          dadosNovos: created,
+          descricao: `Cargo ${created.nome} criado`,
+        });
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
+      }
+
+      case "funcoes": {
+        const nomeNormalizado = normalizeCadastroLookupText(input.data.nome);
+        const codigo = toNullableString(input.data.codigo)?.toUpperCase() ?? null;
+        const duplicateFilters = [
+          eq(funcoes.nomeNormalizado, nomeNormalizado),
+          codigo ? eq(funcoes.codigo, codigo) : undefined,
+        ].filter(Boolean) as any[];
+        const duplicates = duplicateFilters.length
+          ? await db
+              .select({ id: funcoes.id })
+              .from(funcoes)
+              .where(or(...duplicateFilters))
+          : [];
+        if (duplicates.some((row) => row.id !== input.data.id)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Ja existe funcao com este nome ou codigo.",
+          });
+        }
+        const payload = {
+          codigo,
+          nome: input.data.nome,
+          nomeNormalizado,
+          descricao: toNullableString(input.data.descricao),
+          ativo: input.data.ativo,
+          atualizadoEm: new Date(),
+        };
+        if (input.data.id) {
+          const before = await loadCadastroRecord(db, input.entity, input.data.id);
+          const [updated] = await db
+            .update(funcoes)
+            .set(payload)
+            .where(eq(funcoes.id, input.data.id))
+            .returning();
+          if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Funcao nao encontrada." });
+          await logAuditoria(ctx, {
+            tabela: "funcoes",
+            registroId: updated.id,
+            acao: "UPDATE",
+            dadosAnteriores: before,
+            dadosNovos: updated,
+            descricao: `Funcao ${updated.nome} atualizada`,
+          });
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
+        }
+        const [created] = await db.insert(funcoes).values({ ...payload, criadoEm: new Date() }).returning();
+        await logAuditoria(ctx, {
+          tabela: "funcoes",
+          registroId: created.id,
+          acao: "CREATE",
+          dadosNovos: created,
+          descricao: `Funcao ${created.nome} criada`,
+        });
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "pessoas":
       case "servidores": {
         const normalizedCpf = input.data.cpf ? normalizePessoaCpf(input.data.cpf) : null;
         const normalizedMatricula = normalizePessoaMatricula(input.data.matricula);
+        const [existingRecord] = input.data.id
+          ? await db.select().from(pessoas).where(eq(pessoas.id, input.data.id)).limit(1)
+          : [];
+        const [selectedCargo] = input.data.cargoId
+          ? await db.select().from(cargos).where(eq(cargos.id, input.data.cargoId)).limit(1)
+          : [];
+        const [selectedFuncao] = input.data.funcaoId
+          ? await db.select().from(funcoes).where(eq(funcoes.id, input.data.funcaoId)).limit(1)
+          : [];
+        if (!canUseCadastroCatalogSelection(input.data.cargoId, selectedCargo, existingRecord?.cargoId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione um cargo ativo e valido." });
+        }
+        if (!canUseCadastroCatalogSelection(input.data.funcaoId, selectedFuncao, existingRecord?.funcaoId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione uma funcao ativa e valida." });
+        }
         if (normalizedCpf) {
           const existing = await db
             .select({ id: pessoas.id })
@@ -3385,14 +4550,17 @@ export const cadastrosRouter = router({
           cpf: normalizedCpf,
           matricula: normalizedMatricula || null,
           dataNascimento: toNullableDate(input.data.dataNascimento),
-          cargo: toNullableString(input.data.cargo),
+          // Texto legado é mantido apenas como espelho do catálogo estruturado.
+          cargo: selectedCargo?.nome ?? null,
+          cargoId: input.data.cargoId ?? null,
+          funcaoId: input.data.funcaoId ?? null,
           secretariaId: input.data.secretariaId ?? null,
           ativo: input.data.ativo,
           atualizadoEm: new Date(),
         };
 
         if (input.data.id) {
-          const [before] = await db.select().from(pessoas).where(eq(pessoas.id, input.data.id)).limit(1);
+          const before = existingRecord;
           const [updated] = await db.update(pessoas).set(payload).where(eq(pessoas.id, input.data.id)).returning();
           if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa não encontrada." });
           await logAuditoria(ctx, {
@@ -3403,7 +4571,8 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro de ${input.entity === "servidores" ? "servidor" : "pessoa"} ${updated.nome} atualizado`,
           });
-          return updated;
+          await syncLinkedUserIdentity(db, updated.id);
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db.insert(pessoas).values({ ...payload, criadoEm: new Date() }).returning();
@@ -3414,7 +4583,8 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro de ${input.entity === "servidores" ? "servidor" : "pessoa"} ${created.nome} criado`,
         });
-        return created;
+        await syncLinkedUserIdentity(db, created.id);
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "departamentos": {
@@ -3440,7 +4610,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro do departamento ${updated.nome} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db.insert(departamentos).values({ ...payload, criadoEm: new Date() }).returning();
@@ -3451,7 +4621,7 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro do departamento ${created.nome} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "usuarios": {
@@ -3479,14 +4649,36 @@ export const cadastrosRouter = router({
 
         if (input.data.id) {
           const [before] = await db.select().from(users).where(eq(users.id, input.data.id)).limit(1);
+          if (!before) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
+          if (
+            before.id === ctx.user?.id &&
+            (input.data.role !== "admin" || !input.data.ativo)
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Não é permitido remover o próprio acesso administrativo.",
+            });
+          }
+          const resolvedName = linkedPessoa?.nome ?? input.data.name;
+          const resolvedEmail = toNullableString(input.data.email);
+          const resolvedSecretariaId = linkedPessoa?.secretariaId ?? input.data.secretariaId ?? null;
+          const sessionClaimsChanged =
+            before.name !== resolvedName ||
+            before.email !== resolvedEmail ||
+            before.role !== input.data.role ||
+            before.secretariaId !== resolvedSecretariaId ||
+            before.ativo !== input.data.ativo;
           const [updated] = await db
             .update(users)
             .set({
-              name: input.data.name,
-              email: toNullableString(input.data.email),
+              name: resolvedName,
+              email: resolvedEmail,
               role: input.data.role,
-              secretariaId: input.data.secretariaId ?? null,
+              secretariaId: resolvedSecretariaId,
               pessoaId,
+              sessionVersion: sessionClaimsChanged
+                ? sql`${users.sessionVersion} + 1`
+                : before.sessionVersion,
               identityProfileCompletedAt: linkedPessoa && hasCompleteIdentityFields(linkedPessoa)
                 ? before?.identityProfileCompletedAt ?? new Date()
                 : null,
@@ -3496,7 +4688,6 @@ export const cadastrosRouter = router({
             .where(eq(users.id, input.data.id))
             .returning();
 
-          if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
           await logAuditoria(ctx, {
             tabela: "users",
             registroId: updated.id,
@@ -3505,7 +4696,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Cadastro do usuário ${updated.name} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const normalizedUsername = input.data.username?.trim().toLowerCase();
@@ -3522,12 +4713,12 @@ export const cadastrosRouter = router({
           .insert(users)
           .values({
             username: normalizedUsername,
-            name: input.data.name,
+            name: linkedPessoa?.nome ?? input.data.name,
             email: toNullableString(input.data.email),
             loginMethod: "local_password",
             passwordHash: hashPassword(input.data.password),
             role: input.data.role,
-            secretariaId: input.data.secretariaId ?? null,
+            secretariaId: linkedPessoa?.secretariaId ?? input.data.secretariaId ?? null,
             pessoaId,
             identityProfileCompletedAt: linkedPessoa && hasCompleteIdentityFields(linkedPessoa)
               ? new Date()
@@ -3545,7 +4736,7 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Cadastro do usuário ${created.name} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
 
       case "parametros": {
@@ -3576,7 +4767,7 @@ export const cadastrosRouter = router({
             dadosNovos: updated,
             descricao: `Parâmetro ${updated.chave} atualizado`,
           });
-          return updated;
+          return finalizeCadastroSave(db, input.entity, updated.id, ctx.user?.id ?? null, before);
         }
 
         const [created] = await db.insert(parametrosSistema).values({ ...payload, criadoEm: new Date() }).returning();
@@ -3587,7 +4778,7 @@ export const cadastrosRouter = router({
           dadosNovos: created,
           descricao: `Parâmetro ${created.chave} criado`,
         });
-        return created;
+        return finalizeCadastroSave(db, input.entity, created.id, ctx.user?.id ?? null, null);
       }
     }
   }),
@@ -3715,6 +4906,9 @@ export const cadastrosRouter = router({
         dfdAssinaturasAtualizadas: 0,
         dfdResponsaveisRemapeados: 0,
         dfdResponsaveisMesclados: 0,
+        usuariosRemapeados: 0,
+        usuariosDestinoPreservados: 0,
+        usuariosDestinoSincronizados: 0,
       };
       let pessoaMantida: Awaited<ReturnType<typeof mergePessoaRecords>>["pessoaMantida"] | null = null;
       let registrosUnificados = 0;
@@ -3730,6 +4924,10 @@ export const cadastrosRouter = router({
         summary.dfdAssinaturasAtualizadas += merged.summary.dfdAssinaturasAtualizadas;
         summary.dfdResponsaveisRemapeados += merged.summary.dfdResponsaveisRemapeados;
         summary.dfdResponsaveisMesclados += merged.summary.dfdResponsaveisMesclados;
+        summary.usuariosRemapeados += merged.summary.usuariosRemapeados;
+        summary.usuariosDestinoPreservados += merged.summary.usuariosDestinoPreservados;
+        summary.usuariosDestinoSincronizados +=
+          merged.summary.usuariosDestinoSincronizados;
       }
 
       return {
@@ -3790,6 +4988,54 @@ export const cadastrosRouter = router({
         });
         return { success: true };
       }
+      case "cargos": {
+        const [usage] = await db
+          .select({ total: count() })
+          .from(pessoas)
+          .where(eq(pessoas.cargoId, input.id));
+        if (Number(usage?.total ?? 0) > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Cargo em uso nao pode ser excluido. Use a inativacao pelo status.",
+          });
+        }
+        const [before] = await db.select().from(cargos).where(eq(cargos.id, input.id)).limit(1);
+        const [updated] = await db.update(cargos).set({ ativo: false, atualizadoEm: new Date() }).where(eq(cargos.id, input.id)).returning();
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Cargo nao encontrado." });
+        await logAuditoria(ctx, {
+          tabela: "cargos",
+          registroId: updated.id,
+          acao: "DELETE",
+          dadosAnteriores: before,
+          dadosNovos: updated,
+          descricao: `Cargo ${updated.nome} inativado`,
+        });
+        return { success: true };
+      }
+      case "funcoes": {
+        const [usage] = await db
+          .select({ total: count() })
+          .from(pessoas)
+          .where(eq(pessoas.funcaoId, input.id));
+        if (Number(usage?.total ?? 0) > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Funcao em uso nao pode ser excluida. Use a inativacao pelo status.",
+          });
+        }
+        const [before] = await db.select().from(funcoes).where(eq(funcoes.id, input.id)).limit(1);
+        const [updated] = await db.update(funcoes).set({ ativo: false, atualizadoEm: new Date() }).where(eq(funcoes.id, input.id)).returning();
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Funcao nao encontrada." });
+        await logAuditoria(ctx, {
+          tabela: "funcoes",
+          registroId: updated.id,
+          acao: "DELETE",
+          dadosAnteriores: before,
+          dadosNovos: updated,
+          descricao: `Funcao ${updated.nome} inativada`,
+        });
+        return { success: true };
+      }
       case "pessoas":
       case "servidores": {
         const [before] = await db.select().from(pessoas).where(eq(pessoas.id, input.id)).limit(1);
@@ -3824,7 +5070,15 @@ export const cadastrosRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Não é permitido inativar o usuário autenticado." });
         }
         const [before] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
-        const [updated] = await db.update(users).set({ ativo: false, updatedAt: new Date() }).where(eq(users.id, input.id)).returning();
+        const [updated] = await db
+          .update(users)
+          .set({
+            ativo: false,
+            sessionVersion: sql`case when ${users.ativo} then ${users.sessionVersion} + 1 else ${users.sessionVersion} end`,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, input.id))
+          .returning();
         if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
         await logAuditoria(ctx, {
           tabela: "users",
@@ -3921,6 +5175,46 @@ export const cadastrosRouter = router({
         }
         return { updated: updated.length };
       }
+      case "cargos": {
+        const before = await db.select().from(cargos).where(inArray(cargos.id, input.ids));
+        const updated = await db
+          .update(cargos)
+          .set({ ativo: input.ativo, atualizadoEm: new Date() })
+          .where(inArray(cargos.id, input.ids))
+          .returning();
+        for (const row of updated) {
+          const previous = before.find((item) => item.id === row.id);
+          await logAuditoria(ctx, {
+            tabela: "cargos",
+            registroId: row.id,
+            acao: "UPDATE",
+            dadosAnteriores: previous,
+            dadosNovos: row,
+            descricao: `Cargo ${row.nome} ${input.ativo ? "reativado" : "inativado"} em lote`,
+          });
+        }
+        return { updated: updated.length };
+      }
+      case "funcoes": {
+        const before = await db.select().from(funcoes).where(inArray(funcoes.id, input.ids));
+        const updated = await db
+          .update(funcoes)
+          .set({ ativo: input.ativo, atualizadoEm: new Date() })
+          .where(inArray(funcoes.id, input.ids))
+          .returning();
+        for (const row of updated) {
+          const previous = before.find((item) => item.id === row.id);
+          await logAuditoria(ctx, {
+            tabela: "funcoes",
+            registroId: row.id,
+            acao: "UPDATE",
+            dadosAnteriores: previous,
+            dadosNovos: row,
+            descricao: `Funcao ${row.nome} ${input.ativo ? "reativada" : "inativada"} em lote`,
+          });
+        }
+        return { updated: updated.length };
+      }
       case "pessoas":
       case "servidores": {
         const before = await db.select().from(pessoas).where(inArray(pessoas.id, input.ids));
@@ -3966,7 +5260,11 @@ export const cadastrosRouter = router({
         const before = await db.select().from(users).where(inArray(users.id, input.ids));
         const updated = await db
           .update(users)
-          .set({ ativo: input.ativo, updatedAt: new Date() })
+          .set({
+            ativo: input.ativo,
+            sessionVersion: sql`case when ${users.ativo} <> ${input.ativo} then ${users.sessionVersion} + 1 else ${users.sessionVersion} end`,
+            updatedAt: new Date(),
+          })
           .where(inArray(users.id, input.ids))
           .returning();
         for (const row of updated) {

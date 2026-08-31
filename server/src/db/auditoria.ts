@@ -1,6 +1,7 @@
 ﻿import { auditoriaLog } from "./schema.js";
 import type { AppContext } from "../_core/context.js";
 import { requireDb } from "./client.js";
+import { sanitizeAuditData } from "../lib/audit-data.js";
 
 interface AuditEntry {
   tabela: string;
@@ -18,8 +19,8 @@ export async function logAuditoria(ctx: AppContext, payload: AuditEntry) {
     tabela: payload.tabela,
     registroId: payload.registroId,
     acao: payload.acao,
-    dadosAnteriores: payload.dadosAnteriores ?? null,
-    dadosNovos: payload.dadosNovos ?? null,
+    dadosAnteriores: sanitizeAuditData(payload.dadosAnteriores ?? null),
+    dadosNovos: sanitizeAuditData(payload.dadosNovos ?? null),
     descricao: payload.descricao ?? null
   });
 }

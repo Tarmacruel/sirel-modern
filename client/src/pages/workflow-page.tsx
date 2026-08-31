@@ -26,6 +26,7 @@ import {
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
@@ -62,6 +63,47 @@ import {
 function toOptionalId(value: string) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+interface PessoaLookupOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: { cargoNome?: string | null };
+}
+
+function toPessoaLookupOption(
+  item: Record<string, unknown>,
+): PessoaLookupOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      cargoNome: metadata.cargoNome ? String(metadata.cargoNome) : null,
+    },
+  };
+}
+
+function pessoaRecordToLookupOption(
+  record: unknown,
+): PessoaLookupOption | null {
+  if (!record || typeof record !== "object") return null;
+  const row = record as Record<string, unknown>;
+  const id = Number(row.id);
+  const label = String(row.nome ?? "").trim();
+  if (!Number.isInteger(id) || id <= 0 || !label) return null;
+  const cargo = row.cargo ? String(row.cargo) : null;
+  return {
+    id,
+    label,
+    subtitle: cargo ?? undefined,
+    metadata: { cargoNome: cargo },
+  };
 }
 
 export function WorkflowPage() {
@@ -104,6 +146,10 @@ export function WorkflowPage() {
   const [editDataErrors, setEditDataErrors] = useState<Record<string, string>>(
     {},
   );
+  const [editPessoaOptions, setEditPessoaOptions] = useState<{
+    autoridade: PessoaLookupOption | null;
+    condutor: PessoaLookupOption | null;
+  }>({ autoridade: null, condutor: null });
   const [moveForm, setMoveForm] = useState({
     moduloDestino: "PLANEJAMENTO",
     situacao: "RASCUNHO",
@@ -194,6 +240,7 @@ export function WorkflowPage() {
   useEffect(() => {
     const detail = detailQuery.data;
     if (!detail?.estado) return;
+    let cancelled = false;
 
     setMoveForm((current) => ({
       ...current,
@@ -233,7 +280,44 @@ export function WorkflowPage() {
       tipoContratacao: detail.processo?.tipoContratacao ?? "",
       foraDoFluxo: Boolean(detail.processo?.foraDoFluxo),
     }));
-  }, [detailQuery.data]);
+    const condutor = pessoaRecordToLookupOption(
+      detail.processo?.condutorProcesso,
+    );
+    const autoridadeId = detail.processo?.autoridadeCompetenteId ?? null;
+    setEditPessoaOptions({
+      autoridade:
+        autoridadeId && condutor?.id === autoridadeId ? condutor : null,
+      condutor,
+    });
+
+    if (autoridadeId && condutor?.id !== autoridadeId) {
+      void utils.client.cadastros.getById
+        .query({ entity: "pessoas", id: autoridadeId })
+        .then((record) => {
+          if (cancelled) return;
+          setEditPessoaOptions((current) => ({
+            ...current,
+            autoridade: pessoaRecordToLookupOption(record),
+          }));
+        })
+        .catch(() => undefined);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailQuery.data, utils.client]);
+
+  async function queryPessoas(search: string, limit: number) {
+    const result = await utils.client.cadastros.lookup.query({
+      entity: "pessoas",
+      search: search || undefined,
+      page: 1,
+      pageSize: limit,
+      activeOnly: true,
+    });
+    return result.items.map(toPessoaLookupOption);
+  }
 
   const moveMutation = trpc.workflow.move.useMutation({
     onSuccess: async (_, variables) => {
@@ -1318,24 +1402,43 @@ export function WorkflowPage() {
               label="Autoridade competente"
               error={editDataErrors.autoridadeCompetenteId}
             >
-              <Select
-                value={editDataForm.autoridadeCompetenteId}
-                error={Boolean(editDataErrors.autoridadeCompetenteId)}
-                onChange={(event) =>
+              <AsyncCombobox<PessoaLookupOption>
+                value={
+                  editDataForm.autoridadeCompetenteId
+                    ? Number(editDataForm.autoridadeCompetenteId)
+                    : null
+                }
+                initialOption={editPessoaOptions.autoridade}
+                onChange={(autoridade) => {
+                  setEditPessoaOptions((current) => ({
+                    ...current,
+                    autoridade,
+                  }));
                   setEditDataForm((current) => ({
                     ...current,
-                    autoridadeCompetenteId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">Selecione</option>
-                {catalogQuery.data?.pessoas.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.nome}
-                    {item.cargo ? ` - ${item.cargo}` : ""}
-                  </option>
-                ))}
-              </Select>
+                    autoridadeCompetenteId: autoridade
+                      ? String(autoridade.id)
+                      : "",
+                  }));
+                }}
+                query={queryPessoas}
+                getOptionValue={(pessoa) => pessoa.id}
+                getOptionLabel={(pessoa) => pessoa.label}
+                renderOption={(pessoa) => (
+                  <span className="min-w-0">
+                    <span className="block truncate">{pessoa.label}</span>
+                    {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                      <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                        {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                      </span>
+                    ) : null}
+                  </span>
+                )}
+                placeholder="Selecione a autoridade"
+                searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+                allowClear
+                ariaLabel="Autoridade competente"
+              />
             </FormField>
           </div>
 
@@ -1359,23 +1462,41 @@ export function WorkflowPage() {
               </Select>
             </FormField>
             <FormField label="Condutor do processo">
-              <Select
-                value={editDataForm.condutorProcessoId}
-                onChange={(event) =>
+              <AsyncCombobox<PessoaLookupOption>
+                value={
+                  editDataForm.condutorProcessoId
+                    ? Number(editDataForm.condutorProcessoId)
+                    : null
+                }
+                initialOption={editPessoaOptions.condutor}
+                onChange={(condutor) => {
+                  setEditPessoaOptions((current) => ({
+                    ...current,
+                    condutor,
+                  }));
                   setEditDataForm((current) => ({
                     ...current,
-                    condutorProcessoId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">Selecione</option>
-                {catalogQuery.data?.pessoas.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.nome}
-                    {item.cargo ? ` - ${item.cargo}` : ""}
-                  </option>
-                ))}
-              </Select>
+                    condutorProcessoId: condutor ? String(condutor.id) : "",
+                  }));
+                }}
+                query={queryPessoas}
+                getOptionValue={(pessoa) => pessoa.id}
+                getOptionLabel={(pessoa) => pessoa.label}
+                renderOption={(pessoa) => (
+                  <span className="min-w-0">
+                    <span className="block truncate">{pessoa.label}</span>
+                    {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                      <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                        {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                      </span>
+                    ) : null}
+                  </span>
+                )}
+                placeholder="Selecione o condutor"
+                searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+                allowClear
+                ariaLabel="Condutor do processo"
+              />
             </FormField>
           </div>
 

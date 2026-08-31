@@ -6,8 +6,13 @@ import {
   type GrupoInstitucionalTipo,
 } from "@sirel/shared/schemas/cadastros-institucionais";
 
-import { MembrosEditor, type GrupoMembroForm } from "./membros-editor";
+import {
+  MembrosEditor,
+  type GrupoMembroForm,
+  type PessoaOption,
+} from "./membros-editor";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +41,31 @@ interface GrupoFormState {
   observacao: string;
   ativo: boolean;
   membros: GrupoMembroForm[];
+  secretariaOption: SecretariaOption | null;
+}
+
+interface SecretariaOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: { sigla?: string | null };
+}
+
+function toSecretariaOption(
+  item: Record<string, unknown>,
+): SecretariaOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      sigla: metadata.sigla ? String(metadata.sigla) : null,
+    },
+  };
 }
 
 function createGrupoFormState(): GrupoFormState {
@@ -51,6 +81,7 @@ function createGrupoFormState(): GrupoFormState {
     observacao: "",
     ativo: true,
     membros: [],
+    secretariaOption: null,
   };
 }
 
@@ -71,9 +102,6 @@ export function GruposInstitucionaisPanel({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const optionsQuery = trpc.cadastros.formOptions.useQuery(undefined, {
-    retry: false,
-  });
   const atosQuery = trpc.cadastrosInstitucionais.atos.list.useQuery(
     { ativo: true, page: 1, pageSize: 100 },
     { retry: false },
@@ -123,8 +151,6 @@ export function GruposInstitucionaisPanel({
     onError: (cause) => setError(cause.message),
   });
 
-  const pessoas = optionsQuery.data?.pessoas ?? [];
-  const secretarias = optionsQuery.data?.secretarias ?? [];
   const atos = atosQuery.data?.items ?? [];
   const rows = listQuery.data?.items ?? [];
   const validMembers = useMemo(
@@ -155,11 +181,27 @@ export function GruposInstitucionaisPanel({
       ativo: Boolean(row.ativo),
       membros: (row.membros ?? []).map((member: any, index: number) => ({
         pessoaId: Number(member.pessoaId),
+        pessoaOption: {
+          id: Number(member.pessoaId),
+          label: member.pessoaNome ?? `Pessoa #${member.pessoaId}`,
+          metadata: {
+            cargoNome: member.pessoaCargo ?? null,
+          },
+        } satisfies PessoaOption,
         funcao: member.funcao,
         ordem: Number(member.ordem ?? index),
         titular: Boolean(member.titular),
         ativo: member.ativo !== false,
       })),
+      secretariaOption: row.secretariaId
+        ? {
+            id: Number(row.secretariaId),
+            label:
+              row.secretariaNome ?? `Secretaria #${row.secretariaId}`,
+            subtitle: row.secretariaSigla ?? undefined,
+            metadata: { sigla: row.secretariaSigla ?? null },
+          }
+        : null,
     });
     setEditing(true);
     setFeedback(null);
@@ -190,7 +232,13 @@ export function GruposInstitucionaisPanel({
         : null,
       observacao: form.observacao.trim(),
       ativo: form.ativo,
-      membros: validMembers,
+      membros: validMembers.map((member) => ({
+        pessoaId: member.pessoaId,
+        funcao: member.funcao,
+        ordem: member.ordem,
+        titular: member.titular,
+        ativo: member.ativo,
+      })),
     };
     await saveMutation.mutateAsync(payload);
   }
@@ -231,17 +279,36 @@ export function GruposInstitucionaisPanel({
             />
           </FormField>
           <FormField label="Secretaria ou escopo">
-            <Select
-              value={form.secretariaId}
-              onChange={(event) => patch({ secretariaId: event.target.value })}
-            >
-              <option value="">Geral</option>
-              {secretarias.map((secretaria) => (
-                <option key={secretaria.id} value={secretaria.id}>
-                  {secretaria.sigla} - {secretaria.nome}
-                </option>
-              ))}
-            </Select>
+            <AsyncCombobox<SecretariaOption>
+              value={form.secretariaId ? Number(form.secretariaId) : null}
+              initialOption={form.secretariaOption}
+              onChange={(secretaria) =>
+                patch({
+                  secretariaId: secretaria ? String(secretaria.id) : "",
+                  secretariaOption: secretaria,
+                })
+              }
+              query={async (search, limit) => {
+                const result = await utils.client.cadastros.lookup.query({
+                  entity: "secretarias",
+                  search: search || undefined,
+                  page: 1,
+                  pageSize: limit,
+                  activeOnly: true,
+                });
+                return result.items.map(toSecretariaOption);
+              }}
+              getOptionValue={(secretaria) => secretaria.id}
+              getOptionLabel={(secretaria) =>
+                [secretaria.metadata?.sigla ?? secretaria.subtitle, secretaria.label]
+                  .filter(Boolean)
+                  .join(" - ")
+              }
+              placeholder="Geral (sem secretaria)"
+              searchPlaceholder="Buscar secretaria por nome ou sigla"
+              allowClear
+              ariaLabel="Secretaria ou escopo"
+            />
           </FormField>
           <FormField label="Ato de designacao">
             <Select
@@ -293,7 +360,6 @@ export function GruposInstitucionaisPanel({
 
         <div className="mt-4">
           <MembrosEditor
-            pessoas={pessoas}
             value={form.membros}
             onChange={(membros) => patch({ membros })}
           />

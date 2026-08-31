@@ -22,14 +22,14 @@ ALTER TABLE "importacao_bll_processos"
   ADD COLUMN "last_validation_at" timestamp with time zone;
 
 -- Add indexes for new searchable fields
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "importacao_bll_processos_pncp_idx" 
-  ON "importacao_bll_processos" ("codigo_pncp") 
+CREATE INDEX IF NOT EXISTS "importacao_bll_processos_pncp_idx"
+  ON "importacao_bll_processos" ("codigo_pncp")
   WHERE "codigo_pncp" IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "importacao_bll_processos_completude_idx" 
+CREATE INDEX IF NOT EXISTS "importacao_bll_processos_completude_idx"
   ON "importacao_bll_processos" ("completeness_score");
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "importacao_bll_processos_justificativa_gin" 
+CREATE INDEX IF NOT EXISTS "importacao_bll_processos_justificativa_gin"
   ON "importacao_bll_processos" USING gin(to_tsvector('portuguese', "justificativa"));
 
 -- New table: Lotes importados (hierarchical structure under processo)
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS "importacao_bll_itens_especificados" (
   "fornecedor_homologado" varchar(255),
   "marca_homologada" varchar(120),
   "modelo_homologado" varchar(120),
-  "catalogoInterno_id" integer REFERENCES "catalogo_sirel_items"("id") ON DELETE SET NULL,
+  "catalogoInterno_id" integer REFERENCES "catalogo_itens"("id") ON DELETE SET NULL,
   "similaridade_catalogo" numeric(3, 2),
   "dados_originais" jsonb,
   "criado_em" timestamp with time zone DEFAULT now(),
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS "importacao_bll_itens_especificados" (
 );
 
 CREATE INDEX "importacao_bll_itens_proc_idx" ON "importacao_bll_itens_especificados" ("processo_importado_id");
-CREATE INDEX "importacao_bll_itens_lote_idx" ON "importacao_bll_itens_especificados" ("lote_importado_id");
+CREATE INDEX "importacao_bll_itens_especificados_lote_idx" ON "importacao_bll_itens_especificados" ("lote_importado_id");
 CREATE INDEX "importacao_bll_itens_catalogo_idx" ON "importacao_bll_itens_especificados" ("catalogoInterno_id");
 CREATE INDEX "importacao_bll_itens_codigo_catalogo_idx" ON "importacao_bll_itens_especificados" ("codigo_catalogo");
 

@@ -1557,6 +1557,40 @@ export function ImportacoesPage() {
     });
 
   const detailData = detailQuery.data;
+  const bllAutoridadeNome =
+    createProcessSource === "BLL"
+      ? String(detailData?.record?.autoridadeNome ?? "").trim()
+      : "";
+  const bllCondutorNome =
+    createProcessSource === "BLL"
+      ? String(detailData?.record?.condutorNome ?? "").trim()
+      : "";
+  const bllAutoridadeLookupQuery = trpc.cadastros.lookup.useQuery(
+    {
+      entity: "pessoas",
+      search: bllAutoridadeNome || undefined,
+      page: 1,
+      pageSize: 5,
+      activeOnly: true,
+    },
+    {
+      enabled: createProcessModalOpen && bllAutoridadeNome.length >= 3,
+      retry: false,
+    },
+  );
+  const bllCondutorLookupQuery = trpc.cadastros.lookup.useQuery(
+    {
+      entity: "pessoas",
+      search: bllCondutorNome || undefined,
+      page: 1,
+      pageSize: 5,
+      activeOnly: true,
+    },
+    {
+      enabled: createProcessModalOpen && bllCondutorNome.length >= 3,
+      retry: false,
+    },
+  );
   const suggestionRows =
     deferredManualProcessSearch.length > 0
       ? (processSearchQuery.data?.items ?? [])
@@ -1808,13 +1842,13 @@ export function ImportacoesPage() {
         return "NAO_SE_APLICA";
       })();
 
-      const matchedAutoridade = catalogQuery.data?.pessoas.find(
+      const matchedAutoridade = bllAutoridadeLookupQuery.data?.items.find(
         (item) =>
-          normalize(item.nome) === normalize(detailData.record.autoridadeNome),
+          normalize(item.label) === normalize(detailData.record.autoridadeNome),
       );
-      const matchedCondutor = catalogQuery.data?.pessoas.find(
+      const matchedCondutor = bllCondutorLookupQuery.data?.items.find(
         (item) =>
-          normalize(item.nome) === normalize(detailData.record.condutorNome),
+          normalize(item.label) === normalize(detailData.record.condutorNome),
       );
 
       const matchedStatus = findBestStatusMatch(
@@ -1936,9 +1970,10 @@ export function ImportacoesPage() {
     return undefined;
   }, [
     catalogQuery.data?.modalidades,
-    catalogQuery.data?.pessoas,
     catalogQuery.data?.secretarias,
     catalogQuery.data?.statusProcesso,
+    bllAutoridadeLookupQuery.data?.items,
+    bllCondutorLookupQuery.data?.items,
     createProcessSource,
     detailData,
     legacyCreateProcessDraft,

@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState, type FormEvent } from "react";
 import { CalendarDays, PlusCircle, TimerReset } from "lucide-react";
+import { useRef } from "react";
 
 import {
   processoTipoObjetoLabels,
@@ -11,6 +12,7 @@ import type { ProcessoCreateInput } from "@sirel/shared/schemas/processos";
 
 import { Modal } from "@/components/shared/modal";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
@@ -62,6 +64,79 @@ const workflowSituacaoLabels: Record<
   CONCLUIDO: "Concluído",
   SUSPENSO: "Suspenso",
 };
+
+interface CadastroLookupOption {
+  id: number;
+  label: string;
+  subtitle?: string;
+  metadata?: {
+    sigla?: string | null;
+    cargoNome?: string | null;
+    secretariaNome?: string | null;
+  };
+}
+
+interface ProcessoLookupSelections {
+  secretaria: CadastroLookupOption | null;
+  autoridade: CadastroLookupOption | null;
+  condutor: CadastroLookupOption | null;
+}
+
+const emptyLookupSelections: ProcessoLookupSelections = {
+  secretaria: null,
+  autoridade: null,
+  condutor: null,
+};
+
+function lookupOptionFromRecord(
+  entity: "pessoas" | "secretarias",
+  record: unknown,
+): CadastroLookupOption | null {
+  if (!record || typeof record !== "object") return null;
+  const row = record as Record<string, unknown>;
+  const id = Number(row.id);
+  const label = String(row.nome ?? "").trim();
+  if (!Number.isInteger(id) || id <= 0 || !label) return null;
+
+  if (entity === "secretarias") {
+    const sigla = row.sigla ? String(row.sigla) : null;
+    return {
+      id,
+      label,
+      subtitle: sigla ?? undefined,
+      metadata: { sigla },
+    };
+  }
+
+  const cargoNome = row.cargo ? String(row.cargo) : null;
+  return {
+    id,
+    label,
+    subtitle: cargoNome ?? undefined,
+    metadata: { cargoNome },
+  };
+}
+
+function lookupOptionFromResult(
+  item: Record<string, unknown>,
+): CadastroLookupOption {
+  const metadata =
+    item.metadata && typeof item.metadata === "object"
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    id: Number(item.id),
+    label: String(item.label ?? ""),
+    subtitle: item.subtitle ? String(item.subtitle) : undefined,
+    metadata: {
+      sigla: metadata.sigla ? String(metadata.sigla) : null,
+      cargoNome: metadata.cargoNome ? String(metadata.cargoNome) : null,
+      secretariaNome: metadata.secretariaNome
+        ? String(metadata.secretariaNome)
+        : null,
+    },
+  };
+}
 
 function toDateInputValue(value?: string | Date | null) {
   if (!value) return "";
@@ -150,6 +225,16 @@ export function ProcessoCreateModal({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [lookupSelections, setLookupSelections] =
+    useState<ProcessoLookupSelections>(emptyLookupSelections);
+  const initialLookupSelectionsRef =
+    useRef<ProcessoLookupSelections>(emptyLookupSelections);
+  const wasOpenRef = useRef(false);
+  const lookupTouchedRef = useRef({
+    secretaria: false,
+    autoridade: false,
+    condutor: false,
+  });
 
   const catalogQuery = trpc.cadastros.formOptions.useQuery(undefined, {
     retry: false,
@@ -177,14 +262,21 @@ export function ProcessoCreateModal({
   });
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!justOpened) return;
 
     setForm(buildInitialProcessoForm(initialValues, externalDates));
+    initialLookupSelectionsRef.current = emptyLookupSelections;
+    lookupTouchedRef.current = {
+      secretaria: false,
+      autoridade: false,
+      condutor: false,
+    };
+    setLookupSelections(emptyLookupSelections);
     setFieldErrors({});
     setFormError(null);
-  }, [externalDates, initialValues, open]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !catalogQuery.data) {
@@ -193,18 +285,12 @@ export function ProcessoCreateModal({
 
     setForm((current) => ({
       ...current,
-      secretariaId:
-        current.secretariaId ||
-        String(catalogQuery.data.secretarias[0]?.id ?? ""),
       modalidadeId:
         current.modalidadeId ||
         String(catalogQuery.data.modalidades[0]?.id ?? ""),
       statusId:
         current.statusId ||
         String(catalogQuery.data.statusProcesso[0]?.id ?? ""),
-      autoridadeCompetenteId:
-        current.autoridadeCompetenteId ||
-        String(catalogQuery.data.pessoas[0]?.id ?? ""),
       moduloInicial:
         current.moduloInicial ||
         String(
@@ -215,10 +301,102 @@ export function ProcessoCreateModal({
     }));
   }, [catalogQuery.data, open]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const secretariaId = Number(initialValues?.secretariaId || 0);
+    const autoridadeId = Number(initialValues?.autoridadeCompetenteId || 0);
+    const condutorId = Number(initialValues?.condutorProcessoId || 0);
+    let cancelled = false;
+
+    void Promise.all([
+      secretariaId > 0
+        ? utils.client.cadastros.getById.query({
+            entity: "secretarias",
+            id: secretariaId,
+          })
+        : null,
+      autoridadeId > 0
+        ? utils.client.cadastros.getById.query({
+            entity: "pessoas",
+            id: autoridadeId,
+          })
+        : null,
+      condutorId > 0
+        ? utils.client.cadastros.getById.query({
+            entity: "pessoas",
+            id: condutorId,
+          })
+        : null,
+    ])
+      .then(([secretaria, autoridade, condutor]) => {
+        if (cancelled) return;
+        const loaded = {
+          secretaria: lookupOptionFromRecord("secretarias", secretaria),
+          autoridade: lookupOptionFromRecord("pessoas", autoridade),
+          condutor: lookupOptionFromRecord("pessoas", condutor),
+        } satisfies ProcessoLookupSelections;
+        initialLookupSelectionsRef.current = loaded;
+        setLookupSelections((current) => ({
+          secretaria: lookupTouchedRef.current.secretaria
+            ? current.secretaria
+            : loaded.secretaria,
+          autoridade: lookupTouchedRef.current.autoridade
+            ? current.autoridade
+            : loaded.autoridade,
+          condutor: lookupTouchedRef.current.condutor
+            ? current.condutor
+            : loaded.condutor,
+        }));
+        setForm((current) => ({
+          ...current,
+          secretariaId: lookupTouchedRef.current.secretaria
+            ? current.secretariaId
+            : current.secretariaId || (secretariaId > 0 ? String(secretariaId) : ""),
+          autoridadeCompetenteId: lookupTouchedRef.current.autoridade
+            ? current.autoridadeCompetenteId
+            : current.autoridadeCompetenteId ||
+              (autoridadeId > 0 ? String(autoridadeId) : ""),
+          condutorProcessoId: lookupTouchedRef.current.condutor
+            ? current.condutorProcessoId
+            : current.condutorProcessoId || (condutorId > 0 ? String(condutorId) : ""),
+        }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        initialLookupSelectionsRef.current = emptyLookupSelections;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    initialValues?.autoridadeCompetenteId,
+    initialValues?.condutorProcessoId,
+    initialValues?.secretariaId,
+    open,
+    utils.client,
+  ]);
+
   function resetForm() {
     setForm(buildInitialProcessoForm(initialValues, externalDates));
+    setLookupSelections(initialLookupSelectionsRef.current);
     setFieldErrors({});
     setFormError(null);
+  }
+
+  async function queryCadastroOptions(
+    entity: "pessoas" | "secretarias",
+    search: string,
+    limit: number,
+  ) {
+    const result = await utils.client.cadastros.lookup.query({
+      entity,
+      search: search || undefined,
+      page: 1,
+      pageSize: limit,
+      activeOnly: true,
+    });
+    return result.items.map(lookupOptionFromResult);
   }
 
   async function handleCreateProcesso(event: FormEvent<HTMLFormElement>) {
@@ -361,24 +539,33 @@ export function ProcessoCreateModal({
             />
           </FormField>
           <FormField label="Secretaria" error={fieldErrors.secretariaId}>
-            <Select
-              required
-              value={form.secretariaId}
-              error={Boolean(fieldErrors.secretariaId)}
-              onChange={(event) =>
+            <AsyncCombobox<CadastroLookupOption>
+              value={form.secretariaId ? Number(form.secretariaId) : null}
+              initialOption={lookupSelections.secretaria}
+              onChange={(secretaria) => {
+                lookupTouchedRef.current.secretaria = true;
+                setLookupSelections((current) => ({
+                  ...current,
+                  secretaria,
+                }));
                 setForm((current) => ({
                   ...current,
-                  secretariaId: event.target.value,
-                }))
+                  secretariaId: secretaria ? String(secretaria.id) : "",
+                }));
+              }}
+              query={(search, limit) =>
+                queryCadastroOptions("secretarias", search, limit)
               }
-            >
-              <option value="">Selecione</option>
-              {catalogQuery.data?.secretarias.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.sigla} - {item.nome}
-                </option>
-              ))}
-            </Select>
+              getOptionValue={(secretaria) => secretaria.id}
+              getOptionLabel={(secretaria) =>
+                [secretaria.metadata?.sigla ?? secretaria.subtitle, secretaria.label]
+                  .filter(Boolean)
+                  .join(" - ")
+              }
+              placeholder="Selecione a secretaria"
+              searchPlaceholder="Buscar secretaria por nome ou sigla"
+              ariaLabel="Secretaria"
+            />
           </FormField>
           <FormField label="Modalidade" error={fieldErrors.modalidadeId}>
             <Select
@@ -456,43 +643,86 @@ export function ProcessoCreateModal({
             label="Autoridade competente"
             error={fieldErrors.autoridadeCompetenteId}
           >
-            <Select
-              value={form.autoridadeCompetenteId}
-              error={Boolean(fieldErrors.autoridadeCompetenteId)}
-              onChange={(event) =>
+            <AsyncCombobox<CadastroLookupOption>
+              value={
+                form.autoridadeCompetenteId
+                  ? Number(form.autoridadeCompetenteId)
+                  : null
+              }
+              initialOption={lookupSelections.autoridade}
+              onChange={(autoridade) => {
+                lookupTouchedRef.current.autoridade = true;
+                setLookupSelections((current) => ({
+                  ...current,
+                  autoridade,
+                }));
                 setForm((current) => ({
                   ...current,
-                  autoridadeCompetenteId: event.target.value,
-                }))
+                  autoridadeCompetenteId: autoridade
+                    ? String(autoridade.id)
+                    : "",
+                }));
+              }}
+              query={(search, limit) =>
+                queryCadastroOptions("pessoas", search, limit)
               }
-            >
-              <option value="">Selecione</option>
-              {catalogQuery.data?.pessoas.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nome}
-                  {item.cargo ? ` - ${item.cargo}` : ""}
-                </option>
-              ))}
-            </Select>
+              getOptionValue={(pessoa) => pessoa.id}
+              getOptionLabel={(pessoa) => pessoa.label}
+              renderOption={(pessoa) => (
+                <span className="min-w-0">
+                  <span className="block truncate">{pessoa.label}</span>
+                  {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                    <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                      {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                    </span>
+                  ) : null}
+                </span>
+              )}
+              placeholder="Selecione a autoridade"
+              searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+              allowClear
+              ariaLabel="Autoridade competente"
+            />
           </FormField>
           <FormField label="Condutor do processo">
-            <Select
-              value={form.condutorProcessoId}
-              onChange={(event) =>
+            <AsyncCombobox<CadastroLookupOption>
+              value={
+                form.condutorProcessoId
+                  ? Number(form.condutorProcessoId)
+                  : null
+              }
+              initialOption={lookupSelections.condutor}
+              onChange={(condutor) => {
+                lookupTouchedRef.current.condutor = true;
+                setLookupSelections((current) => ({
+                  ...current,
+                  condutor,
+                }));
                 setForm((current) => ({
                   ...current,
-                  condutorProcessoId: event.target.value,
-                }))
+                  condutorProcessoId: condutor ? String(condutor.id) : "",
+                }));
+              }}
+              query={(search, limit) =>
+                queryCadastroOptions("pessoas", search, limit)
               }
-            >
-              <option value="">Selecione</option>
-              {catalogQuery.data?.pessoas.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nome}
-                  {item.cargo ? ` - ${item.cargo}` : ""}
-                </option>
-              ))}
-            </Select>
+              getOptionValue={(pessoa) => pessoa.id}
+              getOptionLabel={(pessoa) => pessoa.label}
+              renderOption={(pessoa) => (
+                <span className="min-w-0">
+                  <span className="block truncate">{pessoa.label}</span>
+                  {pessoa.metadata?.cargoNome || pessoa.subtitle ? (
+                    <span className="block truncate text-xs font-normal text-[var(--text-secondary)]">
+                      {pessoa.metadata?.cargoNome ?? pessoa.subtitle}
+                    </span>
+                  ) : null}
+                </span>
+              )}
+              placeholder="Selecione o condutor"
+              searchPlaceholder="Buscar por nome, CPF, matrícula ou cargo"
+              allowClear
+              ariaLabel="Condutor do processo"
+            />
           </FormField>
           <FormField label="Modo de disputa" error={fieldErrors.modoDisputa}>
             <Select

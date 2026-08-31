@@ -84,6 +84,11 @@ function AuthenticatedApp({
   const showIdentityModal =
     Boolean(user.requiresIdentityCompletion) &&
     (user.identityCompletionMode === "REQUIRED" || !identityDismissed);
+  const identityMissingFieldsKey = user.identityProfile.missingFields.join("|");
+
+  useEffect(() => {
+    setIdentityDismissed(false);
+  }, [user.id, user.requiresIdentityCompletion, identityMissingFieldsKey]);
 
   useEffect(() => {
     if (meQuery.error) {

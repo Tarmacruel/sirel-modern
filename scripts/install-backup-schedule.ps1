@@ -3,12 +3,17 @@ param(
   [string]$TaskName = "SIREL Backup Automatico",
   [string]$BackupScriptPath = "",
   [string]$WorkingDirectory = "",
-  [string]$MirrorRoot = "C:\Users\078364\OneDrive\BACKUPS",
+  [string]$MirrorRoot = "",
+  [ValidateRange(1, 365)]
   [int]$RetentionCount = 10
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+if ($MirrorRoot) {
+  throw "Espelhamento agendado esta desabilitado ate a entrega da criptografia AES-256-GCM."
+}
 
 if (-not $BackupScriptPath) {
   $BackupScriptPath = Join-Path $PSScriptRoot "backup-local.ps1"
@@ -25,9 +30,14 @@ $resolvedBackupScript = (Resolve-Path $BackupScriptPath).Path
 $resolvedWorkingDirectory = (Resolve-Path $WorkingDirectory).Path
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
+$taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$resolvedBackupScript`" -RetentionCount $RetentionCount"
+if ($MirrorRoot) {
+  $taskArguments += " -MirrorRoot `"$MirrorRoot`""
+}
+
 $taskAction = New-ScheduledTaskAction `
   -Execute "powershell.exe" `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$resolvedBackupScript`" -MirrorRoot `"$MirrorRoot`" -RetentionCount $RetentionCount" `
+  -Argument $taskArguments `
   -WorkingDirectory $resolvedWorkingDirectory
 
 $taskTriggers = @(
@@ -44,21 +54,21 @@ $taskSettings = New-ScheduledTaskSettingsSet `
   -MultipleInstances IgnoreNew `
   -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
-$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if ($existingTask) {
-  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-}
-
 Register-ScheduledTask `
   -TaskName $TaskName `
   -Action $taskAction `
   -Trigger $taskTriggers `
   -Principal $taskPrincipal `
   -Settings $taskSettings `
-  -Description "Rotina automatica de backup do SIREL com execucao as 00:00, 12:00 e 19:00, retencao de 10 copias e espelhamento em OneDrive."
+  -Description "Rotina automatica de backup local do SIREL com execucao as 00:00, 12:00 e 19:00 e retencao de $RetentionCount copias." `
+  -Force
 
 Write-Host "✅ Tarefa agendada instalada/atualizada: $TaskName" -ForegroundColor Green
 Write-Host "Usuário: $currentUser"
 Write-Host "Horários: 00:00, 12:00, 19:00"
 Write-Host "Script: $resolvedBackupScript"
-Write-Host "Espelho: $MirrorRoot"
+if ($MirrorRoot) {
+  Write-Host "Espelho local adicional: $MirrorRoot"
+} else {
+  Write-Host "Espelhamento: desativado"
+}

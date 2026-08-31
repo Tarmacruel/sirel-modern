@@ -19,7 +19,7 @@
   UserCog,
   Users,
 } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLocation } from "wouter";
 
 import type { CadastroEntity } from "@sirel/shared/schemas/cadastros";
@@ -28,6 +28,7 @@ import { CadastrosInstitucionaisPanel } from "@/components/cadastros-institucion
 import { Modal } from "@/components/shared/modal";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
+import { AsyncCombobox } from "@/components/ui/async-combobox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FormField } from "@/components/ui/form-field";
@@ -37,7 +38,18 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { maskCnpj, maskCpf, maskPhone, validateCadastroForm, type CadastroFormErrors } from "@/features/cadastros/form";
+import {
+  applyPessoaToServidorForm,
+  applyPessoaToUsuarioForm,
+  maskCnpj,
+  maskCpf,
+  maskPhone,
+  persistenceMismatchFields,
+  resolveCadastroIdentityStatus,
+  validateCadastroForm,
+  type CadastroFormErrors,
+  type CadastroLookupRecord,
+} from "@/features/cadastros/form";
 import { buildCadastroCroppedFile, buildCadastroCropPreview } from "@/lib/cadastro-image-editor";
 import { resolveCadastroAssetUrl, uploadCadastroAsset } from "@/lib/cadastros-upload";
 import { exportCadastrosToCsv, exportCadastrosToPdf, exportCadastrosToXlsx } from "@/lib/export-cadastros";
@@ -45,6 +57,7 @@ import { formatCurrencyBRL, formatShortDateTimeBR } from "@/lib/formatters";
 import { trpc } from "@/lib/trpc";
 
 type FormState = Record<string, any>;
+type LookupOption = CadastroLookupRecord & Record<string, any>;
 type AuditEntry = {
   id: number;
   acao: "CREATE" | "UPDATE" | "DELETE";
@@ -110,6 +123,8 @@ const entityMeta: Array<{ key: CadastroEntity; label: string; icon: typeof Boxes
   { key: "itens", label: "Itens", icon: Boxes, singular: "item", searchLabel: "descrição, código ou unidade" },
   { key: "fornecedores", label: "Fornecedores", icon: Building2, singular: "fornecedor", searchLabel: "razão social, CNPJ ou e-mail" },
   { key: "secretarias", label: "Secretarias", icon: Landmark, singular: "secretaria", searchLabel: "nome, sigla ou responsável" },
+  { key: "cargos", label: "Cargos", icon: UserCog, singular: "cargo", searchLabel: "nome, código ou categoria" },
+  { key: "funcoes", label: "Funções", icon: Settings2, singular: "função", searchLabel: "nome ou código" },
   { key: "pessoas", label: "Pessoas", icon: Users, singular: "pessoa", searchLabel: "nome, CPF ou cargo" },
   { key: "servidores", label: "Servidores", icon: UserCog, singular: "servidor", searchLabel: "nome, CPF, matrícula, cargo ou secretaria" },
   { key: "departamentos", label: "Departamentos", icon: FolderTree, singular: "departamento", searchLabel: "nome, centro de custo ou secretaria" },
@@ -129,6 +144,13 @@ const auditActionLabels = {
   CREATE: "Criação",
   UPDATE: "Atualização",
   DELETE: "Inativação",
+} as const;
+
+const identityStatusLabels = {
+  "sem-vinculo": "Sem vínculo de identidade",
+  incompleto: "Vínculo incompleto",
+  completo: "Identidade completa",
+  conflito: "Conflito de identidade",
 } as const;
 
 const cropDefaults: CropState = { zoom: 1, offsetX: 0, offsetY: 0 };
@@ -161,6 +183,9 @@ function getRowLabel(entity: CadastroEntity, row: Record<string, any>) {
       return row.razaoSocial;
     case "secretarias":
       return row.nome;
+    case "cargos":
+    case "funcoes":
+      return row.nome;
     case "pessoas":
     case "servidores":
       return row.nome;
@@ -181,10 +206,14 @@ function getDefaultForm(entity: CadastroEntity): FormState {
       return { razaoSocial: "", cnpj: "", email: "", telefone: "", cidade: "", estado: "BA", ativo: true };
     case "secretarias":
       return { sigla: "", nome: "", responsavel: "", email: "", telefone: "", descricao: "", ativo: true };
+    case "cargos":
+      return { codigo: "", nome: "", categoria: "", descricao: "", ativo: true };
+    case "funcoes":
+      return { codigo: "", nome: "", descricao: "", ativo: true };
     case "pessoas":
-      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", secretariaId: "", ativo: true };
+      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", cargoId: "", funcaoId: "", secretariaId: "", ativo: true };
     case "servidores":
-      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", secretariaId: "", ativo: true };
+      return { nome: "", cpf: "", matricula: "", dataNascimento: "", cargo: "", cargoId: "", funcaoId: "", secretariaId: "", basePessoaId: "", ativo: true };
     case "departamentos":
       return { nome: "", codigoCentroCusto: "", secretariaId: "", responsavelId: "", descricao: "", ativo: true };
     case "usuarios":
@@ -202,7 +231,7 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         descricao: row.nome ?? "",
         unidadePadrao: row.unidade ?? "UN",
         valorReferencia: row.valorReferencia ?? "",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "fornecedores":
       return {
@@ -213,7 +242,7 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         telefone: row.telefone ?? "",
         cidade: row.cidade ?? "",
         estado: row.estado ?? "BA",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "secretarias":
       return {
@@ -224,7 +253,24 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         email: row.email ?? "",
         telefone: row.telefone ?? "",
         descricao: row.descricao ?? "",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
+      };
+    case "cargos":
+      return {
+        id: row.id,
+        codigo: row.codigo ?? "",
+        nome: row.nome ?? "",
+        categoria: row.categoria ?? "",
+        descricao: row.descricao ?? "",
+        ativo: row.status === "ativo" || row.ativo === true,
+      };
+    case "funcoes":
+      return {
+        id: row.id,
+        codigo: row.codigo ?? "",
+        nome: row.nome ?? "",
+        descricao: row.descricao ?? "",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "pessoas":
     case "servidores":
@@ -235,8 +281,15 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         matricula: row.matricula ?? "",
         dataNascimento: row.dataNascimento ? String(row.dataNascimento).slice(0, 10) : "",
         cargo: row.cargo ?? "",
+        cargoId: row.cargoId ? String(row.cargoId) : "",
+        cargoOption: row.cargoId ? { id: row.cargoId, nome: row.cargoNome ?? row.cargo ?? "Cargo selecionado" } : null,
+        funcaoId: row.funcaoId ? String(row.funcaoId) : "",
+        funcaoOption: row.funcaoId ? { id: row.funcaoId, nome: row.funcaoNome ?? "Função selecionada" } : null,
         secretariaId: row.secretariaId ? String(row.secretariaId) : "",
-        ativo: row.status === "ativo",
+        secretariaOption: row.secretariaId ? { id: row.secretariaId, nome: row.secretariaNome ?? "Secretaria selecionada", sigla: row.secretariaSigla ?? null } : null,
+        basePessoaId: row.id ? String(row.id) : "",
+        basePessoaOption: row.id ? row : null,
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "departamentos":
       return {
@@ -245,8 +298,10 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         codigoCentroCusto: row.codigoCentroCusto ?? "",
         secretariaId: row.secretariaId ? String(row.secretariaId) : "",
         responsavelId: row.responsavelId ? String(row.responsavelId) : "",
+        secretariaOption: row.secretariaId ? { id: row.secretariaId, nome: row.secretariaNome ?? "Secretaria selecionada", sigla: row.secretariaSigla ?? null } : null,
+        responsavelOption: row.responsavelId ? { id: row.responsavelId, nome: row.responsavelNome ?? "Responsável selecionado" } : null,
         descricao: row.descricao ?? "",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "usuarios":
       return {
@@ -257,8 +312,18 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         role: row.role ?? "operador",
         secretariaId: row.secretariaId ? String(row.secretariaId) : "",
         pessoaId: row.pessoaId ? String(row.pessoaId) : "",
+        secretariaOption: row.secretariaId ? { id: row.secretariaId, nome: row.secretariaNome ?? "Secretaria selecionada", sigla: row.secretariaSigla ?? null } : null,
+        pessoaOption: row.pessoaId ? {
+          id: row.pessoaId,
+          nome: row.pessoaNome ?? row.name ?? "Pessoa selecionada",
+          matricula: row.pessoaMatricula ?? null,
+          cpf: row.pessoaCpf ?? null,
+          secretariaId: row.secretariaId ?? null,
+          secretariaNome: row.secretariaNome ?? null,
+        } : null,
+        identityStatus: row.identityStatus ?? null,
         password: "",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
     case "parametros":
       return {
@@ -267,7 +332,7 @@ function mapRowToForm(entity: CadastroEntity, row: Record<string, any>): FormSta
         chave: row.chave ?? "",
         valor: row.valor ?? "",
         descricao: row.descricao ?? "",
-        ativo: row.status === "ativo",
+        ativo: row.status === "ativo" || row.ativo === true,
       };
   }
 }
@@ -305,6 +370,30 @@ function normalizeLookupText(value: string | null | undefined) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function normalizeLookupOption(option: Record<string, any>): LookupOption {
+  const metadata = option.metadata ?? {};
+  return {
+    ...option,
+    ...metadata,
+    id: Number(option.id),
+    nome: option.nome ?? option.label ?? "",
+    label: option.label ?? option.nome ?? String(option.id),
+  } as LookupOption;
+}
+
+function lookupOptionLabel(option: LookupOption) {
+  return String(option.label ?? option.nome ?? option.id);
+}
+
+function lookupOptionDetails(option: LookupOption) {
+  const details = [
+    option.matricula ? `Matrícula ${option.matricula}` : null,
+    option.secretariaNome ?? option.sigla ?? null,
+    option.cpfMascarado ?? null,
+  ].filter(Boolean);
+  return option.subtitle ?? details.join(" · ");
 }
 
 function dedupeClassificationMeta(classification: DedupeClassification) {
@@ -397,6 +486,21 @@ function buildExportRows(entity: CadastroEntity, rows: Array<Record<string, any>
         Telefone: row.telefone ?? "",
         Status: row.status,
       }));
+    case "cargos":
+      return rows.map((row) => ({
+        Codigo: row.codigo ?? "",
+        Cargo: row.nome,
+        Categoria: row.categoria ?? "",
+        Descricao: row.descricao ?? "",
+        Status: row.status,
+      }));
+    case "funcoes":
+      return rows.map((row) => ({
+        Codigo: row.codigo ?? "",
+        Funcao: row.nome,
+        Descricao: row.descricao ?? "",
+        Status: row.status,
+      }));
     case "pessoas":
     case "servidores":
       return rows.map((row) => ({
@@ -476,21 +580,23 @@ function CadastroMobileCard({
   row: Record<string, any>;
   search: string;
   selected: boolean;
-  onSelect: () => void;
-  onEdit: () => void;
+  onSelect?: () => void;
+  onEdit?: () => void;
   onDuplicate?: () => void;
   onMerge?: () => void;
-  onDelete: () => void;
-  onOpenAudit: () => void;
+  onDelete?: () => void;
+  onOpenAudit?: () => void;
 }) {
   return (
     <Card className={["md:hidden", selected ? "border-[rgba(47,84,196,0.38)] bg-[var(--color-primary-50)]" : ""].join(" ")}>
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-2">
-          <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-neutral-600)]">
-            <input type="checkbox" checked={selected} onChange={onSelect} className="h-4 w-4 rounded border-[var(--color-neutral-300)]" />
-            Selecionar
-          </label>
+          {onSelect ? (
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-neutral-600)]">
+              <input type="checkbox" checked={selected} onChange={onSelect} className="h-4 w-4 rounded border-[var(--color-neutral-300)]" />
+              Selecionar
+            </label>
+          ) : null}
           {entity === "itens" ? (
             <>
               <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</p>
@@ -512,6 +618,15 @@ function CadastroMobileCard({
               <p className="text-sm text-[var(--color-neutral-600)]">{row.responsavel ?? "Sem responsável"}</p>
             </>
           ) : null}
+          {entity === "cargos" || entity === "funcoes" ? (
+            <>
+              <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</p>
+              <p className="text-xs font-mono text-[var(--color-neutral-500)]">{row.codigo ?? "Sem código"}</p>
+              <p className="text-sm text-[var(--color-neutral-600)]">
+                {entity === "cargos" ? row.categoria ?? "Sem categoria" : row.descricao ?? "Sem descrição"}
+              </p>
+            </>
+          ) : null}
           {entity === "pessoas" || entity === "servidores" ? (
             <>
               <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</p>
@@ -531,6 +646,9 @@ function CadastroMobileCard({
               <p className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.name, search)}</p>
               <p className="text-xs font-mono text-[var(--color-neutral-500)]">{row.username ?? "Sem login"}</p>
               <p className="text-sm text-[var(--color-neutral-600)]">{roleLabels[row.role] ?? row.role}{row.pessoaNome ? ` - ${row.pessoaNome}` : ""}</p>
+              <p className="text-xs font-semibold text-[var(--color-primary-700)]">
+                {identityStatusLabels[resolveCadastroIdentityStatus(row)]}
+              </p>
             </>
           ) : null}
           {entity === "parametros" ? (
@@ -544,9 +662,11 @@ function CadastroMobileCard({
         <CadastroStatusBadge status={row.status} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="ghost" size="sm" className="flex-1" onClick={onOpenAudit} icon={<History className="h-4 w-4" />}>
-          Auditoria
-        </Button>
+        {onOpenAudit ? (
+          <Button variant="ghost" size="sm" className="flex-1" onClick={onOpenAudit} icon={<History className="h-4 w-4" />}>
+            Auditoria
+          </Button>
+        ) : null}
         {onDuplicate ? (
           <Button variant="secondary" size="sm" className="flex-1" onClick={onDuplicate} icon={<Copy className="h-4 w-4" />}>
             Duplicar
@@ -557,12 +677,16 @@ function CadastroMobileCard({
             Unificar
           </Button>
         ) : null}
-        <Button variant="outline" size="sm" className="flex-1" onClick={onEdit} icon={<Pencil className="h-4 w-4" />}>
-          Editar
-        </Button>
-        <Button variant="destructive" size="sm" className="flex-1" onClick={onDelete} icon={<Trash2 className="h-4 w-4" />}>
-          Inativar
-        </Button>
+        {onEdit ? (
+          <Button variant="outline" size="sm" className="flex-1" onClick={onEdit} icon={<Pencil className="h-4 w-4" />}>
+            Editar
+          </Button>
+        ) : null}
+        {onDelete ? (
+          <Button variant="destructive" size="sm" className="flex-1" onClick={onDelete} icon={<Trash2 className="h-4 w-4" />}>
+            Inativar
+          </Button>
+        ) : null}
       </div>
     </Card>
   );
@@ -571,6 +695,7 @@ function CadastroMobileCard({
 export function CadastrosPage() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const utils = trpc.useUtils();
+  const meQuery = trpc.auth.me.useQuery(undefined, { retry: false });
   const [location, setLocation] = useLocation();
   const [entity, setEntity] = useState<CadastroEntity>("itens");
   const institutionalQueryActive = useMemo(() => {
@@ -587,6 +712,7 @@ export function CadastrosPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | "ativo" | "inativo">("");
   const [secretariaId, setSecretariaId] = useState("");
+  const [secretariaFilterOption, setSecretariaFilterOption] = useState<LookupOption | null>(null);
   const [role, setRole] = useState("");
   const [cidade, setCidade] = useState("");
   const [page, setPage] = useState(1);
@@ -602,6 +728,7 @@ export function CadastrosPage() {
   const [winnerLinkSelectedIds, setWinnerLinkSelectedIds] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [formState, setFormState] = useState<FormState>(() => getDefaultForm("itens"));
+  const identityLookupSequenceRef = useRef(0);
   const [formErrors, setFormErrors] = useState<CadastroFormErrors>({});
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);
@@ -618,6 +745,7 @@ export function CadastrosPage() {
   const [assetCrop, setAssetCrop] = useState<CropState>(cropDefaults);
   const [assetProcessing, setAssetProcessing] = useState(false);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [identityLookupLoading, setIdentityLookupLoading] = useState(false);
   const [mergeItemSourceRow, setMergeItemSourceRow] = useState<Record<string, any> | null>(null);
   const [mergeItemTargetId, setMergeItemTargetId] = useState("");
   const [mergeItemSearch, setMergeItemSearch] = useState("");
@@ -633,10 +761,30 @@ export function CadastrosPage() {
   const [error, setError] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search.trim());
   const deferredAuditSearch = useDeferredValue(auditSearch.trim());
+  const currentRole = meQuery.data?.user.role;
+  const isAdmin = currentRole === "admin";
+  const canManageCadastros = isAdmin || currentRole === "gestor";
+  const canAuditCadastros = canManageCadastros || currentRole === "auditor";
+  const canAccessEntity = isAdmin || (entity !== "usuarios" && entity !== "parametros");
+  const visibleEntityMeta = useMemo(
+    () => entityMeta.filter((item) => isAdmin || (item.key !== "usuarios" && item.key !== "parametros")),
+    [isAdmin],
+  );
 
   useEffect(() => {
     setShowInstitucionais(institutionalQueryActive);
   }, [institutionalQueryActive]);
+
+  useEffect(() => {
+    if (meQuery.isLoading || canAccessEntity) {
+      return;
+    }
+    setEntity("itens");
+    setSelectedRecordId(null);
+    setSelectedRowsById({});
+    setModalOpen(false);
+    setExportModalOpen(false);
+  }, [canAccessEntity, meQuery.isLoading]);
 
   useEffect(() => {
     if (!isInstitutionalMode) {
@@ -661,11 +809,10 @@ export function CadastrosPage() {
   });
   const summaryQuery = trpc.cadastros.summary.useQuery(
     { entity },
-    { enabled: !isInstitutionalMode, retry: false },
+    { enabled: !isInstitutionalMode && canAccessEntity, retry: false },
   );
 
-  const listQuery = trpc.cadastros.list.useQuery(
-    {
+  const listInput = useMemo(() => ({
       entity,
       search: deferredSearch || undefined,
       status: status || undefined,
@@ -674,12 +821,165 @@ export function CadastrosPage() {
       cidade: cidade.trim() || undefined,
       page,
       pageSize,
-    },
+    }), [cidade, deferredSearch, entity, page, pageSize, role, secretariaId, status]);
+  const listQuery = trpc.cadastros.list.useQuery(
+    listInput,
     {
-      enabled: !isInstitutionalMode,
+      enabled: !isInstitutionalMode && canAccessEntity,
       retry: false,
       placeholderData: (previous) => previous,
     },
+  );
+
+  const getByIdQuery = trpc.cadastros.getById.useQuery(
+    { entity, id: editingId ?? -1 },
+    {
+      enabled: !isInstitutionalMode && canAccessEntity && canManageCadastros && modalOpen && Boolean(editingId),
+      retry: false,
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  );
+
+  const formIdentitySearch = String(
+    entity === "usuarios" ? formState.name ?? "" : formState.nome ?? "",
+  ).trim();
+  const deferredFormIdentitySearch = useDeferredValue(formIdentitySearch);
+  const formCpfSearch = String(formState.cpf ?? "").replace(/\D/g, "");
+  const formMatriculaSearch = String(formState.matricula ?? "").trim();
+  const deferredFormCpfSearch = useDeferredValue(formCpfSearch);
+  const deferredFormMatriculaSearch = useDeferredValue(formMatriculaSearch);
+  const preferredIdentitySecretariaId = formState.secretariaId
+    ? Number(formState.secretariaId)
+    : undefined;
+  const possibleDuplicatesQuery = trpc.cadastros.lookup.useQuery(
+    {
+      entity: "pessoas",
+      search: deferredFormIdentitySearch || undefined,
+      page: 1,
+      pageSize: 5,
+      excludeIds: [
+        entity === "usuarios"
+          ? Number(formState.pessoaId)
+          : editingId ?? Number(formState.id),
+      ].filter(
+        (id): id is number => Number.isInteger(id) && id > 0,
+      ),
+      preferSecretariaId: preferredIdentitySecretariaId,
+      activeOnly: true,
+    },
+    {
+      enabled:
+        modalOpen &&
+        (entity === "pessoas" || entity === "servidores" || entity === "usuarios") &&
+        deferredFormIdentitySearch.length >= 3,
+      retry: false,
+    },
+  );
+  const possibleCpfDuplicatesQuery = trpc.cadastros.lookup.useQuery(
+    {
+      entity: "pessoas",
+      search: deferredFormCpfSearch || undefined,
+      page: 1,
+      pageSize: 5,
+      excludeIds: [editingId ?? Number(formState.id)].filter(
+        (id): id is number => Number.isInteger(id) && id > 0,
+      ),
+      preferSecretariaId: preferredIdentitySecretariaId,
+      activeOnly: true,
+    },
+    {
+      enabled:
+        modalOpen &&
+        (entity === "pessoas" || entity === "servidores") &&
+        deferredFormCpfSearch.length === 11,
+      retry: false,
+    },
+  );
+  const possibleMatriculaDuplicatesQuery = trpc.cadastros.lookup.useQuery(
+    {
+      entity: "pessoas",
+      search: deferredFormMatriculaSearch || undefined,
+      page: 1,
+      pageSize: 5,
+      excludeIds: [editingId ?? Number(formState.id)].filter(
+        (id): id is number => Number.isInteger(id) && id > 0,
+      ),
+      preferSecretariaId: preferredIdentitySecretariaId,
+      activeOnly: true,
+    },
+    {
+      enabled:
+        modalOpen &&
+        (entity === "pessoas" || entity === "servidores") &&
+        deferredFormMatriculaSearch.length >= 3,
+      retry: false,
+    },
+  );
+  const possibleDuplicatePeople = useMemo(
+    () => {
+      const unique = new Map<number, LookupOption>();
+      for (const item of [
+        ...(possibleDuplicatesQuery.data?.items ?? []),
+        ...(possibleCpfDuplicatesQuery.data?.items ?? []),
+        ...(possibleMatriculaDuplicatesQuery.data?.items ?? []),
+      ]) {
+        const option = normalizeLookupOption(item as Record<string, any>);
+        unique.set(option.id, option);
+      }
+      return [...unique.values()];
+    },
+    [
+      possibleDuplicatesQuery.data?.items,
+      possibleCpfDuplicatesQuery.data?.items,
+      possibleMatriculaDuplicatesQuery.data?.items,
+    ],
+  );
+
+  const fetchLookup = useCallback(
+    async (
+      lookupEntity: "pessoas" | "servidores" | "secretarias" | "cargos" | "funcoes",
+      lookupSearch: string,
+      limit: number,
+      extra?: { secretariaId?: number; preferSecretariaId?: number; excludeIds?: number[] },
+    ) => {
+      const result = await utils.client.cadastros.lookup.query({
+        entity: lookupEntity,
+        search: lookupSearch || undefined,
+        page: 1,
+        pageSize: limit,
+        activeOnly: true,
+        ...extra,
+      });
+      return result.items.map((item) => normalizeLookupOption(item as Record<string, any>));
+    },
+    [utils.client.cadastros.lookup],
+  );
+  const queryPessoas = useCallback(
+    (lookupSearch: string, limit: number) =>
+      fetchLookup("pessoas", lookupSearch, limit, {
+        preferSecretariaId: preferredIdentitySecretariaId,
+      }),
+    [fetchLookup, preferredIdentitySecretariaId],
+  );
+  const querySecretarias = useCallback(
+    (lookupSearch: string, limit: number) => fetchLookup("secretarias", lookupSearch, limit),
+    [fetchLookup],
+  );
+  const queryCargos = useCallback(
+    (lookupSearch: string, limit: number) => fetchLookup("cargos", lookupSearch, limit),
+    [fetchLookup],
+  );
+  const queryFuncoes = useCallback(
+    (lookupSearch: string, limit: number) => fetchLookup("funcoes", lookupSearch, limit),
+    [fetchLookup],
+  );
+  const queryResponsaveis = useCallback(
+    (lookupSearch: string, limit: number) =>
+      fetchLookup("servidores", lookupSearch, limit, {
+        secretariaId: formState.secretariaId ? Number(formState.secretariaId) : undefined,
+      }),
+    [fetchLookup, formState.secretariaId],
   );
 
   const rows = (listQuery.data?.items ?? []) as Array<Record<string, any>>;
@@ -699,7 +999,7 @@ export function CadastrosPage() {
       limit: 12,
     },
     {
-      enabled: !isInstitutionalMode && supportsMergeEntity,
+      enabled: !isInstitutionalMode && canManageCadastros && supportsMergeEntity,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -713,7 +1013,7 @@ export function CadastrosPage() {
       pageSize: 8,
     },
     {
-      enabled: !isInstitutionalMode && supportsFornecedorWinnerBackfill,
+      enabled: !isInstitutionalMode && canManageCadastros && supportsFornecedorWinnerBackfill,
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -727,7 +1027,7 @@ export function CadastrosPage() {
       pageSize: 100,
     },
     {
-      enabled: !isInstitutionalMode && winnerLinkModal?.mode === "process",
+      enabled: !isInstitutionalMode && isAdmin && winnerLinkModal?.mode === "process",
       retry: false,
       placeholderData: (previous) => previous,
     },
@@ -741,155 +1041,49 @@ export function CadastrosPage() {
     () => rows.find((row) => row.id === selectedRecordId) ?? selectedRowsById[selectedRecordId ?? -1] ?? null,
     [rows, selectedRecordId, selectedRowsById],
   );
-  const mergeCandidates = useMemo(() => {
-    if (!mergeSourceRow) {
-      return [];
-    }
-
-    const sourceName = normalizeLookupText(mergeSourceRow.razaoSocial);
-    const sourceDigits = String(mergeSourceRow.cnpj ?? "").replace(/\D/g, "");
-    const queryText = normalizeLookupText(mergeSearch);
-    const queryDigits = mergeSearch.replace(/\D/g, "");
-
-    return (optionsQuery.data?.fornecedores ?? [])
-      .filter((item) => item.id !== mergeSourceRow.id)
-      .map((item) => {
-        const candidateName = normalizeLookupText(item.razaoSocial);
-        const candidateDigits = String(item.cnpj ?? "").replace(/\D/g, "");
-        const matchesQuery =
-          !queryText ||
-          candidateName.includes(queryText) ||
-          (queryDigits ? candidateDigits.includes(queryDigits) : false);
-
-        if (!matchesQuery) {
-          return null;
-        }
-
-        let score = 0;
-        if (sourceDigits && candidateDigits === sourceDigits) score += 100;
-        if (sourceName && candidateName === sourceName) score += 50;
-        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 20;
-        if (queryText && candidateName.includes(queryText)) score += 10;
-        if (queryDigits && candidateDigits.includes(queryDigits)) score += 10;
-
-        return {
-          ...item,
-          score,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .sort((left, right) => right.score - left.score || left.razaoSocial.localeCompare(right.razaoSocial, "pt-BR"))
-      .slice(0, 80);
-  }, [mergeSearch, mergeSourceRow, optionsQuery.data?.fornecedores]);
-  const selectedMergeTarget = useMemo(
-    () =>
-      (optionsQuery.data?.fornecedores ?? []).find(
-        (item) => item.id === Number(mergeTargetId),
-      ) ?? null,
-    [mergeTargetId, optionsQuery.data?.fornecedores],
+  const mergeFornecedorLookupQuery = trpc.cadastros.lookup.useQuery(
+    { entity: "fornecedores", search: mergeSearch || undefined, page: 1, pageSize: 50, excludeIds: mergeSourceRow ? [mergeSourceRow.id] : undefined, activeOnly: true },
+    { enabled: Boolean(mergeSourceRow), retry: false, placeholderData: (previous) => previous },
   );
-  const mergeItemCandidates = useMemo(() => {
-    if (!mergeItemSourceRow) {
-      return [];
-    }
-
-    const sourceName = normalizeLookupText(mergeItemSourceRow.nome);
-    const sourceUnit = normalizeLookupText(mergeItemSourceRow.unidade);
-    const queryText = normalizeLookupText(mergeItemSearch);
-
-    return (optionsQuery.data?.itens ?? [])
-      .filter((item) => item.id !== mergeItemSourceRow.id)
-      .map((item) => {
-        const candidateName = normalizeLookupText(item.descricao);
-        const candidateUnit = normalizeLookupText(item.unidadePadrao);
-        const matchesQuery =
-          !queryText ||
-          candidateName.includes(queryText) ||
-          candidateUnit.includes(queryText);
-
-        if (!matchesQuery) {
-          return null;
-        }
-
-        let score = 0;
-        if (sourceName && candidateName === sourceName) score += 100;
-        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 35;
-        if (sourceUnit && candidateUnit && sourceUnit === candidateUnit) score += 18;
-        if (queryText && candidateName.includes(queryText)) score += 12;
-
-        return {
-          ...item,
-          score,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .sort((left, right) => right.score - left.score || left.descricao.localeCompare(right.descricao, "pt-BR"))
-      .slice(0, 80);
-  }, [mergeItemSearch, mergeItemSourceRow, optionsQuery.data?.itens]);
-  const selectedMergeItemTarget = useMemo(
-    () =>
-      (optionsQuery.data?.itens ?? []).find(
-        (item) => item.id === Number(mergeItemTargetId),
-      ) ?? null,
-    [mergeItemTargetId, optionsQuery.data?.itens],
+  const mergeCandidates = useMemo(
+    () => (mergeFornecedorLookupQuery.data?.items ?? []).map((item) => {
+      const option = normalizeLookupOption(item as Record<string, any>);
+      return { ...option, razaoSocial: lookupOptionLabel(option), cnpj: option.cnpj ?? null };
+    }),
+    [mergeFornecedorLookupQuery.data?.items],
   );
-  const mergePessoaCandidates = useMemo(() => {
-    if (!mergePessoaSourceRow) {
-      return [];
-    }
+  const selectedMergeTarget = mergeCandidates.find((item) => item.id === Number(mergeTargetId)) ?? null;
 
-    const sourceName = normalizeLookupText(mergePessoaSourceRow.nome);
-    const sourceDigits = String(mergePessoaSourceRow.cpf ?? "").replace(/\D/g, "");
-    const queryText = normalizeLookupText(mergePessoaSearch);
-    const queryDigits = mergePessoaSearch.replace(/\D/g, "");
-
-    return (optionsQuery.data?.pessoas ?? [])
-      .filter((item) => item.id !== mergePessoaSourceRow.id)
-      .filter((item) => entity !== "servidores" || Boolean(item.secretariaId))
-      .map((item) => {
-        const candidateName = normalizeLookupText(item.nome);
-        const candidateCargo = normalizeLookupText(item.cargo);
-        const candidateDigits = String(item.cpf ?? "").replace(/\D/g, "");
-        const matchesQuery =
-          !queryText ||
-          candidateName.includes(queryText) ||
-          candidateCargo.includes(queryText) ||
-          (queryDigits ? candidateDigits.includes(queryDigits) : false);
-
-        if (!matchesQuery) {
-          return null;
-        }
-
-        let score = 0;
-        if (sourceDigits && candidateDigits === sourceDigits) score += 100;
-        if (sourceName && candidateName === sourceName) score += 50;
-        if (sourceName && (candidateName.includes(sourceName) || sourceName.includes(candidateName))) score += 20;
-        if (
-          mergePessoaSourceRow.secretariaId &&
-          item.secretariaId &&
-          mergePessoaSourceRow.secretariaId === item.secretariaId
-        ) {
-          score += 10;
-        }
-        if (queryText && (candidateName.includes(queryText) || candidateCargo.includes(queryText))) score += 10;
-        if (queryDigits && candidateDigits.includes(queryDigits)) score += 10;
-
-        return {
-          ...item,
-          score,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .sort((left, right) => right.score - left.score || left.nome.localeCompare(right.nome, "pt-BR"))
-      .slice(0, 80);
-  }, [entity, mergePessoaSearch, mergePessoaSourceRow, optionsQuery.data?.pessoas]);
-  const selectedMergePessoaTarget = useMemo(
-    () =>
-      (optionsQuery.data?.pessoas ?? []).find(
-        (item) => item.id === Number(mergePessoaTargetId),
-      ) ?? null,
-    [mergePessoaTargetId, optionsQuery.data?.pessoas],
+  const mergeItemLookupQuery = trpc.cadastros.lookup.useQuery(
+    { entity: "itens", search: mergeItemSearch || undefined, page: 1, pageSize: 50, excludeIds: mergeItemSourceRow ? [mergeItemSourceRow.id] : undefined, activeOnly: true },
+    { enabled: Boolean(mergeItemSourceRow), retry: false, placeholderData: (previous) => previous },
   );
+  const mergeItemCandidates = useMemo(
+    () => (mergeItemLookupQuery.data?.items ?? []).map((item) => {
+      const option = normalizeLookupOption(item as Record<string, any>);
+      return {
+        ...option,
+        descricao: lookupOptionLabel(option),
+        unidadePadrao: option.unidadePadrao ?? option.subtitle ?? "",
+        valorReferencia: option.valorReferencia ?? null,
+      };
+    }),
+    [mergeItemLookupQuery.data?.items],
+  );
+  const selectedMergeItemTarget = mergeItemCandidates.find((item) => item.id === Number(mergeItemTargetId)) ?? null;
+
+  const mergePessoaLookupQuery = trpc.cadastros.lookup.useQuery(
+    { entity: entity === "servidores" ? "servidores" : "pessoas", search: mergePessoaSearch || undefined, page: 1, pageSize: 50, excludeIds: mergePessoaSourceRow ? [mergePessoaSourceRow.id] : undefined, activeOnly: true },
+    { enabled: Boolean(mergePessoaSourceRow), retry: false, placeholderData: (previous) => previous },
+  );
+  const mergePessoaCandidates = useMemo(
+    () => (mergePessoaLookupQuery.data?.items ?? []).map((item) => {
+      const option = normalizeLookupOption(item as Record<string, any>);
+      return { ...option, nome: lookupOptionLabel(option), cpf: option.cpfMascarado ?? null, cargo: option.cargoNome ?? null };
+    }),
+    [mergePessoaLookupQuery.data?.items],
+  );
+  const selectedMergePessoaTarget = mergePessoaCandidates.find((item) => item.id === Number(mergePessoaTargetId)) ?? null;
   const bulkMergeCandidates = useMemo(
     () =>
       selectedRows
@@ -906,77 +1100,18 @@ export function CadastrosPage() {
       bulkMergeCandidates.find((row) => row.id === Number(bulkMergeTargetId)) ?? null,
     [bulkMergeCandidates, bulkMergeTargetId],
   );
-  const winnerLinkBaseRow = useMemo(() => {
-    if (!winnerLinkModal) return null;
-    if (winnerLinkModal.mode === "single") {
-      return winnerLinkModal.row;
-    }
-    return (
-      processWinnerBackfillRows[0] ??
-      winnerLinkModal.seedRow
-    );
-  }, [processWinnerBackfillRows, winnerLinkModal]);
-  const winnerLinkFornecedorCandidates = useMemo(() => {
-    const searchText = normalizeLookupText(winnerLinkFornecedorSearch);
-    const searchDigits = winnerLinkFornecedorSearch.replace(/\D/g, "");
-    const referenceName = normalizeLookupText(
-      winnerLinkBaseRow?.fornecedorSugeridoNome ??
-        winnerLinkBaseRow?.fornecedorVencedorNome,
-    );
-    const referenceDigits = String(
-      winnerLinkBaseRow?.fornecedorSugeridoCnpj ??
-        winnerLinkBaseRow?.fornecedorVencedorCnpj ??
-        "",
-    ).replace(/\D/g, "");
-
-    return (optionsQuery.data?.fornecedores ?? [])
-      .map((item) => {
-        const candidateName = normalizeLookupText(item.razaoSocial);
-        const candidateDigits = String(item.cnpj ?? "").replace(/\D/g, "");
-        const matchesQuery =
-          !searchText ||
-          candidateName.includes(searchText) ||
-          (searchDigits ? candidateDigits.includes(searchDigits) : false);
-
-        if (!matchesQuery) {
-          return null;
-        }
-
-        let score = 0;
-        if (referenceDigits && candidateDigits === referenceDigits) score += 120;
-        if (referenceName && candidateName === referenceName) score += 80;
-        if (
-          referenceName &&
-          (candidateName.includes(referenceName) || referenceName.includes(candidateName))
-        ) {
-          score += 35;
-        }
-        if (searchText && candidateName.includes(searchText)) score += 15;
-        if (searchDigits && candidateDigits.includes(searchDigits)) score += 20;
-
-        return {
-          ...item,
-          score,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .sort((left, right) => right.score - left.score || left.razaoSocial.localeCompare(right.razaoSocial, "pt-BR"))
-      .slice(0, 40);
-  }, [
-    optionsQuery.data?.fornecedores,
-    winnerLinkBaseRow?.fornecedorSugeridoCnpj,
-    winnerLinkBaseRow?.fornecedorSugeridoNome,
-    winnerLinkBaseRow?.fornecedorVencedorCnpj,
-    winnerLinkBaseRow?.fornecedorVencedorNome,
-    winnerLinkFornecedorSearch,
-  ]);
-  const winnerLinkSelectedFornecedor = useMemo(
-    () =>
-      (optionsQuery.data?.fornecedores ?? []).find(
-        (item) => item.id === Number(winnerLinkFornecedorId),
-      ) ?? null,
-    [optionsQuery.data?.fornecedores, winnerLinkFornecedorId],
+  const winnerFornecedorLookupQuery = trpc.cadastros.lookup.useQuery(
+    { entity: "fornecedores", search: winnerLinkFornecedorSearch || undefined, page: 1, pageSize: 40, activeOnly: true },
+    { enabled: Boolean(winnerLinkModal), retry: false, placeholderData: (previous) => previous },
   );
+  const winnerLinkFornecedorCandidates = useMemo(
+    () => (winnerFornecedorLookupQuery.data?.items ?? []).map((item) => {
+      const option = normalizeLookupOption(item as Record<string, any>);
+      return { ...option, razaoSocial: lookupOptionLabel(option), cnpj: option.cnpj ?? null };
+    }),
+    [winnerFornecedorLookupQuery.data?.items],
+  );
+  const winnerLinkSelectedFornecedor = winnerLinkFornecedorCandidates.find((item) => item.id === Number(winnerLinkFornecedorId)) ?? null;
 
   const historyQuery = trpc.cadastros.history.useQuery(
     {
@@ -989,7 +1124,7 @@ export function CadastrosPage() {
     },
     {
       retry: false,
-      enabled: !isInstitutionalMode && Boolean(selectedRecordId),
+      enabled: !isInstitutionalMode && canAuditCadastros && Boolean(selectedRecordId),
     },
   );
 
@@ -1017,6 +1152,8 @@ export function CadastrosPage() {
       await Promise.all([
         utils.cadastros.list.invalidate(),
         utils.cadastros.summary.invalidate(),
+        utils.cadastros.formOptions.invalidate(),
+        utils.cadastros.lookup.invalidate(),
         utils.cadastros.history.invalidate(),
         utils.cadastros.dedupeSuggestions.invalidate(),
         utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
@@ -1035,6 +1172,8 @@ export function CadastrosPage() {
       await Promise.all([
         utils.cadastros.list.invalidate(),
         utils.cadastros.summary.invalidate(),
+        utils.cadastros.formOptions.invalidate(),
+        utils.cadastros.lookup.invalidate(),
         selectedRecordId ? utils.cadastros.history.invalidate() : Promise.resolve(),
         utils.cadastros.dedupeSuggestions.invalidate(),
         utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
@@ -1087,10 +1226,28 @@ export function CadastrosPage() {
   });
 
   useEffect(() => {
+    if (!editingId || !getByIdQuery.data) return;
+    const canonicalRecord = ((getByIdQuery.data as any).record ?? getByIdQuery.data) as Record<string, any>;
+    if (Number(canonicalRecord.id) !== editingId) return;
+
+    setFormState(mapRowToForm(entity, canonicalRecord));
+    setAssetPreviewUrl(
+      resolveCadastroAssetUrl(
+        entity === "itens"
+          ? canonicalRecord.imagemUrl
+          : entity === "fornecedores"
+            ? canonicalRecord.logoUrl
+            : null,
+      ),
+    );
+  }, [editingId, entity, getByIdQuery.data]);
+
+  useEffect(() => {
     setPage(1);
     setSearch("");
     setStatus("");
     setSecretariaId("");
+    setSecretariaFilterOption(null);
     setRole("");
     setCidade("");
     setEditingId(null);
@@ -1115,6 +1272,7 @@ export function CadastrosPage() {
     setAssetCrop(cropDefaults);
     setAssetProcessing(false);
     setAssetError(null);
+    setIdentityLookupLoading(false);
     setMergeItemSourceRow(null);
     setMergeItemTargetId("");
     setMergeItemSearch("");
@@ -1204,6 +1362,7 @@ export function CadastrosPage() {
     setAssetPreviewUrl(null);
     setAssetCrop(cropDefaults);
     setAssetError(null);
+    setIdentityLookupLoading(false);
   }
 
   function openCreateModal() {
@@ -1214,6 +1373,7 @@ export function CadastrosPage() {
     setAssetPreviewUrl(null);
     setAssetCrop(cropDefaults);
     setAssetError(null);
+    setIdentityLookupLoading(false);
     setModalOpen(true);
     setFeedback(null);
     setError(null);
@@ -1221,12 +1381,14 @@ export function CadastrosPage() {
 
   function openEditModal(row: Record<string, any>) {
     setEditingId(row.id);
-    setFormState(mapRowToForm(entity, row));
+    // A linha serve apenas como contexto provisório; getById é a fonte final.
+    setFormState(getDefaultForm(entity));
     setFormErrors({});
     setAssetFile(null);
     setAssetPreviewUrl(resolveCadastroAssetUrl(entity === "itens" ? row.imagemUrl : entity === "fornecedores" ? row.logoUrl : null));
     setAssetCrop(cropDefaults);
     setAssetError(null);
+    setIdentityLookupLoading(false);
     setModalOpen(true);
     setFeedback(null);
     setError(null);
@@ -1365,10 +1527,13 @@ export function CadastrosPage() {
     await Promise.all([
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
+      utils.cadastros.getById.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      utils.auth.me.invalidate(),
     ]);
 
     setSelectedRowsById((current) => {
@@ -1408,10 +1573,13 @@ export function CadastrosPage() {
     await Promise.all([
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
+      utils.cadastros.getById.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      utils.auth.me.invalidate(),
     ]);
 
     setSelectedRowsById((current) => {
@@ -1450,10 +1618,13 @@ export function CadastrosPage() {
     await Promise.all([
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
+      utils.cadastros.getById.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      utils.auth.me.invalidate(),
     ]);
 
     setSelectedRowsById((current) => {
@@ -1581,10 +1752,15 @@ export function CadastrosPage() {
     await Promise.all([
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
+      utils.cadastros.getById.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      entity === "pessoas" || entity === "servidores"
+        ? utils.auth.me.invalidate()
+        : Promise.resolve(),
     ]);
 
     setSelectedRowsById({});
@@ -1640,10 +1816,15 @@ export function CadastrosPage() {
     await Promise.all([
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
+      utils.cadastros.getById.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+      entity === "pessoas" || entity === "servidores"
+        ? utils.auth.me.invalidate()
+        : Promise.resolve(),
     ]);
 
     setSelectedRowsById({});
@@ -1673,6 +1854,7 @@ export function CadastrosPage() {
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
@@ -1725,6 +1907,7 @@ export function CadastrosPage() {
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
@@ -1772,6 +1955,7 @@ export function CadastrosPage() {
       utils.cadastros.list.invalidate(),
       utils.cadastros.summary.invalidate(),
       utils.cadastros.formOptions.invalidate(),
+      utils.cadastros.lookup.invalidate(),
       utils.cadastros.history.invalidate(),
       utils.cadastros.dedupeSuggestions.invalidate(),
       utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
@@ -1782,6 +1966,91 @@ export function CadastrosPage() {
     setFeedback(
       `Vínculo manual em lote aplicado no processo ${result.numeroSirel}. ${result.updatedCount} item(ns) passaram a apontar para ${result.fornecedorVencedorNome}.`,
     );
+  }
+
+  async function handleServidorPessoaSelected(option: LookupOption | null) {
+    if (!option) {
+      identityLookupSequenceRef.current += 1;
+      setIdentityLookupLoading(false);
+      setFormState(getDefaultForm("servidores"));
+      return;
+    }
+
+    const requestId = ++identityLookupSequenceRef.current;
+    setIdentityLookupLoading(true);
+    setError(null);
+    try {
+      const pessoa = await utils.client.cadastros.getById.query({ entity: "pessoas", id: option.id });
+      if (requestId !== identityLookupSequenceRef.current) return;
+      setFormState((current) => applyPessoaToServidorForm(current, pessoa as LookupOption));
+    } catch (lookupError) {
+      if (requestId !== identityLookupSequenceRef.current) return;
+      setError(lookupError instanceof Error ? lookupError.message : "Não foi possível carregar a Pessoa selecionada.");
+    } finally {
+      if (requestId === identityLookupSequenceRef.current) setIdentityLookupLoading(false);
+    }
+  }
+
+  async function handleUsuarioPessoaSelected(option: LookupOption | null) {
+    const currentPessoaId = formState.pessoaId ? Number(formState.pessoaId) : null;
+    const nextPessoaId = option?.id ?? null;
+    if (
+      currentPessoaId &&
+      currentPessoaId !== nextPessoaId &&
+      !window.confirm(
+        nextPessoaId
+          ? "Trocar a Pessoa vinculada? O nome e a secretaria do usuário serão atualizados com os dados da nova identidade."
+          : "Remover o vínculo de identidade deste usuário?",
+      )
+    ) {
+      return;
+    }
+
+    if (!option) {
+      identityLookupSequenceRef.current += 1;
+      setIdentityLookupLoading(false);
+      setFormState((current) => ({
+        ...current,
+        pessoaId: "",
+        pessoaOption: null,
+        identityStatus: "sem_vinculo",
+      }));
+      return;
+    }
+
+    const requestId = ++identityLookupSequenceRef.current;
+    setIdentityLookupLoading(true);
+    setError(null);
+    try {
+      const pessoa = await utils.client.cadastros.getById.query({ entity: "pessoas", id: option.id });
+      if (requestId !== identityLookupSequenceRef.current) return;
+      setFormState((current) => applyPessoaToUsuarioForm(current, pessoa as LookupOption));
+    } catch (lookupError) {
+      if (requestId !== identityLookupSequenceRef.current) return;
+      setError(lookupError instanceof Error ? lookupError.message : "Não foi possível carregar a Pessoa selecionada.");
+    } finally {
+      if (requestId === identityLookupSequenceRef.current) setIdentityLookupLoading(false);
+    }
+  }
+
+  async function handlePotentialDuplicateSelected(option: LookupOption) {
+    if (entity === "servidores") {
+      await handleServidorPessoaSelected(option);
+      return;
+    }
+    if (entity === "usuarios") {
+      await handleUsuarioPessoaSelected(option);
+      return;
+    }
+    if (entity === "pessoas") {
+      const accepted = window.confirm(
+        `Abrir o cadastro existente de ${lookupOptionLabel(option)} para edição e evitar uma duplicidade?`,
+      );
+      if (!accepted) return;
+      setEditingId(option.id);
+      setFormState(getDefaultForm("pessoas"));
+      setFormErrors({});
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1798,22 +2067,61 @@ export function CadastrosPage() {
     setFormErrors({});
     try {
       const saved = await saveMutation.mutateAsync({ entity, data: validation.data } as any);
+      const savedRecord = ((saved as any).record ?? saved) as Record<string, any>;
+      const mismatchFields = persistenceMismatchFields(
+        entity,
+        validation.data as Record<string, unknown>,
+        savedRecord,
+      );
+      if (mismatchFields.length) {
+        throw new Error(
+          `A leitura de confirmação não refletiu os campos: ${mismatchFields.join(", ")}. O formulário foi mantido aberto.`,
+        );
+      }
 
       if (assetFile && (entity === "itens" || entity === "fornecedores")) {
         const uploadFile = await buildCadastroCroppedFile(assetFile, getCropOptions(entity, assetCrop));
         const uploadResult = await uploadCadastroAsset({
           entity,
-          recordId: Number(saved.id),
+          recordId: Number(savedRecord.id),
           arquivo: uploadFile,
         });
         setAssetPreviewUrl(resolveCadastroAssetUrl(uploadResult.assetUrl));
       }
 
+      utils.cadastros.getById.setData(
+        { entity, id: Number(savedRecord.id) },
+        savedRecord as any,
+      );
+      utils.cadastros.list.setData(listInput as any, (current: any) => {
+        if (!current) return current;
+        const existingIndex = current.items.findIndex((item: Record<string, any>) => item.id === savedRecord.id);
+        if (existingIndex >= 0) {
+          const items = [...current.items];
+          items[existingIndex] = savedRecord;
+          return { ...current, items };
+        }
+        if (page === 1 && !deferredSearch && !status && !secretariaId && !role && !cidade.trim()) {
+          return {
+            ...current,
+            items: [savedRecord, ...current.items].slice(0, pageSize),
+            total: current.total + 1,
+          };
+        }
+        return current;
+      });
+
       await Promise.all([
         utils.cadastros.list.invalidate(),
         utils.cadastros.summary.invalidate(),
+        utils.cadastros.getById.invalidate({ entity, id: Number(savedRecord.id) }),
+        utils.cadastros.formOptions.invalidate(),
+        utils.cadastros.lookup.invalidate(),
         utils.cadastros.dedupeSuggestions.invalidate(),
         utils.cadastros.fornecedorVencedorBackfillPreview.invalidate(),
+        (saved as any).affectsCurrentIdentity || (saved as any).identityProfileChanged
+          ? utils.auth.me.invalidate()
+          : Promise.resolve(),
       ]);
       closeModal();
       setError(null);
@@ -1830,6 +2138,27 @@ export function CadastrosPage() {
       if (!current[key]) return current;
       const next = { ...current };
       delete next[key];
+      return next;
+    });
+  }
+
+  function updateLookupForm(
+    idKey: string,
+    optionKey: string,
+    option: LookupOption | null,
+  ) {
+    setFormState((current) => ({
+      ...current,
+      [idKey]: option ? String(option.id) : "",
+      [optionKey]: option,
+      ...(idKey === "cargoId"
+        ? { cargo: option ? lookupOptionLabel(option) : "" }
+        : {}),
+    }));
+    setFormErrors((current) => {
+      if (!current[idKey]) return current;
+      const next = { ...current };
+      delete next[idKey];
       return next;
     });
   }
@@ -1959,12 +2288,23 @@ export function CadastrosPage() {
     if (entity === "pessoas" || entity === "servidores" || entity === "departamentos") {
       return (
         <FormField label="Secretaria">
-          <Select value={secretariaId} onChange={(event) => { setPage(1); setSecretariaId(event.target.value); }}>
-            <option value="">Todas</option>
-            {optionsQuery.data?.secretarias.map((item) => (
-              <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
-            ))}
-          </Select>
+          <AsyncCombobox
+            value={secretariaId || null}
+            onChange={(option) => {
+              setPage(1);
+              setSecretariaId(option ? String(option.id) : "");
+              setSecretariaFilterOption(option);
+            }}
+            query={querySecretarias}
+            getOptionValue={(option) => option.id}
+            getOptionLabel={(option) => option.sigla ? `${option.sigla} - ${lookupOptionLabel(option)}` : lookupOptionLabel(option)}
+            initialOption={secretariaFilterOption}
+            ariaLabel="Filtrar por secretaria"
+            placeholder="Todas"
+            searchPlaceholder="Nome ou sigla"
+            minSearchLength={0}
+            allowClear
+          />
         </FormField>
       );
     }
@@ -1973,12 +2313,23 @@ export function CadastrosPage() {
       return (
         <>
           <FormField label="Secretaria">
-            <Select value={secretariaId} onChange={(event) => { setPage(1); setSecretariaId(event.target.value); }}>
-              <option value="">Todas</option>
-              {optionsQuery.data?.secretarias.map((item) => (
-                <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
-              ))}
-            </Select>
+            <AsyncCombobox
+              value={secretariaId || null}
+              onChange={(option) => {
+                setPage(1);
+                setSecretariaId(option ? String(option.id) : "");
+                setSecretariaFilterOption(option);
+              }}
+              query={querySecretarias}
+              getOptionValue={(option) => option.id}
+              getOptionLabel={(option) => option.sigla ? `${option.sigla} - ${lookupOptionLabel(option)}` : lookupOptionLabel(option)}
+              initialOption={secretariaFilterOption}
+              ariaLabel="Filtrar usuários por secretaria"
+              placeholder="Todas"
+              searchPlaceholder="Nome ou sigla"
+              minSearchLength={0}
+              allowClear
+            />
           </FormField>
           <FormField label="Perfil">
             <Select value={role} onChange={(event) => { setPage(1); setRole(event.target.value); }}>
@@ -2003,17 +2354,21 @@ export function CadastrosPage() {
           "cursor-pointer transition hover:bg-[rgba(230,240,255,0.4)]",
           selectedRecordId === row.id ? "bg-[rgba(230,240,255,0.62)]" : "",
         ].join(" ")}
-        onClick={() => setSelectedRecordId(row.id)}
+        onClick={() => {
+          if (canAuditCadastros) setSelectedRecordId(row.id);
+        }}
       >
-        <TableCell onClick={(event) => event.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={Boolean(selectedRowsById[row.id])}
-            onChange={() => toggleRowSelection(row)}
-            className="h-4 w-4 rounded border-[var(--color-neutral-300)]"
-            aria-label={`Selecionar ${getRowLabel(entity, row)}`}
-          />
-        </TableCell>
+        {canManageCadastros ? (
+          <TableCell onClick={(event) => event.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={Boolean(selectedRowsById[row.id])}
+              onChange={() => toggleRowSelection(row)}
+              className="h-4 w-4 rounded border-[var(--color-neutral-300)]"
+              aria-label={`Selecionar ${getRowLabel(entity, row)}`}
+            />
+          </TableCell>
+        ) : null}
         {entity === "itens" ? (
           <>
             <TableCell>
@@ -2044,6 +2399,16 @@ export function CadastrosPage() {
             <TableCell>{row.email ?? "-"}</TableCell>
           </>
         ) : null}
+        {entity === "cargos" || entity === "funcoes" ? (
+          <>
+            <TableCell>
+              <div className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.nome, search)}</div>
+              <div className="text-xs font-mono text-[var(--color-neutral-500)]">{row.codigo ?? "Sem código"}</div>
+            </TableCell>
+            <TableCell>{entity === "cargos" ? row.categoria ?? "-" : row.descricao ?? "-"}</TableCell>
+            <TableCell>{row.descricao ?? "-"}</TableCell>
+          </>
+        ) : null}
         {entity === "pessoas" || entity === "servidores" ? (
           <>
             <TableCell>
@@ -2069,7 +2434,9 @@ export function CadastrosPage() {
             <TableCell>
               <div className="font-semibold text-[var(--color-primary-900)]">{highlightTerm(row.name, search)}</div>
               <div className="text-xs font-mono text-[var(--color-neutral-500)]">{row.username ?? "-"}</div>
-              <div className="mt-1 text-xs text-[var(--color-neutral-500)]">{row.identityStatus === "completo" ? "Identidade completa" : "Identidade pendente"}</div>
+              <div className="mt-1 text-xs font-semibold text-[var(--color-primary-700)]">
+                {identityStatusLabels[resolveCadastroIdentityStatus(row)]}
+              </div>
             </TableCell>
             <TableCell>{roleLabels[row.role] ?? row.role}</TableCell>
             <TableCell>
@@ -2092,25 +2459,27 @@ export function CadastrosPage() {
         <TableCell>{row.atualizadoEm ? formatShortDateTimeBR(row.atualizadoEm) : "-"}</TableCell>
         <TableCell className="text-right">
           <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedRecordId(row.id)} icon={<History className="h-4 w-4" />}>
-              Auditoria
-            </Button>
-            {entity === "itens" || entity === "fornecedores" ? (
+            {canAuditCadastros ? (
+              <Button variant="ghost" size="sm" onClick={() => setSelectedRecordId(row.id)} icon={<History className="h-4 w-4" />}>
+                Auditoria
+              </Button>
+            ) : null}
+            {canManageCadastros && (entity === "itens" || entity === "fornecedores") ? (
               <Button variant="secondary" size="sm" onClick={() => openDuplicateModal(row)} icon={<Copy className="h-4 w-4" />}>
                 Duplicar
               </Button>
             ) : null}
-            {entity === "fornecedores" ? (
+            {canManageCadastros && entity === "fornecedores" ? (
               <Button variant="secondary" size="sm" onClick={() => openMergeModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
                 Unificar
               </Button>
             ) : null}
-            {entity === "itens" ? (
+            {canManageCadastros && entity === "itens" ? (
               <Button variant="secondary" size="sm" onClick={() => openMergeItemModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
                 Unificar
               </Button>
             ) : null}
-            {entity === "pessoas" || entity === "servidores" ? (
+            {canManageCadastros && (entity === "pessoas" || entity === "servidores") ? (
               <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(row)} icon={<RefreshCcw className="h-4 w-4" />}>
                 Unificar
               </Button>
@@ -2125,12 +2494,16 @@ export function CadastrosPage() {
                 Dossie
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => openEditModal(row)} icon={<Pencil className="h-4 w-4" />}>
-              Editar
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => void handleDelete(row)} icon={<Trash2 className="h-4 w-4" />}>
-              Inativar
-            </Button>
+            {canManageCadastros ? (
+              <Button variant="outline" size="sm" onClick={() => openEditModal(row)} icon={<Pencil className="h-4 w-4" />}>
+                Editar
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <Button variant="destructive" size="sm" onClick={() => void handleDelete(row)} icon={<Trash2 className="h-4 w-4" />}>
+                Inativar
+              </Button>
+            ) : null}
           </div>
         </TableCell>
       </TableRow>
@@ -2150,7 +2523,7 @@ export function CadastrosPage() {
         }
       >
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {entityMeta.map((item) => {
+          {visibleEntityMeta.map((item) => {
             const Icon = item.icon;
             const active = entity === item.key;
             return (
@@ -2261,19 +2634,23 @@ export function CadastrosPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setExportModalOpen(true)} disabled={!rows.length} icon={<Download className="h-4 w-4" />}>
-            Exportação avançada
-          </Button>
-          <Button onClick={openCreateModal} icon={<Plus className="h-4 w-4" />}>
-            Novo {meta.singular}
-          </Button>
+          {canManageCadastros ? (
+            <>
+              <Button variant="outline" onClick={() => setExportModalOpen(true)} disabled={!rows.length} icon={<Download className="h-4 w-4" />}>
+                Exportação avançada
+              </Button>
+              <Button onClick={openCreateModal} icon={<Plus className="h-4 w-4" />}>
+                Novo {meta.singular}
+              </Button>
+            </>
+          ) : null}
         </div>
       </SectionCard>
 
       {feedback ? <Alert variant="success">{feedback}</Alert> : null}
       {error ? <Alert variant="error">{error}</Alert> : null}
       {listQuery.error ? <Alert variant="error">Falha ao carregar os cadastros da entidade selecionada.</Alert> : null}
-      {supportsMergeEntity ? (
+      {canManageCadastros && supportsMergeEntity ? (
         <SectionCard
           title="Detecção Inteligente de Duplicidades"
           description={`Possíveis duplicações de ${meta.label.toLowerCase()} classificadas automaticamente para apoiar a unificação.`}
@@ -2397,7 +2774,7 @@ export function CadastrosPage() {
         </SectionCard>
       ) : null}
 
-      {supportsFornecedorWinnerBackfill ? (
+      {canManageCadastros && supportsFornecedorWinnerBackfill ? (
         <SectionCard
           title="Saneamento de Vencedores Importados"
           description="Fila auditável dos vencedores legados que ainda exigem revisão assistida ou nova tentativa de conciliação automática."
@@ -2411,6 +2788,11 @@ export function CadastrosPage() {
           <Alert variant="info">
             Esta rotina revisa apenas itens importados com vencedor textual ou vínculo legado inconsistente. O sistema só grava alterações quando encontra correspondência segura e preserva a origem como <code>SANEAMENTO_FORNECEDOR</code>.
           </Alert>
+          {!isAdmin ? (
+            <Alert variant="info">
+              Gestores podem revisar a fila; a execução e a confirmação dos vínculos são exclusivas de administradores.
+            </Alert>
+          ) : null}
 
           <div className="mt-4 mb-4 flex flex-wrap gap-2">
             <Button
@@ -2422,14 +2804,16 @@ export function CadastrosPage() {
             >
               Reprocessar fila
             </Button>
-            <Button
-              size="sm"
-              onClick={() => void handleRunFornecedorWinnerBackfill()}
-              loading={runFornecedorWinnerBackfillMutation.isPending}
-              icon={<CheckCheck className="h-4 w-4" />}
-            >
-              Executar saneamento
-            </Button>
+            {isAdmin ? (
+              <Button
+                size="sm"
+                onClick={() => void handleRunFornecedorWinnerBackfill()}
+                loading={runFornecedorWinnerBackfillMutation.isPending}
+                icon={<CheckCheck className="h-4 w-4" />}
+              >
+                Executar saneamento
+              </Button>
+            ) : null}
             <Button
               variant={winnerBackfillOnlyWithSuggestion ? "secondary" : "outline"}
               size="sm"
@@ -2514,31 +2898,35 @@ export function CadastrosPage() {
                             Dossie sugerido
                           </Button>
                         ) : null}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openWinnerLinkModal(row)}
-                          icon={<Building2 className="h-4 w-4" />}
-                        >
-                          Escolher fornecedor
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openWinnerLinkProcessModal(row)}
-                          icon={<FolderTree className="h-4 w-4" />}
-                        >
-                          Revisão em lote
-                        </Button>
-                        {row.fornecedorSugeridoId ? (
-                          <Button
-                            size="sm"
-                            onClick={() => void handleConfirmFornecedorWinnerLink(row)}
-                            loading={confirmFornecedorWinnerBackfillMutation.isPending}
-                            icon={<CheckCheck className="h-4 w-4" />}
-                          >
-                            Confirmar vínculo
-                          </Button>
+                        {isAdmin ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openWinnerLinkModal(row)}
+                              icon={<Building2 className="h-4 w-4" />}
+                            >
+                              Escolher fornecedor
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openWinnerLinkProcessModal(row)}
+                              icon={<FolderTree className="h-4 w-4" />}
+                            >
+                              Revisão em lote
+                            </Button>
+                            {row.fornecedorSugeridoId ? (
+                              <Button
+                                size="sm"
+                                onClick={() => void handleConfirmFornecedorWinnerLink(row)}
+                                loading={confirmFornecedorWinnerBackfillMutation.isPending}
+                                icon={<CheckCheck className="h-4 w-4" />}
+                              >
+                                Confirmar vínculo
+                              </Button>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                       <div className="rounded-2xl bg-[var(--color-neutral-50)] px-3 py-2 text-xs text-[var(--color-neutral-600)]">
@@ -2627,31 +3015,35 @@ export function CadastrosPage() {
                                   Dossie do fornecedor
                                 </Button>
                               ) : null}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openWinnerLinkModal(row)}
-                                icon={<Building2 className="h-4 w-4" />}
-                              >
-                                Escolher fornecedor
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openWinnerLinkProcessModal(row)}
-                                icon={<FolderTree className="h-4 w-4" />}
-                              >
-                                Em lote
-                              </Button>
-                              {row.fornecedorSugeridoId ? (
-                                <Button
-                                  size="sm"
-                                  onClick={() => void handleConfirmFornecedorWinnerLink(row)}
-                                  loading={confirmFornecedorWinnerBackfillMutation.isPending}
-                                  icon={<CheckCheck className="h-4 w-4" />}
-                                >
-                                  Confirmar
-                                </Button>
+                              {isAdmin ? (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openWinnerLinkModal(row)}
+                                    icon={<Building2 className="h-4 w-4" />}
+                                  >
+                                    Escolher fornecedor
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => openWinnerLinkProcessModal(row)}
+                                    icon={<FolderTree className="h-4 w-4" />}
+                                  >
+                                    Em lote
+                                  </Button>
+                                  {row.fornecedorSugeridoId ? (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => void handleConfirmFornecedorWinnerLink(row)}
+                                      loading={confirmFornecedorWinnerBackfillMutation.isPending}
+                                      icon={<CheckCheck className="h-4 w-4" />}
+                                    >
+                                      Confirmar
+                                    </Button>
+                                  ) : null}
+                                </>
                               ) : null}
                             </div>
                           </TableCell>
@@ -2685,37 +3077,43 @@ export function CadastrosPage() {
       ) : null}
 
       <SectionCard title={`Lista de ${meta.label}`} description="Listagem paginada com ações de edição, inativação e atualização rápida.">
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.64))] p-4">
-          <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-800)]">
-            {selectedIds.length} selecionado(s)
-          </span>
-          <Button variant="secondary" size="sm" onClick={toggleVisibleSelection} disabled={!rows.length} icon={<CheckCheck className="h-4 w-4" />}>
-            {allVisibleSelected ? "Limpar página" : "Selecionar página"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setSelectedRowsById({})} disabled={!selectedIds.length}>
-            Limpar seleção
-          </Button>
-          {supportsMergeEntity ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={openBulkMergeModal}
-              disabled={selectedIds.length < 2}
-              icon={<RefreshCcw className="h-4 w-4" />}
-            >
-              Unificar selecionados
+        {canManageCadastros ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[24px] border border-[rgba(204,225,255,0.92)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(230,240,255,0.64))] p-4">
+            <span className="rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-800)]">
+              {selectedIds.length} selecionado(s)
+            </span>
+            <Button variant="secondary" size="sm" onClick={toggleVisibleSelection} disabled={!rows.length} icon={<CheckCheck className="h-4 w-4" />}>
+              {allVisibleSelected ? "Limpar página" : "Selecionar página"}
             </Button>
-          ) : null}
-          <Button variant="outline" size="sm" onClick={() => void handleBulkStatus(true)} disabled={!selectedIds.length || bulkStatusMutation.isPending} icon={<RefreshCcw className="h-4 w-4" />}>
-            Reativar selecionados
-          </Button>
-          <Button variant="destructive" size="sm" onClick={() => void handleBulkStatus(false)} disabled={!selectedIds.length || bulkStatusMutation.isPending} icon={<Trash2 className="h-4 w-4" />}>
-            Inativar selecionados
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setExportModalOpen(true)} disabled={!rows.length && !selectedIds.length} icon={<Download className="h-4 w-4" />}>
-            Exportar
-          </Button>
-        </div>
+            <Button variant="outline" size="sm" onClick={() => setSelectedRowsById({})} disabled={!selectedIds.length}>
+              Limpar seleção
+            </Button>
+            {supportsMergeEntity ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={openBulkMergeModal}
+                disabled={selectedIds.length < 2}
+                icon={<RefreshCcw className="h-4 w-4" />}
+              >
+                Unificar selecionados
+              </Button>
+            ) : null}
+            {isAdmin ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => void handleBulkStatus(true)} disabled={!selectedIds.length || bulkStatusMutation.isPending} icon={<RefreshCcw className="h-4 w-4" />}>
+                  Reativar selecionados
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => void handleBulkStatus(false)} disabled={!selectedIds.length || bulkStatusMutation.isPending} icon={<Trash2 className="h-4 w-4" />}>
+                  Inativar selecionados
+                </Button>
+              </>
+            ) : null}
+            <Button variant="ghost" size="sm" onClick={() => setExportModalOpen(true)} disabled={!rows.length && !selectedIds.length} icon={<Download className="h-4 w-4" />}>
+              Exportar
+            </Button>
+          </div>
+        ) : null}
 
         {listQuery.isLoading ? (
           <div className="space-y-3">
@@ -2731,11 +3129,13 @@ export function CadastrosPage() {
                   row={row}
                   search={search}
                   selected={Boolean(selectedRowsById[row.id])}
-                  onSelect={() => toggleRowSelection(row)}
-                  onOpenAudit={() => setSelectedRecordId(row.id)}
-                  onDuplicate={entity === "itens" || entity === "fornecedores" ? () => openDuplicateModal(row) : undefined}
+                  onSelect={canManageCadastros ? () => toggleRowSelection(row) : undefined}
+                  onOpenAudit={canAuditCadastros ? () => setSelectedRecordId(row.id) : undefined}
+                  onDuplicate={canManageCadastros && (entity === "itens" || entity === "fornecedores") ? () => openDuplicateModal(row) : undefined}
                   onMerge={
-                    entity === "itens"
+                    !canManageCadastros
+                      ? undefined
+                      : entity === "itens"
                       ? () => openMergeItemModal(row)
                       : entity === "fornecedores"
                       ? () => openMergeModal(row)
@@ -2743,8 +3143,8 @@ export function CadastrosPage() {
                         ? () => openMergePessoaModal(row)
                         : undefined
                   }
-                  onEdit={() => openEditModal(row)}
-                  onDelete={() => void handleDelete(row)}
+                  onEdit={canManageCadastros ? () => openEditModal(row) : undefined}
+                  onDelete={isAdmin ? () => void handleDelete(row) : undefined}
                 />
               ))}
             </div>
@@ -2753,18 +3153,20 @@ export function CadastrosPage() {
               <Table className="min-w-[960px]">
                 <TableHead>
                   <tr>
-                    <TableHeaderCell className="w-12">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleVisibleSelection}
-                        className="h-4 w-4 rounded border-[var(--color-neutral-300)]"
-                        aria-label="Selecionar página atual"
-                      />
-                    </TableHeaderCell>
+                    {canManageCadastros ? (
+                      <TableHeaderCell className="w-12">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={toggleVisibleSelection}
+                          className="h-4 w-4 rounded border-[var(--color-neutral-300)]"
+                          aria-label="Selecionar página atual"
+                        />
+                      </TableHeaderCell>
+                    ) : null}
                     <TableHeaderCell>{entity === "parametros" ? "Registro" : meta.singular.charAt(0).toUpperCase() + meta.singular.slice(1)}</TableHeaderCell>
-                    <TableHeaderCell>{entity === "itens" ? "Unidade" : entity === "fornecedores" ? "Cidade" : entity === "secretarias" ? "Responsável" : entity === "pessoas" || entity === "servidores" ? "Matrícula/Cargo" : entity === "departamentos" ? "Secretaria" : entity === "usuarios" ? "Perfil" : "Valor"}</TableHeaderCell>
-                    <TableHeaderCell>{entity === "itens" ? "Valor ref." : entity === "fornecedores" ? "E-mail" : entity === "secretarias" ? "E-mail" : entity === "pessoas" || entity === "servidores" ? "Secretaria" : entity === "departamentos" ? "Responsável" : entity === "usuarios" ? "Secretaria" : "Descrição"}</TableHeaderCell>
+                    <TableHeaderCell>{entity === "itens" ? "Unidade" : entity === "fornecedores" ? "Cidade" : entity === "secretarias" ? "Responsável" : entity === "cargos" ? "Categoria" : entity === "funcoes" ? "Descrição" : entity === "pessoas" || entity === "servidores" ? "Matrícula/Cargo" : entity === "departamentos" ? "Secretaria" : entity === "usuarios" ? "Perfil" : "Valor"}</TableHeaderCell>
+                    <TableHeaderCell>{entity === "itens" ? "Valor ref." : entity === "fornecedores" ? "E-mail" : entity === "secretarias" ? "E-mail" : entity === "cargos" || entity === "funcoes" ? "Descrição" : entity === "pessoas" || entity === "servidores" ? "Secretaria" : entity === "departamentos" ? "Responsável" : entity === "usuarios" ? "Secretaria" : "Descrição"}</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
                     <TableHeaderCell>Atualizado</TableHeaderCell>
                     <TableHeaderCell className="text-right">Ações</TableHeaderCell>
@@ -2786,7 +3188,7 @@ export function CadastrosPage() {
         )}
       </SectionCard>
 
-      {selectedRecord ? (
+      {selectedRecord && canAuditCadastros ? (
         <SectionCard
           title={`Auditoria de ${meta.singular}`}
           description={`Histórico detalhado do registro selecionado: ${getRowLabel(entity, selectedRecord)}.`}
@@ -2809,28 +3211,32 @@ export function CadastrosPage() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 pt-2">
-                <Button variant="outline" size="sm" onClick={() => openEditModal(selectedRecord)} icon={<Pencil className="h-4 w-4" />}>
-                  Editar registro
-                </Button>
-                {entity === "itens" || entity === "fornecedores" ? (
-                  <Button variant="secondary" size="sm" onClick={() => openDuplicateModal(selectedRecord)} icon={<Copy className="h-4 w-4" />}>
-                    Duplicar
-                  </Button>
-                ) : null}
-                {entity === "fornecedores" ? (
-                  <Button variant="secondary" size="sm" onClick={() => openMergeModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
-                    Unificar cadastro
-                  </Button>
-                ) : null}
-                {entity === "itens" ? (
-                  <Button variant="secondary" size="sm" onClick={() => openMergeItemModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
-                    Unificar cadastro
-                  </Button>
-                ) : null}
-                {entity === "pessoas" || entity === "servidores" ? (
-                  <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
-                    Unificar cadastro
-                  </Button>
+                {canManageCadastros ? (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => openEditModal(selectedRecord)} icon={<Pencil className="h-4 w-4" />}>
+                      Editar registro
+                    </Button>
+                    {entity === "itens" || entity === "fornecedores" ? (
+                      <Button variant="secondary" size="sm" onClick={() => openDuplicateModal(selectedRecord)} icon={<Copy className="h-4 w-4" />}>
+                        Duplicar
+                      </Button>
+                    ) : null}
+                    {entity === "fornecedores" ? (
+                      <Button variant="secondary" size="sm" onClick={() => openMergeModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                        Unificar cadastro
+                      </Button>
+                    ) : null}
+                    {entity === "itens" ? (
+                      <Button variant="secondary" size="sm" onClick={() => openMergeItemModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                        Unificar cadastro
+                      </Button>
+                    ) : null}
+                    {entity === "pessoas" || entity === "servidores" ? (
+                      <Button variant="secondary" size="sm" onClick={() => openMergePessoaModal(selectedRecord)} icon={<RefreshCcw className="h-4 w-4" />}>
+                        Unificar cadastro
+                      </Button>
+                    ) : null}
+                  </>
                 ) : null}
                 <Button variant="ghost" size="sm" onClick={() => void historyQuery.refetch()} icon={<RefreshCcw className="h-4 w-4" />}>
                   Atualizar trilha
@@ -3238,7 +3644,19 @@ export function CadastrosPage() {
         title={`${editingId ? "Editar" : "Novo"} ${meta.singular}`}
         description="Preencha os campos abaixo. Todas as alterações ficam registradas na auditoria do sistema."
       >
+        {editingId && getByIdQuery.isFetching ? (
+          <div className="space-y-3" role="status" aria-label="Carregando cadastro atualizado">
+            <Skeleton className="h-20 w-full rounded-[24px]" />
+            <Skeleton className="h-20 w-full rounded-[24px]" />
+            <Skeleton className="h-12 w-48 rounded-[20px]" />
+          </div>
+        ) : editingId && getByIdQuery.error ? (
+          <Alert variant="error">
+            Não foi possível carregar o cadastro atualizado: {getByIdQuery.error.message}
+          </Alert>
+        ) : (
         <form className="space-y-4" onSubmit={handleSubmit}>
+          {error ? <Alert variant="error">{error}</Alert> : null}
           <div className="grid gap-4 md:grid-cols-2">
             {entity === "itens" ? (
               <>
@@ -3300,8 +3718,71 @@ export function CadastrosPage() {
               </>
             ) : null}
 
+            {entity === "cargos" || entity === "funcoes" ? (
+              <>
+                <FormField label="Código" error={fieldError("codigo")}>
+                  <Input value={formState.codigo ?? ""} onChange={(event) => updateForm("codigo", event.target.value.toUpperCase())} placeholder="Opcional" />
+                </FormField>
+                <FormField label={entity === "cargos" ? "Nome do cargo" : "Nome da função"} error={fieldError("nome")}>
+                  <Input value={formState.nome ?? ""} onChange={(event) => updateForm("nome", event.target.value)} />
+                </FormField>
+                {entity === "cargos" ? (
+                  <FormField label="Categoria" className="md:col-span-2" error={fieldError("categoria")}>
+                    <Input value={formState.categoria ?? ""} onChange={(event) => updateForm("categoria", event.target.value)} placeholder="Opcional" />
+                  </FormField>
+                ) : null}
+                <FormField label="Descrição" className="md:col-span-2" error={fieldError("descricao")}>
+                  <Textarea value={formState.descricao ?? ""} onChange={(event) => updateForm("descricao", event.target.value)} className="border-[rgba(204,225,255,0.92)] text-[var(--color-neutral-800)] focus:border-[var(--color-primary-400)]" />
+                </FormField>
+              </>
+            ) : null}
+
             {entity === "pessoas" || entity === "servidores" ? (
               <>
+                {entity === "servidores" && !editingId ? (
+                  <FormField
+                    label="Pessoa já cadastrada"
+                    className="md:col-span-2"
+                    description="Selecione uma Pessoa para transformar o mesmo registro em Servidor, sem criar duplicata."
+                  >
+                    <AsyncCombobox
+                      value={formState.basePessoaId || null}
+                      onChange={(option) => void handleServidorPessoaSelected(option)}
+                      query={queryPessoas}
+                      getOptionValue={(option) => option.id}
+                      getOptionLabel={lookupOptionLabel}
+                      initialOption={(formState.basePessoaOption as LookupOption | null) ?? null}
+                      ariaLabel="Pessoa já cadastrada"
+                      renderOption={(option) => (
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-semibold">{lookupOptionLabel(option)}</span>
+                          {lookupOptionDetails(option) ? <span className="truncate text-xs text-[var(--color-neutral-500)]">{lookupOptionDetails(option)}</span> : null}
+                        </span>
+                      )}
+                      placeholder="Buscar Pessoa existente"
+                      searchPlaceholder="Nome, CPF ou matrícula"
+                      minSearchLength={2}
+                      allowClear
+                      disabled={identityLookupLoading}
+                      createOptionLabel="Cadastrar nova pessoa"
+                      onCreateOption={(searchValue) => {
+                        identityLookupSequenceRef.current += 1;
+                        setIdentityLookupLoading(false);
+                        setFormState({
+                          ...getDefaultForm("servidores"),
+                          nome: searchValue,
+                        });
+                      }}
+                    />
+                  </FormField>
+                ) : null}
+                {entity === "servidores" && formState.basePessoaId ? (
+                  <div className="md:col-span-2">
+                    <Alert variant="info">
+                      Os dados abaixo pertencem à Pessoa selecionada e serão salvos no mesmo cadastro. Revise e complete apenas os campos necessários.
+                    </Alert>
+                  </div>
+                ) : null}
                 <FormField label={entity === "servidores" ? "Nome do servidor" : "Nome da pessoa"} error={fieldError("nome")}>
                   <Input value={formState.nome ?? ""} onChange={(event) => updateForm("nome", event.target.value)} />
                 </FormField>
@@ -3314,16 +3795,67 @@ export function CadastrosPage() {
                 <FormField label="Data de nascimento" error={fieldError("dataNascimento")}>
                   <Input type="date" value={formState.dataNascimento ?? ""} onChange={(event) => updateForm("dataNascimento", event.target.value)} />
                 </FormField>
-                <FormField label="Cargo" error={fieldError("cargo")}>
-                  <Input value={formState.cargo ?? ""} onChange={(event) => updateForm("cargo", event.target.value)} />
+                {possibleDuplicatePeople.length ? (
+                  <div className="md:col-span-2">
+                    <Alert variant="info">
+                      <div className="space-y-2">
+                        <p>Encontramos Pessoas com nome semelhante. Selecione uma para evitar duplicidade.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {possibleDuplicatePeople.slice(0, 3).map((option) => (
+                            <Button key={option.id} variant="outline" size="sm" onClick={() => void handlePotentialDuplicateSelected(option)}>
+                              {lookupOptionLabel(option)}
+                              {lookupOptionDetails(option) ? ` · ${lookupOptionDetails(option)}` : ""}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    </Alert>
+                  </div>
+                ) : null}
+                <FormField label="Cargo" error={fieldError("cargoId")}>
+                  <AsyncCombobox
+                    value={formState.cargoId || null}
+                    onChange={(option) => updateLookupForm("cargoId", "cargoOption", option)}
+                    query={queryCargos}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={lookupOptionLabel}
+                    initialOption={(formState.cargoOption as LookupOption | null) ?? null}
+                    ariaLabel="Cargo"
+                    placeholder={formState.cargo ? `${formState.cargo} (legado)` : "Selecione o cargo"}
+                    searchPlaceholder="Buscar cargo"
+                    minSearchLength={0}
+                    allowClear={entity === "pessoas"}
+                  />
+                </FormField>
+                <FormField label="Função" error={fieldError("funcaoId")}>
+                  <AsyncCombobox
+                    value={formState.funcaoId || null}
+                    onChange={(option) => updateLookupForm("funcaoId", "funcaoOption", option)}
+                    query={queryFuncoes}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={lookupOptionLabel}
+                    initialOption={(formState.funcaoOption as LookupOption | null) ?? null}
+                    ariaLabel="Função"
+                    placeholder="Sem função"
+                    searchPlaceholder="Buscar função"
+                    minSearchLength={0}
+                    allowClear
+                  />
                 </FormField>
                 <FormField label="Secretaria" error={fieldError("secretariaId")}>
-                  <Select value={formState.secretariaId ?? ""} onChange={(event) => updateForm("secretariaId", event.target.value)}>
-                    <option value="">{entity === "servidores" ? "Selecione" : "Sem vínculo"}</option>
-                    {optionsQuery.data?.secretarias.map((item) => (
-                      <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
-                    ))}
-                  </Select>
+                  <AsyncCombobox
+                    value={formState.secretariaId || null}
+                    onChange={(option) => updateLookupForm("secretariaId", "secretariaOption", option)}
+                    query={querySecretarias}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={(option) => option.sigla ? `${option.sigla} - ${lookupOptionLabel(option)}` : lookupOptionLabel(option)}
+                    initialOption={(formState.secretariaOption as LookupOption | null) ?? null}
+                    ariaLabel="Secretaria da pessoa ou servidor"
+                    placeholder={entity === "servidores" ? "Selecione a secretaria" : "Sem vínculo"}
+                    searchPlaceholder="Nome ou sigla"
+                    minSearchLength={0}
+                    allowClear={entity === "pessoas"}
+                  />
                 </FormField>
               </>
             ) : null}
@@ -3337,20 +3869,48 @@ export function CadastrosPage() {
                   <Input value={formState.codigoCentroCusto ?? ""} onChange={(event) => updateForm("codigoCentroCusto", event.target.value.toUpperCase())} />
                 </FormField>
                 <FormField label="Secretaria" error={fieldError("secretariaId")}>
-                  <Select value={formState.secretariaId ?? ""} onChange={(event) => updateForm("secretariaId", event.target.value)}>
-                    <option value="">Selecione</option>
-                    {optionsQuery.data?.secretarias.map((item) => (
-                      <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
-                    ))}
-                  </Select>
+                  <AsyncCombobox
+                    value={formState.secretariaId || null}
+                    onChange={(option) => {
+                      setFormState((current) => ({
+                        ...current,
+                        secretariaId: option ? String(option.id) : "",
+                        secretariaOption: option,
+                        responsavelId: "",
+                        responsavelOption: null,
+                      }));
+                    }}
+                    query={querySecretarias}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={(option) => option.sigla ? `${option.sigla} - ${lookupOptionLabel(option)}` : lookupOptionLabel(option)}
+                    initialOption={(formState.secretariaOption as LookupOption | null) ?? null}
+                    ariaLabel="Secretaria do departamento"
+                    placeholder="Selecione a secretaria"
+                    searchPlaceholder="Nome ou sigla"
+                    minSearchLength={0}
+                  />
                 </FormField>
                 <FormField label="Responsável" error={fieldError("responsavelId")}>
-                  <Select value={formState.responsavelId ?? ""} onChange={(event) => updateForm("responsavelId", event.target.value)}>
-                    <option value="">Não definir</option>
-                    {optionsQuery.data?.pessoas.map((item) => (
-                      <option key={item.id} value={item.id}>{item.nome}{item.cargo ? ` - ${item.cargo}` : ""}</option>
-                    ))}
-                  </Select>
+                  <AsyncCombobox
+                    value={formState.responsavelId || null}
+                    onChange={(option) => updateLookupForm("responsavelId", "responsavelOption", option)}
+                    query={queryResponsaveis}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={lookupOptionLabel}
+                    initialOption={(formState.responsavelOption as LookupOption | null) ?? null}
+                    ariaLabel="Responsável pelo departamento"
+                    renderOption={(option) => (
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-semibold">{lookupOptionLabel(option)}</span>
+                        {lookupOptionDetails(option) ? <span className="truncate text-xs text-[var(--color-neutral-500)]">{lookupOptionDetails(option)}</span> : null}
+                      </span>
+                    )}
+                    placeholder="Não definir"
+                    searchPlaceholder="Buscar servidor responsável"
+                    minSearchLength={2}
+                    allowClear
+                    disabled={!formState.secretariaId}
+                  />
                 </FormField>
                 <FormField label="Descrição" className="md:col-span-2" error={fieldError("descricao")}>
                   <Textarea value={formState.descricao ?? ""} onChange={(event) => updateForm("descricao", event.target.value)} className="border-[rgba(204,225,255,0.92)] text-[var(--color-neutral-800)] focus:border-[var(--color-primary-400)]" />
@@ -3368,6 +3928,22 @@ export function CadastrosPage() {
                 <FormField label="Nome" error={fieldError("name")}>
                   <Input value={formState.name ?? ""} onChange={(event) => updateForm("name", event.target.value)} />
                 </FormField>
+                {possibleDuplicatePeople.length ? (
+                  <div className="md:col-span-2">
+                    <Alert variant="info">
+                      <div className="space-y-2">
+                        <p>Encontramos Pessoas com nome semelhante. Vincule a identidade correta para evitar duplicidade.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {possibleDuplicatePeople.slice(0, 3).map((option) => (
+                            <Button key={option.id} variant="outline" size="sm" onClick={() => void handleUsuarioPessoaSelected(option)}>
+                              {lookupOptionLabel(option)}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    </Alert>
+                  </div>
+                ) : null}
                 <FormField label="Perfil" error={fieldError("role")}>
                   <Select value={formState.role ?? "operador"} onChange={(event) => updateForm("role", event.target.value)}>
                     {optionsQuery.data?.userRoles.map((item) => (
@@ -3376,23 +3952,53 @@ export function CadastrosPage() {
                   </Select>
                 </FormField>
                 <FormField label="Secretaria" error={fieldError("secretariaId")}>
-                  <Select value={formState.secretariaId ?? ""} onChange={(event) => updateForm("secretariaId", event.target.value)}>
-                    <option value="">Sem vínculo</option>
-                    {optionsQuery.data?.secretarias.map((item) => (
-                      <option key={item.id} value={item.id}>{item.sigla} - {item.nome}</option>
-                    ))}
-                  </Select>
+                  <AsyncCombobox
+                    value={formState.secretariaId || null}
+                    onChange={(option) => updateLookupForm("secretariaId", "secretariaOption", option)}
+                    query={querySecretarias}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={(option) => option.sigla ? `${option.sigla} - ${lookupOptionLabel(option)}` : lookupOptionLabel(option)}
+                    initialOption={(formState.secretariaOption as LookupOption | null) ?? null}
+                    ariaLabel="Secretaria do usuário"
+                    placeholder="Sem vínculo"
+                    searchPlaceholder="Nome ou sigla"
+                    minSearchLength={0}
+                    allowClear
+                  />
                 </FormField>
                 <FormField label="Pessoa/servidor vinculado" className="md:col-span-2" error={fieldError("pessoaId")}>
-                  <Select value={formState.pessoaId ?? ""} onChange={(event) => updateForm("pessoaId", event.target.value)}>
-                    <option value="">Sem vínculo de identidade</option>
-                    {optionsQuery.data?.pessoas.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.nome}{item.matricula ? ` - mat. ${item.matricula}` : ""}{item.cpf ? ` - ${formatCpf(item.cpf)}` : ""}
-                      </option>
-                    ))}
-                  </Select>
+                  <AsyncCombobox
+                    value={formState.pessoaId || null}
+                    onChange={(option) => void handleUsuarioPessoaSelected(option)}
+                    query={queryPessoas}
+                    getOptionValue={(option) => option.id}
+                    getOptionLabel={lookupOptionLabel}
+                    initialOption={(formState.pessoaOption as LookupOption | null) ?? null}
+                    ariaLabel="Pessoa ou servidor vinculado ao usuário"
+                    renderOption={(option) => (
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-semibold">{lookupOptionLabel(option)}</span>
+                        {lookupOptionDetails(option) ? <span className="truncate text-xs text-[var(--color-neutral-500)]">{lookupOptionDetails(option)}</span> : null}
+                      </span>
+                    )}
+                    placeholder="Sem vínculo de identidade"
+                    searchPlaceholder="Nome, CPF ou matrícula"
+                    minSearchLength={2}
+                    allowClear
+                    disabled={identityLookupLoading}
+                  />
                 </FormField>
+                <div className="md:col-span-2">
+                  <Alert variant={resolveCadastroIdentityStatus({
+                    pessoaId: formState.pessoaId ? Number(formState.pessoaId) : null,
+                    identityStatus: formState.identityStatus,
+                  }) === "conflito" ? "error" : "info"}>
+                    Status: {identityStatusLabels[resolveCadastroIdentityStatus({
+                      pessoaId: formState.pessoaId ? Number(formState.pessoaId) : null,
+                      identityStatus: formState.identityStatus,
+                    })]}
+                  </Alert>
+                </div>
                 <FormField label="E-mail" className="md:col-span-2" error={fieldError("email")}>
                   <Input type="email" value={formState.email ?? ""} onChange={(event) => updateForm("email", event.target.value)} />
                 </FormField>
@@ -3514,6 +4120,7 @@ export function CadastrosPage() {
             </Button>
           </div>
         </form>
+        )}
       </Modal>
 
       <Modal

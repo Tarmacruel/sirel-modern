@@ -12,7 +12,7 @@ import {
 
 import { requireDb } from "../db/client.js";
 import { logAuthEvent } from "../db/auth-log.js";
-import { authLog, secretarias, users } from "../db/schema.js";
+import { authLog, pessoas, secretarias, users } from "../db/schema.js";
 import { hashPassword, verifyPassword } from "../lib/auth-password.js";
 import {
   assertSelfAdminAccessPreserved,
@@ -21,6 +21,39 @@ import {
   saveUserSubsystemAccess,
 } from "../lib/subsystem-access.js";
 import { adminProcedure, auditorProcedure, protectedProcedure, router } from "../trpc.js";
+
+function hasCompleteIdentityFields(person: typeof pessoas.$inferSelect) {
+  return (
+    (person.cpf ?? "").replace(/\D/g, "").length === 11 &&
+    Boolean(person.matricula?.trim()) &&
+    Boolean(person.dataNascimento)
+  );
+}
+
+async function loadLinkedPessoa(
+  db: ReturnType<typeof requireDb>,
+  pessoaId: number | null,
+  excludeUserId?: number,
+) {
+  if (!pessoaId) return null;
+  const [person] = await db.select().from(pessoas).where(eq(pessoas.id, pessoaId)).limit(1);
+  if (!person) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa/servidor nao encontrado para vinculo." });
+  }
+  const filters = [
+    eq(users.pessoaId, pessoaId),
+    excludeUserId ? sql`${users.id} <> ${excludeUserId}` : undefined,
+  ].filter(Boolean) as any[];
+  const [existingLink] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(...filters))
+    .limit(1);
+  if (existingLink) {
+    throw new TRPCError({ code: "CONFLICT", message: "Esta pessoa ja esta vinculada a outro usuario." });
+  }
+  return person;
+}
 
 export const usuariosRouter = router({
   accessLog: auditorProcedure
@@ -75,12 +108,16 @@ export const usuariosRouter = router({
         ativo: users.ativo,
         secretariaId: users.secretariaId,
         secretaria: secretarias.nome,
+        pessoaId: users.pessoaId,
+        pessoaNome: pessoas.nome,
+        pessoaMatricula: pessoas.matricula,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
         lastSignedIn: users.lastSignedIn,
       })
       .from(users)
       .leftJoin(secretarias, eq(secretarias.id, users.secretariaId))
+      .leftJoin(pessoas, eq(pessoas.id, users.pessoaId))
       .where(whereClause)
       .orderBy(asc(users.name));
 
@@ -97,6 +134,8 @@ export const usuariosRouter = router({
 
   create: adminProcedure.input(usuarioCreateInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
+    const pessoaId = input.pessoaId ?? null;
+    const linkedPessoa = await loadLinkedPessoa(db, pessoaId);
     const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, input.username)).limit(1);
     if (existing.length) {
       throw new TRPCError({ code: "CONFLICT", message: "Ja existe um usuario com esse login." });
@@ -106,12 +145,15 @@ export const usuariosRouter = router({
       .insert(users)
       .values({
         username: input.username.trim().toLowerCase(),
-        name: input.name.trim(),
+        name: linkedPessoa?.nome ?? input.name.trim(),
         email: input.email?.trim().toLowerCase() || null,
         loginMethod: "local_password",
         passwordHash: hashPassword(input.password),
         role: input.role,
-        secretariaId: input.secretariaId ?? null,
+        secretariaId: linkedPessoa?.secretariaId ?? input.secretariaId ?? null,
+        pessoaId,
+        identityProfileCompletedAt:
+          linkedPessoa && hasCompleteIdentityFields(linkedPessoa) ? new Date() : null,
         ativo: input.ativo,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -124,6 +166,7 @@ export const usuariosRouter = router({
         role: users.role,
         ativo: users.ativo,
         secretariaId: users.secretariaId,
+        pessoaId: users.pessoaId,
       });
 
     const subsystemAccess = await saveUserSubsystemAccess({
@@ -145,13 +188,36 @@ export const usuariosRouter = router({
     });
 
     const db = requireDb();
+    const [before] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!before) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Usuario nao encontrado." });
+    }
+    const pessoaId = input.pessoaId === undefined ? before.pessoaId : input.pessoaId;
+    const linkedPessoa = await loadLinkedPessoa(db, pessoaId, input.userId);
+    const resolvedName = linkedPessoa?.nome ?? input.name.trim();
+    const resolvedEmail = input.email?.trim().toLowerCase() || null;
+    const resolvedSecretariaId = linkedPessoa?.secretariaId ?? input.secretariaId ?? null;
+    const sessionClaimsChanged =
+      before.name !== resolvedName ||
+      before.email !== resolvedEmail ||
+      before.role !== input.role ||
+      before.secretariaId !== resolvedSecretariaId ||
+      before.ativo !== input.ativo;
     const [updated] = await db
       .update(users)
       .set({
-        name: input.name.trim(),
-        email: input.email?.trim().toLowerCase() || null,
+        name: resolvedName,
+        email: resolvedEmail,
         role: input.role,
-        secretariaId: input.secretariaId ?? null,
+        secretariaId: resolvedSecretariaId,
+        pessoaId,
+        identityProfileCompletedAt:
+          linkedPessoa && hasCompleteIdentityFields(linkedPessoa)
+            ? before.identityProfileCompletedAt ?? new Date()
+            : null,
+        sessionVersion: sessionClaimsChanged
+          ? sql`${users.sessionVersion} + 1`
+          : before.sessionVersion,
         ativo: input.ativo,
         updatedAt: new Date(),
       })
@@ -164,6 +230,7 @@ export const usuariosRouter = router({
         role: users.role,
         ativo: users.ativo,
         secretariaId: users.secretariaId,
+        pessoaId: users.pessoaId,
       });
 
     if (!updated) {

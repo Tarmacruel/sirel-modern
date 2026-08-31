@@ -1,4 +1,4 @@
-﻿DO $$
+DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'prazo_processual_tipo') THEN
     CREATE TYPE "public"."prazo_processual_tipo" AS ENUM(
