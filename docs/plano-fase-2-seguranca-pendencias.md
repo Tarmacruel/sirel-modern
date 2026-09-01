@@ -14,7 +14,10 @@ Esta fase protege primeiro o ambiente interno e mantém um portal público míni
 - Downloads internos, relatórios, SDs e ativos de cadastro exigem autenticação. Documento restrito respeita `restritoA`; administrador sempre acessa e lista vazia libera apenas a usuários autenticados.
 - Upload autentica antes do Multer, limita tamanho/partes, rejeita extensões/MIME não permitidos, gera nome aleatório e valida assinatura de PDF.
 - Helmet, `X-Powered-By` desativado, CSP em `Report-Only`, respostas 404/500 sem detalhe interno e proxy confiável somente com `TRUST_PROXY` explícito.
-- Dependências vulneráveis foram atualizadas; `xlsx` foi substituído por `exceljs` nos fluxos de importação/exportação.
+- O servidor de desenvolvimento Vite fica restrito a `127.0.0.1`, porta fixa e acesso ao sistema de arquivos estrito; não há liberação curinga de hosts (`allowedHosts: []`) nem CORS aberto. O túnel encaminha o cabeçalho de host para `localhost:5173`, sem precisar abrir a allowlist.
+- O bootstrap da importação legada exige `SIREL_DEFAULT_PASSWORD` (mínimo de 12 caracteres), `SIREL_ADMIN_USERNAME` e `SIREL_ADMIN_NAME`; `SIREL_ADMIN_EMAIL` é opcional. Não há mais fallbacks `BETA_*` nem credenciais padrão no código.
+- `OPERACAO_LOCAL_SENSIVEL.txt` foi retirado do versionamento e é ignorado pelo Git. O único artefato versionado é o modelo sem segredos `OPERACAO_LOCAL_SENSIVEL.example.txt`, a ser copiado e preenchido localmente.
+- `xlsx` foi removido dos fluxos de importação/exportação. O nome de importação `exceljs` foi preservado como alias npm para `devextreme-exceljs-fork@4.4.11`, cuja distribuição não inclui a cadeia vulnerável de `uuid` no bundle de navegador.
 
 ## Bloqueadores globais antes de produção
 
@@ -22,7 +25,14 @@ Esta fase protege primeiro o ambiente interno e mantém um portal público míni
 2. Subir a CSP de observação para bloqueio após avaliar os relatórios de violação no ambiente de teste.
 3. Implementar limite de taxa por IP e por conta em login e recuperação, usando armazenamento compartilhado quando houver mais de uma instância.
 4. Concluir criptografia AES-256-GCM do artefato de backup antes do espelhamento OneDrive, com `BACKUP_ENCRYPTION_KEY` fora do repositório, ACL restritiva, checksum do cifrado e restauração de ZIP legado somente mediante confirmação explícita.
-5. Resolver as vulnerabilidades transitivas ainda reportadas por `npm audit --omit=dev` após validar a compatibilidade das bibliotecas de planilha e geração DOCX; não promover para produção com achados altos ou moderados.
+
+### Controle de dependências concluído
+
+Em 31/08/2026, a cadeia `exceljs -> uuid` vulnerável foi eliminada inclusive do bundle de navegador sem alterar os imports da aplicação: o alias npm `exceljs` resolve para `devextreme-exceljs-fork@4.4.11`. Após a substituição e a validação de compatibilidade, tanto `npm audit --omit=dev` quanto `npm audit` retornam 0 vulnerabilidades. Os dois comandos permanecem obrigatórios antes de cada promoção, sem aceitação de achados altos ou moderados em dependências de produção ou de desenvolvimento.
+
+### Segredos que possam ter sido versionados
+
+Retirar um arquivo do índice não remove seu conteúdo do histórico nem invalida cópias já realizadas. Todo segredo, credencial, URL privada ou chave que tenha sido versionado deve ser tratado como potencialmente exposto: revogar ou rotacionar o valor no serviço de origem, atualizar o ambiente local/de implantação e invalidar sessões, tokens ou chaves derivadas quando aplicável. A confirmação da rotação deve compor o registro operacional, sem registrar o valor secreto.
 
 ## Releases funcionais
 

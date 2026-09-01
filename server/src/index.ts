@@ -77,7 +77,7 @@ if (trustProxy === "true" || /^\d+$/.test(trustProxy)) {
   app.set("trust proxy", trustProxy === "true" ? 1 : Number(trustProxy));
 }
 const port = Number(process.env.PORT ?? 3030);
-const host = process.env.HOST ?? "0.0.0.0";
+const host = process.env.HOST ?? "127.0.0.1";
 const isProduction = process.env.NODE_ENV === "production";
 const clientUrl =
   process.env.CLIENT_URL ?? (isProduction ? "" : "http://localhost:5173");

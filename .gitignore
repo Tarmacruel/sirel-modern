@@ -7,6 +7,7 @@ coverage/
 .continueignore
 .env
 .env.local
+OPERACAO_LOCAL_SENSIVEL.txt
 *.tsbuildinfo
 *.log
 *.out

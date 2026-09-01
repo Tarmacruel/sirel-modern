@@ -12,6 +12,7 @@ import * as schema from "../db/schema.js";
 import { requireDb } from "../db/client.js";
 import { resetBetaDatabase } from "../db/reset.js";
 import { hashPassword } from "../lib/auth-password.js";
+import { resolveLegacyImportBootstrap } from "../lib/legacy-import-bootstrap.js";
 import { normalizeLegacyCatalogLabel, toCleanString } from "../lib/legacy-text-normalizer.js";
 
 const {
@@ -185,27 +186,8 @@ function parseArgs(argv: string[]): ImportArgs {
 async function main() {
   const db = requireDb();
   const cliArgs = parseArgs(process.argv.slice(2));
-  const defaultPassword =
-    process.env.SIREL_DEFAULT_PASSWORD ??
-    process.env.BETA_DEFAULT_PASSWORD ??
-    "Sirel@2026";
-  const defaultPasswordHash = hashPassword(defaultPassword);
-  const betaAdminUsername = normalizeUsername(
-    process.env.SIREL_ADMIN_USERNAME ??
-      process.env.BETA_ADMIN_USERNAME ??
-      "jonatas.sousa",
-    "jonatas.sousa",
-  );
-  const betaAdminName = toCleanString(
-    process.env.SIREL_ADMIN_NAME ??
-      process.env.BETA_ADMIN_NAME ??
-      "Jonatas Sousa",
-  );
-  const betaAdminEmail = toCleanString(
-    process.env.SIREL_ADMIN_EMAIL ??
-      process.env.BETA_ADMIN_EMAIL ??
-      "jonatassousa@outlook.com",
-  ).toLowerCase();
+  const bootstrap = resolveLegacyImportBootstrap();
+  const defaultPasswordHash = hashPassword(bootstrap.defaultPassword);
   const currentDir = dirname(fileURLToPath(import.meta.url));
   const defaultSnapshotPath = resolve(currentDir, "../../../storage/migration/legacy_snapshot.json");
   const snapshotPath = resolve(process.cwd(), cliArgs.snapshotPath ?? defaultSnapshotPath);
@@ -373,9 +355,9 @@ async function main() {
   await db
     .insert(users)
     .values({
-      username: betaAdminUsername,
-      name: betaAdminName,
-      email: betaAdminEmail || null,
+      username: bootstrap.adminUsername,
+      name: bootstrap.adminName,
+      email: bootstrap.adminEmail,
       loginMethod: "local_sirel_admin",
       passwordHash: defaultPasswordHash,
       role: "admin",
@@ -387,8 +369,8 @@ async function main() {
     .onConflictDoUpdate({
       target: users.username,
       set: {
-        name: betaAdminName,
-        email: betaAdminEmail || null,
+        name: bootstrap.adminName,
+        email: bootstrap.adminEmail,
         passwordHash: defaultPasswordHash,
         role: "admin",
         secretariaId: Array.from(secretariaMap.values())[0] ?? null,

@@ -13,10 +13,14 @@ export default defineConfig({
     },
   },
   server: {
-    host: "0.0.0.0",
+    host: "127.0.0.1",
     port: 5173,
-    // Allow Cloudflare quick tunnel and other external dev hosts.
-    allowedHosts: true,
+    strictPort: true,
+    allowedHosts: [],
+    cors: false,
+    fs: {
+      strict: true,
+    },
     proxy: {
       "/api": {
         target: "http://localhost:3030",

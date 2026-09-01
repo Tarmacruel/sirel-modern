@@ -1,0 +1,28 @@
+SIREL - MODELO DE OPERACAO LOCAL
+
+Copie este arquivo para OPERACAO_LOCAL_SENSIVEL.txt somente na maquina local.
+Esse arquivo e o .env local sao ignorados pelo Git: nao os envie por chat,
+e-mail, anexos, issues, pull requests ou backups publicos.
+
+1. Ambiente local
+- DATABASE_URL=<conexao-local>
+- TEST_DATABASE_URL=<banco-isolado-para-testes>
+- HOST=127.0.0.1
+- PORT=3030
+- CLIENT_URL=http://localhost:5173
+- JWT_SECRET=<ao-menos-32-caracteres-aleatorios>
+- SIREL_DEFAULT_PASSWORD=<ao-menos-12-caracteres-unica-para-bootstrap>
+- SIREL_ADMIN_USERNAME=<login-do-administrador>
+- SIREL_ADMIN_NAME=<nome-do-administrador>
+- SIREL_ADMIN_EMAIL=<email-do-administrador>
+
+2. Segredos operacionais opcionais
+- SMTP_PASS=<segredo-local>
+- WEB_PUSH_PRIVATE_KEY=<segredo-local>
+- BACKUP_ENCRYPTION_KEY=<quando-a-criptografia-de-backup-for-ativada>
+
+3. Regras
+- Nunca reutilize senhas, JWT_SECRET ou chaves entre casa, trabalho e producao.
+- Rotacione qualquer segredo que tenha sido armazenado anteriormente no Git.
+- Para expor servicos na rede local, defina HOST explicitamente e aplique regra
+  restritiva no firewall; o padrao seguro e somente loopback.

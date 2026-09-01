@@ -60,7 +60,7 @@ Para deploy com frontend e API no mesmo host, preferir endpoint relativo:
 VITE_API_URL=/api/trpc
 ```
 
-No desenvolvimento local, `npm run start:local` usa backend em `http://localhost:3030` e frontend em `http://localhost:5173`; `npm run start:tunnel` publica o Vite em `5173` e preserva o proxy de `/api`. No build de producao, o Express serve `client/dist` e aplica fallback de SPA para refresh em rotas profundas.
+No desenvolvimento local, `npm run start:local` usa backend em `http://localhost:3030` e frontend em `http://localhost:5173`; o Vite fica restrito a `127.0.0.1`, sem hosts externos liberados por curinga e com CORS desabilitado. `npm run start:tunnel` preserva o proxy de `/api` e encaminha o host como `localhost:5173`, sem abrir a allowlist do Vite. No build de producao, o Express serve `client/dist` e aplica fallback de SPA para refresh em rotas profundas.
 
 ## Documentacao operacional local
 
@@ -68,7 +68,13 @@ Informacoes sensiveis, credenciais, URLs internas, comandos frequentes e observa
 
 - `OPERACAO_LOCAL_SENSIVEL.txt`
 
-Esse arquivo e mantido fora do Git e serve como referencia rapida para administracao do sistema.
+Esse arquivo foi removido do versionamento e é ignorado pelo Git. Crie-o localmente a partir do modelo sem segredos:
+
+```powershell
+Copy-Item .\OPERACAO_LOCAL_SENSIVEL.example.txt .\OPERACAO_LOCAL_SENSIVEL.txt
+```
+
+Ele serve como referência rápida para administração do sistema e nunca deve ser enviado por chat, e-mail, anexos, issues, pull requests ou backups públicos. A remoção do arquivo não apaga o histórico: qualquer segredo que já tenha sido versionado deve ser considerado potencialmente exposto, revogado ou rotacionado no serviço de origem e atualizado nos ambientes. Registre apenas a conclusão da rotação, nunca o segredo.
 
 ## Stack
 
@@ -333,7 +339,7 @@ Exemplo de `.env`:
 DATABASE_URL=postgresql://sirel_user:senha_segura@localhost:5432/sirel_db
 TEST_DATABASE_URL=postgresql://sirel_test_user:senha_segura@localhost:5432/sirel_test_db
 RUN_DB_INTEGRATION_TESTS=false
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=3030
 CLIENT_URL=http://localhost:5173
 VITE_API_URL=/api/trpc
@@ -353,7 +359,9 @@ Observacoes:
 - `TEST_DATABASE_URL` deve apontar para banco vazio e diferente de `DATABASE_URL`; a execução integrada recusa a mesma identidade de host, porta e banco;
 - valores reais de producao, credenciais operacionais, chaves e procedimentos de recuperacao devem ficar apenas no arquivo local `OPERACAO_LOCAL_SENSIVEL.txt`;
 - nao documente segredos diretamente no Git, em issues, PRs, prints ou mensagens publicas;
-- o bootstrap legado ainda aceita `BETA_DEFAULT_PASSWORD`, `BETA_ADMIN_USERNAME`, `BETA_ADMIN_NAME` e `BETA_ADMIN_EMAIL` como fallback de compatibilidade.
+- a importação legada exige `SIREL_DEFAULT_PASSWORD` (mínimo de 12 caracteres), `SIREL_ADMIN_USERNAME` e `SIREL_ADMIN_NAME`; `SIREL_ADMIN_EMAIL` é opcional e não há senha, usuário ou e-mail administrativo de fallback;
+- `HOST` fica limitado a `127.0.0.1` por padrão. Para expor o backend na rede local, configure outro host de forma explícita e restrinja o firewall;
+- copie `OPERACAO_LOCAL_SENSIVEL.example.txt` para o arquivo local ignorado pelo Git antes de registrar informações operacionais. Nunca versionar esse arquivo ou segredos reais.
 
 ## Scripts principais
 
