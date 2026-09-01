@@ -491,13 +491,11 @@ function normalizeDocumentDraft(
     titulo: draft.titulo.trim(),
     descricao: draft.descricao?.trim() || undefined,
     dataReferencia: draft.dataReferencia?.trim() || undefined,
-    publico: Boolean(draft.publico),
     palavrasChave: Array.from(
       new Set(
         (draft.palavrasChave ?? []).map((item) => item.trim()).filter(Boolean),
       ),
     ),
-    restritoA: Array.from(new Set(draft.restritoA ?? [])),
   };
 }
 
@@ -1845,9 +1843,14 @@ async function createDocumentoFromAtaTempFile(params: {
       tamanhoBytes: statSync(targetAbsolutePath).size,
       mimeType: "application/pdf",
       dataReferencia: normalizedDraft.dataReferencia ?? null,
-      publico: normalizedDraft.publico,
+      // Documentos derivados de ata sempre começam internos; a publicação
+      // exige o fluxo auditável de revisão no módulo de documentos.
+      publico: false,
+      statusPublicacao: "RASCUNHO",
+      aprovadoPor: null,
+      aprovadoEm: null,
       palavrasChave: normalizedDraft.palavrasChave,
-      restritoA: normalizedDraft.restritoA,
+      restritoA: [],
       criadoPor: params.criadoPor,
       criadoEm: new Date(),
       atualizadoEm: new Date(),

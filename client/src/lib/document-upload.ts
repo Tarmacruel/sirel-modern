@@ -24,9 +24,7 @@ export interface UploadProcessoDocumentoInput {
   titulo: string;
   descricao?: string;
   dataReferencia?: string;
-  publico?: boolean;
   palavrasChave?: string[];
-  restritoA?: string[];
   arquivo: File;
 }
 
@@ -149,9 +147,7 @@ export async function uploadProcessoDocumento(
   formData.append("titulo", input.titulo);
   formData.append("descricao", input.descricao ?? "");
   formData.append("dataReferencia", input.dataReferencia ?? "");
-  formData.append("publico", input.publico ? "true" : "false");
   formData.append("palavrasChave", JSON.stringify(input.palavrasChave ?? []));
-  formData.append("restritoA", JSON.stringify(input.restritoA ?? []));
   formData.append("arquivo", input.arquivo);
 
   const response = await fetch(

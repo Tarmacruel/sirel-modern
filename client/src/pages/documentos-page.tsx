@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -96,6 +97,66 @@ type DocumentoAccessRole = (typeof documentoAccessRoleOptions)[number];
 const accessRoles =
   documentoAccessRoleOptions as readonly DocumentoAccessRole[];
 
+type DocumentoPublicacaoStatus =
+  | "RASCUNHO"
+  | "EM_REVISAO"
+  | "APROVADO"
+  | "REJEITADO"
+  | "RETIRADO";
+
+const publicacaoStatusLabels: Record<DocumentoPublicacaoStatus, string> = {
+  RASCUNHO: "Rascunho",
+  EM_REVISAO: "Em revisão",
+  APROVADO: "Aprovado",
+  REJEITADO: "Rejeitado",
+  RETIRADO: "Retirado do portal",
+};
+
+const publicacaoStatusVariants: Record<
+  DocumentoPublicacaoStatus,
+  "info" | "success" | "warning" | "error"
+> = {
+  RASCUNHO: "info",
+  EM_REVISAO: "warning",
+  APROVADO: "success",
+  REJEITADO: "error",
+  RETIRADO: "warning",
+};
+
+function getPublicacaoStatus(value: unknown): DocumentoPublicacaoStatus {
+  switch (value) {
+    case "EM_REVISAO":
+    case "APROVADO":
+    case "REJEITADO":
+    case "RETIRADO":
+    case "RASCUNHO":
+      return value;
+    default:
+      return "RASCUNHO";
+  }
+}
+
+function getDocumentoPublicacaoStatus(documento: {
+  statusPublicacao?: unknown;
+}) {
+  return getPublicacaoStatus(documento.statusPublicacao);
+}
+
+function getDocumentoPublicacaoInfo(documento: unknown) {
+  const value = documento as {
+    statusPublicacao?: unknown;
+    aprovadoPor?: number | null;
+    aprovadoEm?: Date | string | null;
+    justificativa?: string | null;
+  };
+  return {
+    status: getPublicacaoStatus(value.statusPublicacao),
+    aprovadoPor: value.aprovadoPor ?? null,
+    aprovadoEm: value.aprovadoEm ?? null,
+    justificativa: value.justificativa?.trim() || null,
+  };
+}
+
 const initialUploadForm = {
   processoId: "",
   tipo: "OUTRO" as DocumentoTipo,
@@ -103,9 +164,7 @@ const initialUploadForm = {
   categoria: "",
   descricao: "",
   dataReferencia: "",
-  publico: false,
   palavrasChave: "",
-  restritoA: [] as DocumentoAccessRole[],
   arquivo: null as File | null,
 };
 
@@ -114,8 +173,11 @@ const initialMetadataForm = {
   categoria: "",
   descricao: "",
   dataReferencia: "",
-  publico: false,
   palavrasChave: "",
+};
+
+const initialAccessForm = {
+  publico: false,
   restritoA: [] as DocumentoAccessRole[],
 };
 
@@ -235,6 +297,8 @@ export function DocumentosPage() {
   );
   const [uploadForm, setUploadForm] = useState(initialUploadForm);
   const [metadataForm, setMetadataForm] = useState(initialMetadataForm);
+  const [accessForm, setAccessForm] = useState(initialAccessForm);
+  const [workflowJustificativa, setWorkflowJustificativa] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ataSyncEnabled, setAtaSyncEnabled] = useState(false);
@@ -297,6 +361,9 @@ export function DocumentosPage() {
   const rows = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const selectedDocumentPublication = detailQuery.data
+    ? getDocumentoPublicacaoInfo(detailQuery.data)
+    : null;
 
   useEffect(() => {
     if (!rows.length) {
@@ -320,10 +387,12 @@ export function DocumentosPage() {
       dataReferencia: detailQuery.data.dataReferencia
         ? String(detailQuery.data.dataReferencia).slice(0, 10)
         : "",
-      publico: detailQuery.data.publico,
       palavrasChave: Array.isArray(detailQuery.data.palavrasChave)
         ? detailQuery.data.palavrasChave.join(", ")
         : "",
+    });
+    setAccessForm({
+      publico: detailQuery.data.publico,
       restritoA: Array.isArray(detailQuery.data.restritoA)
         ? detailQuery.data.restritoA.filter(
             (item): item is DocumentoAccessRole =>
@@ -331,23 +400,99 @@ export function DocumentosPage() {
           )
         : [],
     });
+    setWorkflowJustificativa("");
   }, [detailQuery.data]);
 
   const updateMetadataMutation = trpc.documentos.updateMetadata.useMutation({
     onSuccess: async () => {
-      await Promise.all([
-        utils.documentos.list.invalidate(),
-        utils.documentos.detail.invalidate(),
-        utils.documentos.summary.invalidate(),
-      ]);
-      setFeedback("Metadados do documento atualizados.");
-      setError(null);
+      await handleDocumentMutationSuccess(
+        "Metadados do documento atualizados. Um documento aprovado pode exigir nova revisão.",
+      );
     },
     onError: (mutationError) => {
-      setFeedback(null);
-      setError(mutationError.message);
+      handleDocumentMutationError(mutationError);
     },
   });
+
+  const updateAccessMutation = trpc.documentos.updateAccess.useMutation({
+    onSuccess: async () => {
+      await handleDocumentMutationSuccess("Configuração de acesso atualizada.");
+    },
+    onError: handleDocumentMutationError,
+  });
+
+  const submitForReviewMutation =
+    trpc.documentos.submitForReview.useMutation({
+      onSuccess: async () => {
+        await handleDocumentMutationSuccess(
+          "Documento enviado para revisão de publicação.",
+        );
+      },
+      onError: handleDocumentMutationError,
+    });
+
+  const approvePublicationMutation =
+    trpc.documentos.approvePublication.useMutation({
+      onSuccess: async () => {
+        await handleDocumentMutationSuccess(
+          "Documento aprovado para publicação no portal.",
+        );
+      },
+      onError: handleDocumentMutationError,
+    });
+
+  const rejectPublicationMutation =
+    trpc.documentos.rejectPublication.useMutation({
+      onSuccess: async () => {
+        await handleDocumentMutationSuccess("Publicação do documento rejeitada.");
+      },
+      onError: handleDocumentMutationError,
+    });
+
+  const withdrawPublicationMutation =
+    trpc.documentos.withdrawPublication.useMutation({
+      onSuccess: async () => {
+        await handleDocumentMutationSuccess("Documento retirado do portal público.");
+      },
+      onError: handleDocumentMutationError,
+    });
+
+  const workflowMutationPending =
+    updateAccessMutation.isPending ||
+    submitForReviewMutation.isPending ||
+    approvePublicationMutation.isPending ||
+    rejectPublicationMutation.isPending ||
+    withdrawPublicationMutation.isPending;
+
+  async function refreshDocumentQueries() {
+    await Promise.all([
+      utils.documentos.list.invalidate(),
+      utils.documentos.detail.invalidate(),
+      utils.documentos.summary.invalidate(),
+      utils.documentos.listByProcesso.invalidate(),
+    ]);
+  }
+
+  async function handleDocumentMutationSuccess(message: string) {
+    await refreshDocumentQueries();
+    setWorkflowJustificativa("");
+    setFeedback(message);
+    setError(null);
+  }
+
+  function handleDocumentMutationError(mutationError: { message: string }) {
+    setFeedback(null);
+    setError(mutationError.message);
+  }
+
+  function getWorkflowJustificativa() {
+    const justificativa = workflowJustificativa.trim();
+    if (justificativa) return justificativa;
+
+    setFeedback(null);
+    setError("Informe uma justificativa para registrar esta decisão.");
+    return null;
+  }
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -398,9 +543,7 @@ export function DocumentosPage() {
         categoria: uploadForm.categoria || undefined,
         descricao: uploadForm.descricao || undefined,
         dataReferencia: uploadForm.dataReferencia || undefined,
-        publico: uploadForm.publico,
         palavrasChave: parseKeywords(uploadForm.palavrasChave),
-        restritoA: uploadForm.restritoA,
         arquivo: uploadForm.arquivo,
       });
       await Promise.all([
@@ -445,9 +588,7 @@ export function DocumentosPage() {
           titulo: uploadForm.titulo,
           descricao: uploadForm.descricao || undefined,
           dataReferencia: uploadForm.dataReferencia || undefined,
-          publico: uploadForm.publico,
           palavrasChave: parseKeywords(uploadForm.palavrasChave),
-          restritoA: uploadForm.restritoA,
         },
       });
       await Promise.all([
@@ -505,16 +646,85 @@ export function DocumentosPage() {
     setFeedback(null);
     setError(null);
 
-    await updateMetadataMutation.mutateAsync({
-      documentoId: selectedDocumentId,
-      titulo: metadataForm.titulo,
-      categoria: metadataForm.categoria || undefined,
-      descricao: metadataForm.descricao || undefined,
-      dataReferencia: metadataForm.dataReferencia || undefined,
-      publico: metadataForm.publico,
-      palavrasChave: parseKeywords(metadataForm.palavrasChave),
-      restritoA: metadataForm.restritoA,
-    });
+    try {
+      await updateMetadataMutation.mutateAsync({
+        documentoId: selectedDocumentId,
+        titulo: metadataForm.titulo,
+        categoria: metadataForm.categoria || undefined,
+        descricao: metadataForm.descricao || undefined,
+        dataReferencia: metadataForm.dataReferencia || undefined,
+        palavrasChave: parseKeywords(metadataForm.palavrasChave),
+      });
+    } catch {
+      // A mensagem da mutação já é exibida no painel do acervo.
+    }
+  }
+
+  async function handleUpdateAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDocumentId) return;
+    const justificativa = getWorkflowJustificativa();
+    if (!justificativa) return;
+    if (accessForm.publico && accessForm.restritoA.length > 0) {
+      setFeedback(null);
+      setError(
+        "Um documento público não pode manter restrição por perfil interno.",
+      );
+      return;
+    }
+
+    setFeedback(null);
+    setError(null);
+    try {
+      await updateAccessMutation.mutateAsync({
+        documentoId: selectedDocumentId,
+        publico: accessForm.publico,
+        restritoA: accessForm.restritoA,
+        justificativa,
+      });
+    } catch {
+      // A mensagem da mutação já é exibida no painel do acervo.
+    }
+  }
+
+  async function handlePublicationWorkflow(
+    action: "submit" | "approve" | "reject" | "withdraw",
+  ) {
+    if (!selectedDocumentId) return;
+    const justificativa = getWorkflowJustificativa();
+    if (!justificativa) return;
+
+    setFeedback(null);
+    setError(null);
+    try {
+      if (action === "submit") {
+        await submitForReviewMutation.mutateAsync({
+          documentoId: selectedDocumentId,
+          justificativa,
+        });
+        return;
+      }
+      if (action === "approve") {
+        await approvePublicationMutation.mutateAsync({
+          documentoId: selectedDocumentId,
+          justificativa,
+        });
+        return;
+      }
+      if (action === "reject") {
+        await rejectPublicationMutation.mutateAsync({
+          documentoId: selectedDocumentId,
+          justificativa,
+        });
+        return;
+      }
+      await withdrawPublicationMutation.mutateAsync({
+        documentoId: selectedDocumentId,
+        justificativa,
+      });
+    } catch {
+      // A mensagem da mutação já é exibida no painel do acervo.
+    }
   }
 
   async function handleDeleteSelected() {
@@ -995,7 +1205,7 @@ export function DocumentosPage() {
                         placeholder="Ex.: parecer, ata"
                       />
                     </FormField>
-                    <FormField label="Publicidade">
+                    <FormField label="Intenção de publicação">
                       <Select
                         value={publicoFilter}
                         onChange={(event) => {
@@ -1004,8 +1214,8 @@ export function DocumentosPage() {
                         }}
                       >
                         <option value="todos">Todos</option>
-                        <option value="publicos">Somente públicos</option>
-                        <option value="restritos">Somente restritos</option>
+                        <option value="publicos">Com intenção pública</option>
+                        <option value="restritos">Sem intenção pública</option>
                       </Select>
                     </FormField>
                   </div>
@@ -1018,7 +1228,7 @@ export function DocumentosPage() {
                           <TableHeaderCell>Processo</TableHeaderCell>
                           <TableHeaderCell>Tipo</TableHeaderCell>
                           <TableHeaderCell>Referência</TableHeaderCell>
-                          <TableHeaderCell>Publicidade</TableHeaderCell>
+                          <TableHeaderCell>Status de publicação</TableHeaderCell>
                           <TableHeaderCell>Atualizado em</TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -1056,7 +1266,13 @@ export function DocumentosPage() {
                                   {formatShortDateBR(row.dataReferencia)}
                                 </TableCell>
                                 <TableCell>
-                                  {row.publico ? "Público" : "Restrito"}
+                                  {row.publico &&
+                                  getDocumentoPublicacaoStatus(row) ===
+                                    "APROVADO"
+                                    ? "Publicado"
+                                    : publicacaoStatusLabels[
+                                        getDocumentoPublicacaoStatus(row)
+                                      ]}
                                 </TableCell>
                                 <TableCell>
                                   {formatShortDateTimeBR(row.atualizadoEm)}
@@ -1265,41 +1481,10 @@ export function DocumentosPage() {
                           }
                         />
                       </FormField>
-                      <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                        <Checkbox
-                          checked={uploadForm.publico}
-                          onChange={(event) =>
-                            setUploadForm((current) => ({
-                              ...current,
-                              publico: event.target.checked,
-                            }))
-                          }
-                        />
-                        Documento público no portal
-                      </label>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {accessRoles.map((role) => (
-                          <label
-                            key={role}
-                            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
-                          >
-                            <Checkbox
-                              checked={uploadForm.restritoA.includes(role)}
-                              onChange={(event) =>
-                                setUploadForm((current) => ({
-                                  ...current,
-                                  restritoA: event.target.checked
-                                    ? [...current.restritoA, role]
-                                    : current.restritoA.filter(
-                                        (item) => item !== role,
-                                      ),
-                                }))
-                              }
-                            />
-                            Restrito a {role}
-                          </label>
-                        ))}
-                      </div>
+                      <Alert variant="info" title="Entrada segura">
+                        Todo envio entra como rascunho. A restrição interna e a
+                        publicação no portal são decididas no fluxo de revisão.
+                      </Alert>
                       <Button type="submit">
                         <Upload className="mr-2 h-4 w-4" />
                         {ataSyncEnabled
@@ -1311,7 +1496,7 @@ export function DocumentosPage() {
 
                   <SectionCard
                     title="Metadados do selecionado"
-                    description="Revise e ajuste o documento selecionado na lista do acervo."
+                    description="Revise os dados descritivos. A publicidade e as restrições seguem um fluxo separado de revisão."
                   >
                     {!selectedDocumentId || detailQuery.isLoading ? (
                       <Skeleton className="h-72 w-full rounded-[24px]" />
@@ -1383,41 +1568,6 @@ export function DocumentosPage() {
                             placeholder="Separar por vírgula"
                           />
                         </FormField>
-                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                          <Checkbox
-                            checked={metadataForm.publico}
-                            onChange={(event) =>
-                              setMetadataForm((current) => ({
-                                ...current,
-                                publico: event.target.checked,
-                              }))
-                            }
-                          />
-                          Documento público
-                        </label>
-                        <div className="grid gap-2 md:grid-cols-2">
-                          {accessRoles.map((role) => (
-                            <label
-                              key={role}
-                              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
-                            >
-                              <Checkbox
-                                checked={metadataForm.restritoA.includes(role)}
-                                onChange={(event) =>
-                                  setMetadataForm((current) => ({
-                                    ...current,
-                                    restritoA: event.target.checked
-                                      ? [...current.restritoA, role]
-                                      : current.restritoA.filter(
-                                          (item) => item !== role,
-                                        ),
-                                  }))
-                                }
-                              />
-                              Restrito a {role}
-                            </label>
-                          ))}
-                        </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
                           <p>
                             <span className="font-semibold text-slate-800">
@@ -1471,6 +1621,189 @@ export function DocumentosPage() {
                           </Button>
                         </div>
                       </form>
+                    )}
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Acesso e publicação"
+                    description="Registre a restrição interna e encaminhe o documento para a decisão de publicação."
+                  >
+                    {!selectedDocumentId ||
+                    detailQuery.isLoading ||
+                    !detailQuery.data ||
+                    !selectedDocumentPublication ? (
+                      <Skeleton className="h-80 w-full rounded-[24px]" />
+                    ) : (
+                      <div className="space-y-4">
+                        <Alert
+                          variant={
+                            publicacaoStatusVariants[
+                              selectedDocumentPublication.status
+                            ]
+                          }
+                          title={`Status: ${publicacaoStatusLabels[selectedDocumentPublication.status]}`}
+                        >
+                          <p>
+                            {detailQuery.data.publico &&
+                            selectedDocumentPublication.status === "APROVADO"
+                              ? "Este documento está disponível no portal público."
+                              : "Este documento não está disponível no portal público."}
+                          </p>
+                          {selectedDocumentPublication.aprovadoEm ? (
+                            <p>
+                              Decisão registrada em{" "}
+                              {formatShortDateTimeBR(
+                                selectedDocumentPublication.aprovadoEm,
+                              )}
+                              {selectedDocumentPublication.aprovadoPor
+                                ? ` pelo usuário #${selectedDocumentPublication.aprovadoPor}`
+                                : ""}
+                              .
+                            </p>
+                          ) : null}
+                          {selectedDocumentPublication.justificativa ? (
+                            <p>
+                              Última justificativa: {" "}
+                              {selectedDocumentPublication.justificativa}
+                            </p>
+                          ) : null}
+                        </Alert>
+
+                        <form
+                          className="space-y-4"
+                          onSubmit={handleUpdateAccess}
+                        >
+                          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <Checkbox
+                              checked={accessForm.publico}
+                              onChange={(event) =>
+                                setAccessForm((current) => ({
+                                  ...current,
+                                  publico: event.target.checked,
+                                  restritoA: event.target.checked
+                                    ? []
+                                    : current.restritoA,
+                                }))
+                              }
+                            />
+                            Solicitar disponibilização no portal após aprovação
+                          </label>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {accessRoles.map((role) => (
+                              <label
+                                key={role}
+                                className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                              >
+                                <Checkbox
+                                  checked={accessForm.restritoA.includes(role)}
+                                  disabled={accessForm.publico}
+                                  onChange={(event) =>
+                                    setAccessForm((current) => ({
+                                      ...current,
+                                      restritoA: event.target.checked
+                                        ? [...current.restritoA, role]
+                                        : current.restritoA.filter(
+                                            (item) => item !== role,
+                                          ),
+                                    }))
+                                  }
+                                />
+                                Restrito a {role}
+                              </label>
+                            ))}
+                          </div>
+                          {accessForm.publico ? (
+                            <Alert variant="info">
+                              A restrição por perfil é removida da solicitação
+                              pública. O backend confirma a regra antes de
+                              registrar a decisão.
+                            </Alert>
+                          ) : null}
+                          <FormField
+                            label="Justificativa da decisão"
+                            description="Obrigatória para alterar acesso, encaminhar, aprovar, rejeitar ou retirar a publicação."
+                          >
+                            <Textarea
+                              value={workflowJustificativa}
+                              onChange={(event) =>
+                                setWorkflowJustificativa(event.target.value)
+                              }
+                              placeholder="Descreva o motivo e as condições da decisão."
+                            />
+                          </FormField>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="submit"
+                              variant="outline"
+                              disabled={workflowMutationPending}
+                            >
+                              {updateAccessMutation.isPending
+                                ? "Registrando acesso..."
+                                : "Registrar acesso"}
+                            </Button>
+                            {[
+                              "RASCUNHO",
+                              "REJEITADO",
+                              "RETIRADO",
+                            ].includes(selectedDocumentPublication.status) ? (
+                              <Button
+                                type="button"
+                                disabled={workflowMutationPending}
+                                onClick={() =>
+                                  void handlePublicationWorkflow("submit")
+                                }
+                              >
+                                {submitForReviewMutation.isPending
+                                  ? "Encaminhando..."
+                                  : "Encaminhar para revisão"}
+                              </Button>
+                            ) : null}
+                            {selectedDocumentPublication.status ===
+                            "EM_REVISAO" ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  disabled={workflowMutationPending}
+                                  onClick={() =>
+                                    void handlePublicationWorkflow("approve")
+                                  }
+                                >
+                                  {approvePublicationMutation.isPending
+                                    ? "Aprovando..."
+                                    : "Aprovar publicação"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  disabled={workflowMutationPending}
+                                  onClick={() =>
+                                    void handlePublicationWorkflow("reject")
+                                  }
+                                >
+                                  {rejectPublicationMutation.isPending
+                                    ? "Rejeitando..."
+                                    : "Rejeitar"}
+                                </Button>
+                              </>
+                            ) : null}
+                            {selectedDocumentPublication.status ===
+                            "APROVADO" ? (
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                disabled={workflowMutationPending}
+                                onClick={() =>
+                                  void handlePublicationWorkflow("withdraw")
+                                }
+                              >
+                                {withdrawPublicationMutation.isPending
+                                  ? "Retirando..."
+                                  : "Retirar do portal"}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </form>
+                      </div>
                     )}
                   </SectionCard>
                 </div>

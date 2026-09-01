@@ -40,9 +40,20 @@ Retirar um arquivo do índice não remove seu conteúdo do histórico nem invali
 
 Leitura individual, read-after-write, invalidação de cache, combobox assíncrono compartilhado, lookup paginado, vínculo Pessoa/Usuário, detecção de duplicidade e catálogos de Cargos/Funções foram implementados. A migration `0056_cadastros_cargos_funcoes.sql` mantém `cargo` legado e possui gate automatizado de esquema/dados; a `0057_importacao_bll_itens_lote_index.sql` reconcilia de forma aditiva um índice legado necessário à reconstrução limpa. Evidências, roteiro de homologação doméstica e rollback estão em [R2.1 — Registro de implementação e roteiro de homologação](./r2.1-cadastros-implementacao-homologacao.md).
 
-### R2.2 — Documentos e portal público
+### R2.2 — Documentos e portal público (R2.2.1 iniciado)
 
-Completar busca, metadados, versionamento e classificação. Publicar somente documento aprovado e público. Registrar auditoria de alterações de `publico` e `restritoA`, incluindo autor, valores anterior/novo e justificativa.
+O primeiro incremento, **gate de publicação e auditoria**, está implementado na branch de fase e deve ser homologado em banco isolado antes de qualquer aplicação operacional:
+
+- a migration aditiva `0058_documentos_publicacao.sql` cria os estados `RASCUNHO`, `EM_REVISAO`, `APROVADO`, `REJEITADO` e `RETIRADO`, além de aprovador, data e justificativa;
+- o acervo existente é colocado em `EM_REVISAO`, sem aprovação retroativa nem exposição pública automática;
+- novos uploads, documentos de ata, documentos gerados no Planejamento, importações legadas e novas versões iniciam como `RASCUNHO`, internos e sem perfis restritos;
+- somente gestor ou administrador pode configurar acesso, encaminhar, aprovar, rejeitar ou retirar uma publicação; toda decisão exige justificativa e grava snapshots antes/depois na auditoria;
+- alteração de acesso ou de metadados de documento aprovado/em revisão revoga a publicação e exige nova revisão;
+- documento público não pode ter `restritoA`; o portal e o download externo exigem simultaneamente processo ativo/publicado, `publico=true`, estado `APROVADO` e lista de restrições vazia;
+- links públicos novos são capacidades opacas autenticadas por AES-256-GCM, não carregam IDs internos e são revalidados no download para permitir revogação imediata;
+- a Central de Documentos separa metadados do fluxo de acesso/publicação e mostra o estado da decisão.
+
+Próximos incrementos do R2.2: busca pública navegável, linhagem de versões por documento lógico, classificação/catálogo institucional e testes HTTP/tRPC com banco descartável para autorização, portal, auditoria e revogação de links.
 
 ### R2.3 — Gestão operacional
 

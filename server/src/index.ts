@@ -22,6 +22,7 @@ import {
   ataSessaoCreatePreviewFromDiscoveryInputSchema,
   ataSessaoPreviewProcessInputSchema,
 } from "@sirel/shared/schemas/ata-sessao";
+import { documentoTipoOptions } from "@sirel/shared/schemas/documentos";
 
 import { createContext } from "./_core/context.js";
 import { logAuditoria } from "./db/auditoria.js";
@@ -66,6 +67,7 @@ import { projectRoot } from "./lib/project-root.js";
 import { resolveRequestUser } from "./lib/request-auth.js";
 import { assertSessionSecretConfigured } from "./lib/auth-session.js";
 import { hasValidCsrfToken } from "./lib/csrf.js";
+import { documentoEstaPublicamenteDisponivel } from "./lib/document-publication.js";
 import { verifyPublicDocumentLink } from "./lib/public-document-link.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
@@ -140,14 +142,6 @@ function slugifyFileName(value: string) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .toLowerCase();
-}
-
-function parseBooleanFlag(value: unknown) {
-  return ["1", "true", "on", "sim", "yes"].includes(
-    String(value ?? "")
-      .trim()
-      .toLowerCase(),
-  );
 }
 
 function parseStringArrayField(value: unknown) {
@@ -240,6 +234,15 @@ function requireUploadUser(req: express.Request, res: express.Response) {
     return null;
   }
   return user;
+}
+
+function removeUploadedFile(file: Express.Multer.File | undefined) {
+  if (!file?.path) return;
+  try {
+    rmSync(file.path, { force: true });
+  } catch {
+    // A falha de limpeza não deve ocultar a resposta de validação ao cliente.
+  }
 }
 
 function requireAuthenticatedUser(req: express.Request, res: express.Response) {
@@ -908,9 +911,13 @@ app.post(
   requireUploadAccess,
   upload.single("arquivo"),
   async (req, res) => {
+    let documentoPersistido = false;
     try {
       const user = requireUploadUser(req, res);
-      if (!user) return;
+      if (!user) {
+        removeUploadedFile(req.file);
+        return;
+      }
       if (!req.file) {
         res.status(400).json({ message: "Selecione um arquivo para upload." });
         return;
@@ -928,17 +935,33 @@ app.post(
       const descricao = String(req.body.descricao ?? "").trim() || null;
       const dataReferencia =
         String(req.body.dataReferencia ?? "").trim() || null;
-      const publico = parseBooleanFlag(req.body.publico);
       const palavrasChave = parseStringArrayField(req.body.palavrasChave);
-      const restritoA = parseStringArrayField(req.body.restritoA);
-      if (!processoId || !titulo || !tipo) {
+      if (
+        !Number.isSafeInteger(processoId) ||
+        processoId < 1 ||
+        !titulo ||
+        !documentoTipoOptions.includes(
+          tipo as (typeof documentoTipoOptions)[number],
+        )
+      ) {
+        removeUploadedFile(req.file);
         res
           .status(400)
-          .json({ message: "Informe processo, tipo e titulo do documento." });
+          .json({ message: "Informe processo, tipo válido e título do documento." });
         return;
       }
 
       const db = requireDb();
+      const [processo] = await db
+        .select({ id: processos.id })
+        .from(processos)
+        .where(eq(processos.id, processoId))
+        .limit(1);
+      if (!processo) {
+        removeUploadedFile(req.file);
+        res.status(400).json({ message: "O processo informado não foi encontrado." });
+        return;
+      }
       const latest = await db
         .select({ versao: documentos.versao })
         .from(documentos)
@@ -946,9 +969,7 @@ app.post(
         .orderBy(desc(documentos.versao))
         .limit(1);
       const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
-      const relativePath =
-        req.file.path.replace(/\\/g, "/").split("/storage/uploads/").pop() ??
-        req.file.filename;
+      const relativePath = buildUploadRelativePath(req.file);
 
       const [created] = await db
         .insert(documentos)
@@ -972,14 +993,18 @@ app.post(
           tamanhoBytes: req.file.size,
           mimeType: req.file.mimetype,
           dataReferencia,
-          publico,
+          publico: false,
+          statusPublicacao: "RASCUNHO",
+          aprovadoPor: null,
+          aprovadoEm: null,
           palavrasChave,
-          restritoA,
+          restritoA: [],
           criadoPor: user.id,
           criadoEm: new Date(),
           atualizadoEm: new Date(),
         })
         .returning();
+      documentoPersistido = true;
 
       const downloadUrl = `/api/planejamento/documentos/${created.id}/download`;
       await db
@@ -997,6 +1022,7 @@ app.post(
 
       res.status(201).json({ ...created, arquivoUrl: downloadUrl });
     } catch (error) {
+      if (!documentoPersistido) removeUploadedFile(req.file);
       console.error(error);
       res.status(500).json({ message: "Falha ao salvar o documento enviado." });
     }
@@ -1406,6 +1432,20 @@ app.post("/api/ata-sessao/create-preview-from-discovery", async (req, res) => {
       req.body,
     );
     const preview = await createAtaSessaoPreviewFromDiscovery(input, user.id);
+    if (preview.document) {
+      await logAuditoria({ user } as any, {
+        tabela: "documentos",
+        registroId: preview.document.id,
+        acao: "CREATE",
+        dadosNovos: {
+          ...preview.document,
+          publico: false,
+          statusPublicacao: "RASCUNHO",
+          restritoA: [],
+        },
+        descricao: `Ata de sessão adicionada ao acervo como rascunho: ${preview.document.titulo}`,
+      });
+    }
     res.status(201).json(preview);
   } catch (error) {
     console.error(error);
@@ -1950,7 +1990,12 @@ app.get("/api/publico/documentos/:token/download", async (req, res) => {
       .where(eq(documentos.id, documentoId))
       .limit(1);
     const documento = result?.documento;
-    if (!documento?.arquivoChave || !documento.publico || !result.publicado || !result.ativo) {
+    if (
+      !documento?.arquivoChave ||
+      !documentoEstaPublicamenteDisponivel(documento) ||
+      !result.publicado ||
+      !result.ativo
+    ) {
       res.status(404).json({ message: "Documento nao encontrado." });
       return;
     }

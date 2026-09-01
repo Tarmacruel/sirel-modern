@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import {
-  documentoAccessRoleOptions,
-  documentoTipoOptions,
-} from "./documentos.js";
+import { documentoTipoOptions } from "./documentos.js";
 
 const ataSessaoSummarySchema = z.object({
   totalLotes: z.number().int().nonnegative(),
@@ -198,9 +195,7 @@ export const ataSessaoPreviewDocumentDraftSchema = z.object({
   titulo: z.string().trim().min(3).max(255),
   descricao: z.string().trim().max(1000).optional(),
   dataReferencia: z.string().trim().max(20).optional(),
-  publico: z.boolean().default(false),
   palavrasChave: z.array(z.string().trim().min(1).max(50)).default([]),
-  restritoA: z.array(z.enum(documentoAccessRoleOptions)).default([]),
 });
 
 export const ataSessaoCreatePreviewFromDiscoveryInputSchema = z.object({

@@ -13,6 +13,14 @@ export const documentoTipoOptions = [
 
 export const documentoAccessRoleOptions = ["admin", "gestor", "operador", "auditor", "user"] as const;
 
+export const documentoPublicacaoStatusOptions = [
+  "RASCUNHO",
+  "EM_REVISAO",
+  "APROVADO",
+  "REJEITADO",
+  "RETIRADO",
+] as const;
+
 export const documentoListInputSchema = z.object({
   page: z.number().int().positive().default(1),
   pageSize: z.number().int().positive().max(100).default(10),
@@ -21,6 +29,7 @@ export const documentoListInputSchema = z.object({
   tipo: z.enum(documentoTipoOptions).optional(),
   categoria: z.string().trim().optional(),
   publico: z.boolean().optional(),
+  statusPublicacao: z.enum(documentoPublicacaoStatusOptions).optional(),
   dataInicial: z.string().optional(),
   dataFinal: z.string().optional(),
 });
@@ -36,8 +45,24 @@ export const documentoMetadataInputSchema = z.object({
   categoria: z.string().trim().max(120).optional(),
   dataReferencia: z.string().optional(),
   palavrasChave: z.array(z.string().trim().min(1).max(50)).default([]),
-  publico: z.boolean().default(false),
+});
+
+const documentoJustificativaSchema = z
+  .string()
+  .trim()
+  .min(3, "Informe uma justificativa com ao menos 3 caracteres.")
+  .max(4000);
+
+export const documentoAccessInputSchema = z.object({
+  documentoId: z.number().int().positive(),
+  publico: z.boolean(),
   restritoA: z.array(z.enum(documentoAccessRoleOptions)).default([]),
+  justificativa: documentoJustificativaSchema,
+});
+
+export const documentoPublicationActionInputSchema = z.object({
+  documentoId: z.number().int().positive(),
+  justificativa: documentoJustificativaSchema,
 });
 
 export const documentoProcessOptionsInputSchema = z.object({
@@ -46,6 +71,10 @@ export const documentoProcessOptionsInputSchema = z.object({
 
 export type DocumentoListInput = z.infer<typeof documentoListInputSchema>;
 export type DocumentoMetadataInput = z.infer<typeof documentoMetadataInputSchema>;
+export type DocumentoAccessInput = z.infer<typeof documentoAccessInputSchema>;
+export type DocumentoPublicationActionInput = z.infer<
+  typeof documentoPublicationActionInputSchema
+>;
 export type DocumentoProcessOptionsInput = z.infer<
   typeof documentoProcessOptionsInputSchema
 >;

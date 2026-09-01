@@ -135,7 +135,7 @@ Ja implementado:
 - unificacao e deduplicacao de itens;
 - saneamento auditavel de vencedores importados;
 - dossie de processo, item e fornecedor;
-- operacao em rede local, com frontend e backend escutando em `0.0.0.0`.
+- operação local por padrão, com backend limitado a `127.0.0.1`; qualquer exposição em rede exige configuração explícita de host e firewall restritivo.
 
 ## Fluxo de teste recomendado
 

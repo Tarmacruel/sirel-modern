@@ -88,6 +88,10 @@ export const documentoTipoEnum = pgEnum("documento_tipo", [
   "CONTRATO",
   "OUTRO",
 ]);
+export const documentoPublicacaoStatusEnum = pgEnum(
+  "documento_publicacao_status",
+  ["RASCUNHO", "EM_REVISAO", "APROVADO", "REJEITADO", "RETIRADO"],
+);
 export const workflowModuloEnum = pgEnum("workflow_modulo", [
   "PLANEJAMENTO",
   "COMPRAS",
@@ -1793,6 +1797,12 @@ export const documentos = pgTable(
     dataReferencia: date("data_referencia"),
     palavrasChave: jsonb("palavras_chave").$type<string[]>(),
     publico: boolean("publico").notNull().default(false),
+    statusPublicacao: documentoPublicacaoStatusEnum("status_publicacao")
+      .notNull()
+      .default("RASCUNHO"),
+    aprovadoPor: integer("aprovado_por").references(() => users.id),
+    aprovadoEm: timestamp("aprovado_em", { withTimezone: true }),
+    justificativa: text("justificativa"),
     restritoA: jsonb("restrito_a").$type<string[]>(),
     criadoPor: integer("criado_por").references(() => users.id),
     criadoEm: timestamp("criado_em", { withTimezone: true })
@@ -1808,6 +1818,14 @@ export const documentos = pgTable(
     idxDataReferencia: index("documentos_data_referencia_idx").on(
       table.dataReferencia,
     ),
+    idxStatusPublicacao: index("documentos_status_publicacao_idx").on(
+      table.statusPublicacao,
+    ),
+    idxPortalPublico: index("documentos_portal_publico_idx")
+      .on(table.processoId, table.tipo, table.versao)
+      .where(
+        sql`${table.publico} = true AND ${table.statusPublicacao} = 'APROVADO'`,
+      ),
   }),
 );
 

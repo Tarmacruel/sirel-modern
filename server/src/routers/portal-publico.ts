@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, or } from "drizzle-orm";
+import { and, asc, count, eq, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { documentos, modalidades, processos, secretarias } from "../db/schema.js";
@@ -42,7 +42,16 @@ export const portalPublicoRouter = router({
         .select({ id: documentos.id, titulo: documentos.titulo, tipo: documentos.tipo, categoria: documentos.categoria, versao: documentos.versao, dataReferencia: documentos.dataReferencia, criadoEm: documentos.criadoEm })
         .from(documentos)
         .innerJoin(processos, eq(processos.id, documentos.processoId))
-        .where(and(eq(processos.numeroSirel, input.numeroProcesso), eq(processos.publicado, true), eq(processos.ativo, true), eq(documentos.publico, true)))
+        .where(
+          and(
+            eq(processos.numeroSirel, input.numeroProcesso),
+            eq(processos.publicado, true),
+            eq(processos.ativo, true),
+            eq(documentos.publico, true),
+            eq(documentos.statusPublicacao, "APROVADO"),
+            sql`coalesce(jsonb_array_length(${documentos.restritoA}), 0) = 0`,
+          ),
+        )
         .orderBy(asc(documentos.tipo), asc(documentos.versao));
       return rows.map(({ id, ...documento }) => ({ ...documento, downloadUrl: createPublicDocumentLink(id) }));
     }),
