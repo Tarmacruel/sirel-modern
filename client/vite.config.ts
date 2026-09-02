@@ -16,7 +16,8 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     strictPort: true,
-    allowedHosts: [],
+    // Homologação controlada pelo hostname institucional, sem wildcard.
+    allowedHosts: ["www.sirel.com.br"],
     cors: false,
     fs: {
       strict: true,

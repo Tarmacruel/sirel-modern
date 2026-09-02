@@ -191,6 +191,32 @@ suite("cadastros R2.1 - integracao", () => {
       expect(approximate.items.find((item) => item.id === testPessoaId)?.metadata?.cpfMascarado)
         .toMatch(/^\*\*\*\./);
 
+      const withoutPreferredSecretaria = await caller.cadastros.lookup({
+        entity: "pessoas",
+        search: personName,
+        page: 1,
+        pageSize: 10,
+        activeOnly: true,
+      });
+      expect(withoutPreferredSecretaria.items.some((item) => item.id === testPessoaId)).toBe(true);
+
+      const cpfLookup = await caller.cadastros.lookup({
+        entity: "pessoas",
+        search: cpf.slice(0, 4),
+        page: 1,
+        pageSize: 10,
+        activeOnly: true,
+      });
+      expect(cpfLookup.items.some((item) => item.id === testPessoaId)).toBe(true);
+
+      const unfilteredLookup = await caller.cadastros.lookup({
+        entity: "pessoas",
+        page: 1,
+        pageSize: 10,
+        activeOnly: true,
+      });
+      expect(unfilteredLookup.items.some((item) => item.id === testPessoaId)).toBe(true);
+
       const renamedCargo = await caller.cadastros.save({
         entity: "cargos",
         data: {

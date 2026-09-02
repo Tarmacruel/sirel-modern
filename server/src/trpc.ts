@@ -9,7 +9,26 @@ import { users } from "./db/schema.js";
 import { requireSubsystemAccess } from "./lib/subsystem-access.js";
 import { hasValidCsrfToken } from "./lib/csrf.js";
 
-const t = initTRPC.context<AppContext>().create({ transformer: superjson });
+export function sanitizeTrpcErrorMessage(code: string, message: string) {
+  if (code === "INTERNAL_SERVER_ERROR") {
+    return "Falha interna ao processar a solicitacao.";
+  }
+  return message;
+}
+
+const t = initTRPC.context<AppContext>().create({
+  transformer: superjson,
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      message: sanitizeTrpcErrorMessage(error.code, shape.message),
+      data: {
+        ...shape.data,
+        stack: undefined,
+      },
+    };
+  },
+});
 
 export const router = t.router;
 /** Endpoints deliberately reachable without a session (login, recovery and health). */

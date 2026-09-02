@@ -289,11 +289,12 @@ describe("AsyncCombobox", () => {
     expect(query).toHaveBeenCalledWith("a", 20);
   });
 
-  it("respeita o mínimo de busca e oferece nova tentativa após erro", async () => {
+  it("respeita o mínimo de busca, oculta detalhes técnicos e oferece nova tentativa após erro", async () => {
     vi.useFakeTimers();
+    const technicalError = "Failed query: select pessoas.id from pessoas";
     const query = vi
       .fn<() => Promise<Option[]>>()
-      .mockRejectedValueOnce(new Error("Falha temporária"))
+      .mockRejectedValueOnce(new Error(technicalError))
       .mockResolvedValueOnce([options[2]]);
 
     render(
@@ -317,7 +318,10 @@ describe("AsyncCombobox", () => {
 
     fireEvent.change(input, { target: { value: "ad" } });
     await advanceDebounce();
-    expect(screen.getByRole("alert")).toHaveTextContent("Falha temporária");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Não foi possível carregar as opções. Tente novamente.",
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(technicalError);
 
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     await advanceDebounce();

@@ -55,9 +55,8 @@ function isSameValue(
   return left !== null && right !== null && String(left) === String(right);
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return "Não foi possível carregar as opções.";
+function getErrorMessage() {
+  return "Não foi possível carregar as opções. Tente novamente.";
 }
 
 export function AsyncCombobox<T>({
@@ -258,11 +257,11 @@ export function AsyncCombobox<T>({
             if (currentSelection) setSelectedOption(currentSelection);
           }
         })
-        .catch((reason: unknown) => {
+        .catch(() => {
           if (sequence !== requestSequence.current) return;
           setOptions([]);
           setActiveIndex(-1);
-          setError(getErrorMessage(reason));
+          setError(getErrorMessage());
           setLoading(false);
         });
     }, safeDebounce);

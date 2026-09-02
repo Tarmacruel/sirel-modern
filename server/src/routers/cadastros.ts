@@ -1238,6 +1238,26 @@ function normalizedTextSql(column: any) {
   return sql<string>`lower(regexp_replace(translate(coalesce(${column}, ''), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑáàâãäéèêëíìîïóòôõöúùûüçñ', 'AAAAAEEEEIIIIOOOOOUUUUCNaaaaaeeeeiiiiooooouuuucn'), '\\s+', ' ', 'g'))`;
 }
 
+function logPessoaLookupFailure(
+  input: { entity: string; search?: string | null },
+  error: unknown,
+) {
+  const failure = error as {
+    name?: unknown;
+    code?: unknown;
+    cause?: { code?: unknown };
+  };
+  const databaseCode = failure?.cause?.code ?? failure?.code;
+
+  // Registra contexto operacional sem incluir a consulta, parametros ou termo pesquisado.
+  console.error("Falha ao consultar pessoas no lookup de cadastros.", {
+    entity: input.entity,
+    searchLength: input.search?.length ?? 0,
+    errorName: typeof failure?.name === "string" ? failure.name : "UnknownError",
+    databaseCode: typeof databaseCode === "string" ? databaseCode : undefined,
+  });
+}
+
 export function maskCadastroCpf(value: string | null | undefined) {
   const digits = normalizePessoaCpf(value);
   if (digits.length !== 11) return null;
@@ -2049,10 +2069,17 @@ export const cadastrosRouter = router({
             when ${allNameTerms ?? sql`false`} then 2
             else 3
           end`
-        : sql<number>`0`;
+        : undefined;
       const preferredSecretariaRanking = input.preferSecretariaId
         ? sql<number>`case when ${pessoas.secretariaId} = ${input.preferSecretariaId} then 0 else 1 end`
-        : sql<number>`0`;
+        : undefined;
+      const lookupOrdering = [
+        ranking,
+        nameTrigrams.length ? desc(similarityScore) : undefined,
+        preferredSecretariaRanking,
+        asc(pessoas.nome),
+        asc(pessoas.id),
+      ].filter(Boolean) as any[];
       const [totalRows, rows] = await Promise.all([
         db
           .select({ total: count() })
@@ -2080,16 +2107,16 @@ export const cadastrosRouter = router({
           .leftJoin(cargos, eq(cargos.id, pessoas.cargoId))
           .leftJoin(funcoes, eq(funcoes.id, pessoas.funcaoId))
           .where(whereClause)
-          .orderBy(
-            ranking,
-            desc(similarityScore),
-            preferredSecretariaRanking,
-            asc(pessoas.nome),
-            asc(pessoas.id),
-          )
+          .orderBy(...lookupOrdering)
           .limit(pagination.limit)
           .offset(pagination.offset),
-      ]);
+      ]).catch((error: unknown) => {
+        logPessoaLookupFailure(input, error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Nao foi possivel pesquisar pessoas no momento.",
+        });
+      });
       return response(
         totalRows[0]?.total,
         rows.map((row) => {
