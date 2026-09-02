@@ -593,13 +593,10 @@ export async function saveGeneratedPlanejamentoDocumento({
   writeFileSync(absolutePath, fileBuffer);
 
   const relativePath = `processo-${processoId}/gerados/${fileName}`;
-  const latest = await db
-    .select({ versao: documentos.versao })
-    .from(documentos)
-    .where(eq(documentos.processoId, processoId))
-    .orderBy(desc(documentos.versao))
-    .limit(1);
-  const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
+  // Gerações automáticas não inferem uma linhagem antiga por tipo/título.
+  // Cada novo artefato começa sua própria raiz; versões explícitas apontam
+  // para um documento anterior pelo fluxo de upload do acervo.
+  const nextVersion = 1;
 
   const [created] = await db
     .insert(documentos)
@@ -626,13 +623,17 @@ export async function saveGeneratedPlanejamentoDocumento({
     .returning();
 
   const arquivoUrl = `/api/planejamento/documentos/${created.id}/download`;
-  await db
+  const [persisted] = await db
     .update(documentos)
-    .set({ arquivoUrl, atualizadoEm: new Date() })
-    .where(eq(documentos.id, created.id));
+    .set({
+      arquivoUrl,
+      documentoRaizId: created.id,
+      atualizadoEm: new Date(),
+    })
+    .where(eq(documentos.id, created.id))
+    .returning();
 
   return {
-    ...created,
-    arquivoUrl,
+    ...persisted,
   };
 }

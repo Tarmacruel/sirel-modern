@@ -22,7 +22,10 @@ if ([bool]$session.tunnel.enabled -and $session.tunnel.pid -and (Get-AliveProces
 }
 
 $cloudflared = Find-CloudflaredCmd
-$tunnelProcess = Start-BackgroundCommand -Name "Cloudflared" -WorkingDirectory $paths.Root -CommandPath $cloudflared -Arguments @("tunnel", "--url", "http://localhost:5173", "--http-host-header", "localhost:5173") -OutLog $paths.TunnelOutLog -ErrLog $paths.TunnelErrLog
+# Preserve the public Host header so the frontend can select the correct
+# host-aware experience (Arquivos, Hub or Transparência). Vite has an explicit
+# allowlist for these hostnames.
+$tunnelProcess = Start-BackgroundCommand -Name "Cloudflared" -WorkingDirectory $paths.Root -CommandPath $cloudflared -Arguments @("tunnel", "--url", "http://localhost:5173") -OutLog $paths.TunnelOutLog -ErrLog $paths.TunnelErrLog
 Write-PidFile -Path $paths.TunnelPid -ProcessId $tunnelProcess.Id
 
 $session.tunnel.enabled = $true

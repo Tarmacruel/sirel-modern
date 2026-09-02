@@ -1,6 +1,9 @@
 import {
+  bigint,
   boolean,
+  bigserial,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -761,9 +764,10 @@ export const ordenadoresDespesaSecretarias = pgTable(
     idxSecretaria: index("ordenadores_despesa_secretarias_secretaria_idx").on(
       table.secretariaId,
     ),
-    uqOrdenadorSecretaria: uniqueIndex(
-      "ordenadores_despesa_secretaria_uq",
-    ).on(table.ordenadorDespesaId, table.secretariaId),
+    uqOrdenadorSecretaria: uniqueIndex("ordenadores_despesa_secretaria_uq").on(
+      table.ordenadorDespesaId,
+      table.secretariaId,
+    ),
   }),
 );
 
@@ -1008,8 +1012,12 @@ export const pcaItens = pgTable(
     unidade: varchar("unidade", { length: 32 }).notNull(),
     valorEstimado: numeric("valor_estimado", { precision: 14, scale: 2 }),
     dataDesejada: date("data_desejada"),
-    grauPrioridade: prioridadeDfdEnum("grau_prioridade").notNull().default("MEDIA"),
-    categoria: varchar("categoria", { length: 120 }).notNull().default("PRODUTO"),
+    grauPrioridade: prioridadeDfdEnum("grau_prioridade")
+      .notNull()
+      .default("MEDIA"),
+    categoria: varchar("categoria", { length: 120 })
+      .notNull()
+      .default("PRODUTO"),
     tipo: varchar("tipo", { length: 120 }),
     unidadeRequisitanteId: integer("unidade_requisitante_id").references(
       () => secretarias.id,
@@ -1778,6 +1786,29 @@ export const licitacaoAtaSyncRuns = pgTable(
   }),
 );
 
+export const documentoClassificacoes = pgTable(
+  "documento_classificacoes",
+  {
+    id: serial("id").primaryKey(),
+    codigo: varchar("codigo", { length: 120 }).notNull(),
+    nome: varchar("nome", { length: 255 }).notNull(),
+    descricao: text("descricao"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: timestamp("criado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    atualizadoEm: timestamp("atualizado_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uqCodigo: uniqueIndex("documento_classificacoes_codigo_uq").on(
+      table.codigo,
+    ),
+    idxAtivo: index("documento_classificacoes_ativo_idx").on(table.ativo),
+  }),
+);
+
 export const documentos = pgTable(
   "documentos",
   {
@@ -1789,7 +1820,13 @@ export const documentos = pgTable(
     descricao: text("descricao"),
     tipo: documentoTipoEnum("tipo").notNull().default("OUTRO"),
     categoria: varchar("categoria", { length: 120 }),
+    classificacaoId: integer("classificacao_id").references(
+      () => documentoClassificacoes.id,
+      { onDelete: "restrict" },
+    ),
     versao: integer("versao").notNull().default(1),
+    documentoRaizId: integer("documento_raiz_id"),
+    versaoAnteriorId: integer("versao_anterior_id"),
     arquivoUrl: varchar("arquivo_url", { length: 500 }),
     arquivoChave: varchar("arquivo_chave", { length: 255 }),
     tamanhoBytes: integer("tamanho_bytes"),
@@ -1815,6 +1852,29 @@ export const documentos = pgTable(
   (table) => ({
     idxProcesso: index("documentos_processo_idx").on(table.processoId),
     idxTipo: index("documentos_tipo_idx").on(table.tipo),
+    idxClassificacao: index("documentos_classificacao_idx").on(
+      table.classificacaoId,
+    ),
+    idxDocumentoRaiz: index("documentos_raiz_idx").on(
+      table.documentoRaizId,
+      table.versao,
+    ),
+    idxVersaoAnterior: index("documentos_versao_anterior_idx").on(
+      table.versaoAnteriorId,
+    ),
+    uqDocumentoRaizVersao: uniqueIndex("documentos_raiz_versao_uq")
+      .on(table.documentoRaizId, table.versao)
+      .where(sql`${table.documentoRaizId} is not null`),
+    fkDocumentoRaiz: foreignKey({
+      name: "documentos_documento_raiz_id_documentos_id_fk",
+      columns: [table.documentoRaizId],
+      foreignColumns: [table.id],
+    }).onDelete("restrict"),
+    fkVersaoAnterior: foreignKey({
+      name: "documentos_versao_anterior_id_documentos_id_fk",
+      columns: [table.versaoAnteriorId],
+      foreignColumns: [table.id],
+    }).onDelete("restrict"),
     idxDataReferencia: index("documentos_data_referencia_idx").on(
       table.dataReferencia,
     ),
@@ -2605,10 +2665,10 @@ export const importacaoLegadoLotes = pgTable(
     totalVinculadosInterno: integer("total_vinculados_interno")
       .notNull()
       .default(0),
-    totalDuplicadosBase: integer("total_duplicados_base")
+    totalDuplicadosBase: integer("total_duplicados_base").notNull().default(0),
+    issueBuckets: jsonb("issue_buckets")
       .notNull()
-      .default(0),
-    issueBuckets: jsonb("issue_buckets").notNull().default(sql`'[]'::jsonb`),
+      .default(sql`'[]'::jsonb`),
     duplicateGroups: jsonb("duplicate_groups")
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -2652,7 +2712,9 @@ export const importacaoLegadoRegistros = pgTable(
     valorEstimado: numeric("valor_estimado", { precision: 18, scale: 2 }),
     valorContratado: numeric("valor_contratado", { precision: 18, scale: 2 }),
     analysisSeverity: varchar("analysis_severity", { length: 24 }).notNull(),
-    issues: jsonb("issues").notNull().default(sql`'[]'::jsonb`),
+    issues: jsonb("issues")
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     duplicateFileCount: integer("duplicate_file_count").notNull().default(0),
     duplicateGroupKey: varchar("duplicate_group_key", { length: 255 }),
     internalMatches: jsonb("internal_matches")
@@ -2665,19 +2727,19 @@ export const importacaoLegadoRegistros = pgTable(
       .notNull()
       .default("PENDENTE"),
     reviewNotes: text("review_notes"),
-    selectedInternalProcessId: integer("selected_internal_process_id").references(
-      () => processos.id,
-      { onDelete: "set null" },
-    ),
-    selectedImportedProcessId: integer("selected_imported_process_id").references(
-      () => importacaoBllProcessos.id,
-      { onDelete: "set null" },
-    ),
+    selectedInternalProcessId: integer(
+      "selected_internal_process_id",
+    ).references(() => processos.id, { onDelete: "set null" }),
+    selectedImportedProcessId: integer(
+      "selected_imported_process_id",
+    ).references(() => importacaoBllProcessos.id, { onDelete: "set null" }),
     reviewedBy: integer("reviewed_by").references(() => users.id, {
       onDelete: "set null",
     }),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-    rawPayload: jsonb("raw_payload").notNull().default(sql`'{}'::jsonb`),
+    rawPayload: jsonb("raw_payload")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     criadoEm: timestamp("criado_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3062,7 +3124,9 @@ export const contratosPncp = pgTable(
       table.pncpContractId,
     ),
     idxProcesso: index("contratos_pncp_processo_idx").on(table.processoId),
-    idxFornecedor: index("contratos_pncp_fornecedor_idx").on(table.fornecedorId),
+    idxFornecedor: index("contratos_pncp_fornecedor_idx").on(
+      table.fornecedorId,
+    ),
     idxFornecedorCnpj: index("contratos_pncp_fornecedor_cnpj_idx").on(
       table.fornecedorCnpj,
     ),
@@ -3153,9 +3217,7 @@ export const authRecoveryChallenges = pgTable(
   },
   (table) => ({
     idxUser: index("auth_recovery_challenges_user_idx").on(table.userId),
-    idxPurpose: index("auth_recovery_challenges_purpose_idx").on(
-      table.purpose,
-    ),
+    idxPurpose: index("auth_recovery_challenges_purpose_idx").on(table.purpose),
     idxChallenge: index("auth_recovery_challenges_hash_idx").on(
       table.challengeHash,
     ),
@@ -3195,5 +3257,61 @@ export const auditoriaLog = pgTable(
       table.registroId,
       table.criadoEm,
     ),
+  }),
+);
+
+export const arquivoIndex = pgTable(
+  "arquivo_index",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    relativePath: text("relative_path").notNull().unique(),
+    parentPath: text("parent_path").notNull().default(""),
+    name: text("name").notNull(),
+    extension: varchar("extension", { length: 32 }).notNull().default(""),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    size: bigint("size", { mode: "number" }),
+    modifiedAt: timestamp("modified_at", { withTimezone: true }),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    parentIdx: index("arquivo_index_parent_idx").on(table.parentPath),
+    kindIdx: index("arquivo_index_kind_idx").on(table.kind),
+  }),
+);
+
+export const arquivoFavoritos = pgTable(
+  "arquivo_favoritos",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    relativePath: text("relative_path").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userPathUq: uniqueIndex("arquivo_favoritos_user_path_uq").on(table.userId, table.relativePath),
+    userIdx: index("arquivo_favoritos_user_idx").on(table.userId),
+  }),
+);
+
+export const arquivoAuditLog = pgTable(
+  "arquivo_audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    action: varchar("action", { length: 32 }).notNull(),
+    relativePath: text("relative_path"),
+    fileName: text("file_name"),
+    fileSize: bigint("file_size", { mode: "number" }),
+    ipAddress: varchar("ip_address", { length: 120 }),
+    userAgent: text("user_agent"),
+    success: boolean("success").notNull().default(true),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("arquivo_audit_user_idx").on(table.userId),
+    actionIdx: index("arquivo_audit_action_idx").on(table.action),
+    createdIdx: index("arquivo_audit_created_idx").on(table.createdAt),
+    pathIdx: index("arquivo_audit_path_idx").on(table.relativePath),
   }),
 );

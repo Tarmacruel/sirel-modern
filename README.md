@@ -39,6 +39,15 @@ Entraram nesta revisao:
 - geracao automatica de relatorios PDF/XLSX de lotes em andamento, adjudicados, fase recursal e malsucedidos;
 - parser e renderer de relatorios de ata com melhor normalizacao, logging e paginacao.
 
+## Implementações em homologação — Fase 2
+
+As funcionalidades abaixo estão presentes na branch `fase-2-seguranca-evolucoes`, mas continuam sujeitas à homologação. Esta seção não registra migration aplicada, ativação de DNS/túnel nem publicação em produção.
+
+- **R2.2 — Documentos e Transparência:** a Central de Documentos passa a oferecer catálogo de classificações, busca por metadados, linhagem e versionamento, além de trilha de auditoria para alterações de classificação, acesso e publicação. O portal público previsto em `https://transparencia.sirel.com.br` é somente leitura e tem contrato próprio: mostra apenas processos ativos e publicados e documentos públicos, aprovados e sem restrição de perfil, sem expor identificadores ou dados internos.
+- **Arquivos:** há um acervo interno autenticado, com navegação por pastas, índice de pesquisa, favoritos, recentes, pré-visualização e downloads por tickets temporários. Os acessos são auditáveis, o caminho é validado contra travessia de diretórios e a reindexação é reservada ao administrador. A auditoria do acervo é acessível a perfis autorizados.
+
+As migrations aditivas `0059_documentos_classificacao_versoes.sql` e `0060_arquivos_acervo.sql` devem seguir a validação e o backup/restauração isolados antes de qualquer aplicação em banco com dados.
+
 ## Publicacao atual
 
 - ambiente publicado: `https://www.sirel.com.br`
@@ -54,13 +63,15 @@ Origens esperadas para CORS em producao:
 CLIENT_URL=https://www.sirel.com.br,https://app.sirel.com.br,https://planejamento.sirel.com.br,https://compras.sirel.com.br,https://licitacao.sirel.com.br,https://contratos.sirel.com.br,https://documentos.sirel.com.br,https://workflow.sirel.com.br,https://consultas.sirel.com.br,https://admin.sirel.com.br
 ```
 
+`transparencia.sirel.com.br` não integra essa lista: ele usa uma fronteira CORS pública, sem credenciais, e uma allowlist própria de rotas somente leitura.
+
 Para deploy com frontend e API no mesmo host, preferir endpoint relativo:
 
 ```env
 VITE_API_URL=/api/trpc
 ```
 
-No desenvolvimento local, `npm run start:local` usa backend em `http://localhost:3030` e frontend em `http://localhost:5173`; o Vite fica restrito a `127.0.0.1`, sem hosts externos liberados por curinga e com CORS desabilitado. `npm run start:tunnel` preserva o proxy de `/api` e encaminha o host como `localhost:5173`, sem abrir a allowlist do Vite. No build de producao, o Express serve `client/dist` e aplica fallback de SPA para refresh em rotas profundas.
+No desenvolvimento local, `npm run start:local` usa backend em `http://localhost:3030` e frontend em `http://localhost:5173`; o Vite fica restrito a `127.0.0.1`, sem hosts externos liberados por curinga e com CORS desabilitado. `npm run start:tunnel` preserva o `Host` público para que a interface host-aware seja selecionada; por isso, todo hostname publicado precisa constar explicitamente na allowlist do Vite. No build de producao, o Express serve `client/dist` e aplica fallback de SPA para refresh em rotas profundas.
 
 ## Documentacao operacional local
 
@@ -344,6 +355,10 @@ PORT=3030
 CLIENT_URL=http://localhost:5173
 VITE_API_URL=/api/trpc
 JWT_SECRET=
+ARQUIVOS_ENABLED=true
+ARQUIVOS_ROOT=D:\Dados\SIREL-Arquivos
+ARQUIVOS_HOSTNAME=arquivos.sirel.com.br
+ARQUIVOS_TICKET_SECRET=
 SIREL_DEFAULT_PASSWORD=defina_localmente
 SIREL_ADMIN_USERNAME=usuario_admin
 SIREL_ADMIN_NAME=Nome do Administrador
@@ -358,6 +373,7 @@ Observacoes:
 - gere `JWT_SECRET` localmente com pelo menos 32 caracteres aleatórios; a aplicação recusa iniciar com valor ausente ou curto;
 - `TEST_DATABASE_URL` deve apontar para banco vazio e diferente de `DATABASE_URL`; a execução integrada recusa a mesma identidade de host, porta e banco;
 - valores reais de producao, credenciais operacionais, chaves e procedimentos de recuperacao devem ficar apenas no arquivo local `OPERACAO_LOCAL_SENSIVEL.txt`;
+- `ARQUIVOS_ROOT` deve apontar para o acervo autorizado; configure `ARQUIVOS_TICKET_SECRET` com valor forte fora do repositório, preferencialmente distinto de `JWT_SECRET`;
 - nao documente segredos diretamente no Git, em issues, PRs, prints ou mensagens publicas;
 - a importação legada exige `SIREL_DEFAULT_PASSWORD` (mínimo de 12 caracteres), `SIREL_ADMIN_USERNAME` e `SIREL_ADMIN_NAME`; `SIREL_ADMIN_EMAIL` é opcional e não há senha, usuário ou e-mail administrativo de fallback;
 - `HOST` fica limitado a `127.0.0.1` por padrão. Para expor o backend na rede local, configure outro host de forma explícita e restrinja o firewall;

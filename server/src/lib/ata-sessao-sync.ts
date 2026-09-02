@@ -1816,13 +1816,9 @@ async function createDocumentoFromAtaTempFile(params: {
   const targetAbsolutePath = join(processFolder, targetFileName);
   copyFileSync(params.sourceAbsolutePath, targetAbsolutePath);
 
-  const [latest] = await params.db
-    .select({ versao: documentos.versao })
-    .from(documentos)
-    .where(eq(documentos.processoId, params.processoId))
-    .orderBy(desc(documentos.versao))
-    .limit(1);
-  const nextVersion = Number(latest?.versao ?? 0) + 1;
+  // A descoberta da ata não pode assumir que documentos do mesmo processo
+  // pertencem à mesma cadeia. O arquivo recebido inicia sua própria raiz.
+  const nextVersion = 1;
   const relativePath = relative(uploadsRoot, targetAbsolutePath).replace(
     /\\/g,
     "/",
@@ -1858,17 +1854,18 @@ async function createDocumentoFromAtaTempFile(params: {
     .returning();
 
   const downloadUrl = `/api/planejamento/documentos/${created.id}/download`;
-  await params.db
+  const [persisted] = await params.db
     .update(documentos)
     .set({
       arquivoUrl: downloadUrl,
+      documentoRaizId: created.id,
       atualizadoEm: new Date(),
     })
-    .where(eq(documentos.id, created.id));
+    .where(eq(documentos.id, created.id))
+    .returning();
 
   return {
-    ...created,
-    arquivoUrl: downloadUrl,
+    ...persisted,
   };
 }
 

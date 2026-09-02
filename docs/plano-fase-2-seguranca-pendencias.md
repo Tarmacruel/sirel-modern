@@ -40,20 +40,18 @@ Retirar um arquivo do índice não remove seu conteúdo do histórico nem invali
 
 Leitura individual, read-after-write, invalidação de cache, combobox assíncrono compartilhado, lookup paginado, vínculo Pessoa/Usuário, detecção de duplicidade e catálogos de Cargos/Funções foram implementados. A migration `0056_cadastros_cargos_funcoes.sql` mantém `cargo` legado e possui gate automatizado de esquema/dados; a `0057_importacao_bll_itens_lote_index.sql` reconcilia de forma aditiva um índice legado necessário à reconstrução limpa. Evidências, roteiro de homologação doméstica e rollback estão em [R2.1 — Registro de implementação e roteiro de homologação](./r2.1-cadastros-implementacao-homologacao.md).
 
-### R2.2 — Documentos e portal público (R2.2.1 iniciado)
+### R2.2 — Documentos e portal público (implementação na branch; homologação e implantação pendentes)
 
-O primeiro incremento, **gate de publicação e auditoria**, está implementado na branch de fase e deve ser homologado em banco isolado antes de qualquer aplicação operacional:
+O R2.2 consolida o gate de publicação, classificação institucional, linhagem de versões e o portal público mínimo em `https://transparencia.sirel.com.br`:
 
-- a migration aditiva `0058_documentos_publicacao.sql` cria os estados `RASCUNHO`, `EM_REVISAO`, `APROVADO`, `REJEITADO` e `RETIRADO`, além de aprovador, data e justificativa;
-- o acervo existente é colocado em `EM_REVISAO`, sem aprovação retroativa nem exposição pública automática;
-- novos uploads, documentos de ata, documentos gerados no Planejamento, importações legadas e novas versões iniciam como `RASCUNHO`, internos e sem perfis restritos;
-- somente gestor ou administrador pode configurar acesso, encaminhar, aprovar, rejeitar ou retirar uma publicação; toda decisão exige justificativa e grava snapshots antes/depois na auditoria;
-- alteração de acesso ou de metadados de documento aprovado/em revisão revoga a publicação e exige nova revisão;
-- documento público não pode ter `restritoA`; o portal e o download externo exigem simultaneamente processo ativo/publicado, `publico=true`, estado `APROVADO` e lista de restrições vazia;
-- links públicos novos são capacidades opacas autenticadas por AES-256-GCM, não carregam IDs internos e são revalidados no download para permitir revogação imediata;
-- a Central de Documentos separa metadados do fluxo de acesso/publicação e mostra o estado da decisão.
+- `0058_documentos_publicacao.sql` cria os estados `RASCUNHO`, `EM_REVISAO`, `APROVADO`, `REJEITADO` e `RETIRADO`; o acervo existente entra em revisão, sem aprovação retroativa;
+- `0059_documentos_classificacao_versoes.sql` cria o catálogo de classificações, preserva `categoria` legado, associa o acervo ao catálogo e adiciona raiz/antecessor para uma linhagem explícita de versões;
+- novas versões nascem internas como `RASCUNHO`; o portal mantém a última versão pública aprovada enquanto uma versão posterior estiver em elaboração ou revisão e invalida o link da versão substituída após a nova aprovação;
+- somente processos ativos/publicados e documentos `publico=true`, `APROVADO` e sem `restritoA` são expostos; download usa capacidade opaca e revalida a autorização;
+- o hostname público usa allowlist própria de rotas somente leitura, contratos que não expõem IDs internos e cliente que usa `credentials: "omit"`, sem Bearer ou CSRF;
+- classificação, acesso, revisão, aprovação, rejeição e retirada devem ficar registrados na auditoria com snapshots sanitizados.
 
-Próximos incrementos do R2.2: busca pública navegável, linhagem de versões por documento lógico, classificação/catálogo institucional e testes HTTP/tRPC com banco descartável para autorização, portal, auditoria e revogação de links.
+O cadastro da rota no Cloudflare Tunnel não confirma que a aplicação está implantada ou que a migration foi aplicada. O roteiro completo, os limites de exposição, a sequência segura de banco, a matriz manual e o rollback estão em [R2.2 — Documentos e Portal da Transparência](./r2.2-documentos-portal-publico-homologacao.md). Antes de qualquer banco com dados, é obrigatório restaurar e validar backup isolado; nenhuma migration deve ser aplicada diretamente no operacional. A definição entre SSO por cookie de domínio e isolamento total do cookie no hostname público continua sendo uma decisão obrigatória antes da produção.
 
 ### R2.3 — Gestão operacional
 

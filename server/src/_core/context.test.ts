@@ -9,8 +9,8 @@ describe("createContext", () => {
     const ctx = await createContext({
       req: {
         headers: {
-          "x-sirel-subsystem": "licitacao",
-          host: "localhost:3030",
+          "x-sirel-subsystem": "admin",
+          host: "licitacao.sirel.com.br",
           origin: "http://localhost:5173",
           "user-agent": "vitest",
         },
@@ -20,7 +20,7 @@ describe("createContext", () => {
 
     expect(ctx.subsystem.key).toBe("licitacao");
     expect(ctx.requestMeta).toMatchObject({
-      host: "localhost:3030",
+      host: "licitacao.sirel.com.br",
       origin: "http://localhost:5173",
       userAgent: "vitest",
     });

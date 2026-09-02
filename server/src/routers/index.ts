@@ -1,5 +1,6 @@
 import { router } from "../trpc.js";
 import { auditoriaRouter } from "./auditoria.js";
+import { arquivosRouter } from "./arquivos.js";
 import { authRouter } from "./auth.js";
 import { cadastrosInstitucionaisRouter } from "./cadastros-institucionais.js";
 import { cadastrosRouter } from "./cadastros.js";
@@ -28,6 +29,7 @@ export const appRouter = router({
   auth: authRouter,
   portalPublico: portalPublicoRouter,
   auditoria: auditoriaRouter,
+  arquivos: arquivosRouter,
   dashboard: dashboardRouter,
   dossie: dossieRouter,
   cadastros: cadastrosRouter,

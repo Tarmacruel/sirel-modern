@@ -1,4 +1,4 @@
-import { lazy, useMemo, type ReactNode } from "react";
+import { lazy, useEffect, useMemo, type ReactNode } from "react";
 
 import {
   getDefaultSubsystem,
@@ -15,6 +15,10 @@ import {
 } from "@/lib/subsystem-navigation";
 import { SubsystemHome } from "@/app/subsystem-home";
 import { useSubsystem } from "@/app/subsystem-context";
+import {
+  isArquivosHostname,
+  redirectArquivosRootIfNeeded,
+} from "@/lib/arquivos-host";
 
 const AuditoriaPage = lazy(() =>
   import("@/pages/auditoria-page").then((module) => ({
@@ -59,6 +63,16 @@ const DossieFornecedorPage = lazy(() =>
 const DocumentosPage = lazy(() =>
   import("@/pages/documentos-page").then((module) => ({
     default: module.DocumentosPage,
+  })),
+);
+const ArquivosPage = lazy(() =>
+  import("@/pages/arquivos-page").then((module) => ({
+    default: module.ArquivosPage,
+  })),
+);
+const ArquivosAuditoriaPage = lazy(() =>
+  import("@/pages/arquivos-auditoria-page").then((module) => ({
+    default: module.ArquivosAuditoriaPage,
   })),
 );
 const ImportacoesPage = lazy(() =>
@@ -175,6 +189,23 @@ const allSubsystemKeys: readonly SubsystemKey[] = subsystemDefinitions.map(
   (item) => item.key,
 );
 const adminOnly = ["admin"] as const satisfies readonly UserRole[];
+const auditRoles = ["admin", "auditor"] as const satisfies readonly UserRole[];
+
+function HomeEntry({ user }: { user: AuthUser }) {
+  useEffect(() => {
+    redirectArquivosRootIfNeeded();
+  }, []);
+
+  if (isArquivosHostname()) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center text-sm text-[var(--text-secondary)]">
+        Abrindo o acervo de arquivos...
+      </div>
+    );
+  }
+
+  return <SubsystemHome user={user} />;
+}
 
 function allSubsystemsExcept(
   ...blockedKeys: readonly SubsystemKey[]
@@ -257,7 +288,7 @@ export const appRoutes: readonly AppRouteDefinition[] = [
     id: "dashboard",
     path: "/",
     subsystemKeys: allSubsystemKeys,
-    render: (_params, context) => <SubsystemHome user={context.user} />,
+    render: (_params, context) => <HomeEntry user={context.user} />,
   },
   {
     id: "dossie-item-detail",
@@ -452,6 +483,19 @@ export const appRoutes: readonly AppRouteDefinition[] = [
     path: "/documentos",
     subsystemKeys: allSubsystemKeys,
     render: () => <DocumentosPage />,
+  },
+  {
+    id: "arquivos-auditoria",
+    path: "/arquivos/auditoria",
+    subsystemKeys: allSubsystemKeys,
+    requiredRoles: auditRoles,
+    render: () => <ArquivosAuditoriaPage />,
+  },
+  {
+    id: "arquivos",
+    path: "/arquivos",
+    subsystemKeys: allSubsystemKeys,
+    render: () => <ArquivosPage />,
   },
   {
     id: "contratos",

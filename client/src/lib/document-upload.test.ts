@@ -85,7 +85,7 @@ describe("isPdfFile", () => {
 });
 
 describe("uploadProcessoDocumento", () => {
-  it("envia documentos novos como rascunho, sem flags de acesso no multipart", async () => {
+  it("envia a classificacao e a linhagem sem flags de acesso no multipart", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -101,7 +101,9 @@ describe("uploadProcessoDocumento", () => {
 
     await uploadProcessoDocumento({
       processoId: 7,
+      documentoAnteriorId: 41,
       tipo: "OUTRO",
+      classificacaoId: 3,
       titulo: "Documento de teste",
       palavrasChave: ["rascunho"],
       arquivo: new File(["conteúdo"], "teste.pdf", {
@@ -112,6 +114,8 @@ describe("uploadProcessoDocumento", () => {
     const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
     const formData = request.body as FormData;
     expect(formData.get("processoId")).toBe("7");
+    expect(formData.get("documentoAnteriorId")).toBe("41");
+    expect(formData.get("classificacaoId")).toBe("3");
     expect(formData.get("publico")).toBeNull();
     expect(formData.get("restritoA")).toBeNull();
   });

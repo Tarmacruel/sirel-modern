@@ -16,7 +16,7 @@ import express from "express";
 import helmet from "helmet";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import {
   ataSessaoApplyInputSchema,
   ataSessaoCreatePreviewFromDiscoveryInputSchema,
@@ -30,6 +30,7 @@ import { requireDb } from "./db/client.js";
 import {
   atosDesignacao,
   catalogoItens,
+  documentoClassificacoes,
   documentos,
   fornecedores,
   itensProcesso,
@@ -68,7 +69,18 @@ import { resolveRequestUser } from "./lib/request-auth.js";
 import { assertSessionSecretConfigured } from "./lib/auth-session.js";
 import { hasValidCsrfToken } from "./lib/csrf.js";
 import { documentoEstaPublicamenteDisponivel } from "./lib/document-publication.js";
+import {
+  nextDocumentoVersao,
+  resolveDocumentoRaizId,
+} from "./lib/document-lineage.js";
 import { verifyPublicDocumentLink } from "./lib/public-document-link.js";
+import { registerArquivosHttp } from "./modules/arquivos/http.js";
+import { startArquivosRuntime } from "./modules/arquivos/runtime.js";
+import {
+  isTransparencyPortalPathAllowed,
+  isTransparencyPortalRequest,
+  isTransparencyPortalSameOrigin,
+} from "./lib/transparency-portal-host.js";
 import { parseSdReport } from "./lib/sd-reports.js";
 import { appRouter } from "./routers/index.js";
 
@@ -254,7 +266,11 @@ function requireAuthenticatedUser(req: express.Request, res: express.Response) {
   return user;
 }
 
-function requireUploadAccess(req: express.Request, res: express.Response, next: express.NextFunction) {
+function requireUploadAccess(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
   if (!requireUploadUser(req, res)) return;
   if (!hasValidCsrfToken(req)) {
     res.status(403).json({ message: "Validacao CSRF obrigatoria." });
@@ -268,7 +284,10 @@ function isAllowedDocumentFile(file: Express.Multer.File) {
   const allowed = new Map([
     [".pdf", "application/pdf"],
     [".doc", "application/msword"],
-    [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    [
+      ".docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ],
     [".png", "image/png"],
     [".jpg", "image/jpeg"],
     [".jpeg", "image/jpeg"],
@@ -293,7 +312,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 20, parts: 22, fieldNameSize: 100, fieldSize: 100_000 },
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+    files: 1,
+    fields: 20,
+    parts: 22,
+    fieldNameSize: 100,
+    fieldSize: 100_000,
+  },
   fileFilter(_req, file, callback) {
     callback(null, isAllowedDocumentFile(file));
   },
@@ -322,7 +348,13 @@ const cadastroAssetUpload = multer({
   storage: cadastroAssetStorage,
   limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 8, parts: 10 },
   fileFilter(_req, file, callback) {
-    callback(null, ["image/png", "image/jpeg", "image/webp"].includes(file.mimetype) && [".png", ".jpg", ".jpeg", ".webp"].includes(extname(file.originalname).toLowerCase()));
+    callback(
+      null,
+      ["image/png", "image/jpeg", "image/webp"].includes(file.mimetype) &&
+        [".png", ".jpg", ".jpeg", ".webp"].includes(
+          extname(file.originalname).toLowerCase(),
+        ),
+    );
   },
 });
 
@@ -858,33 +890,67 @@ app.use(
   }),
 );
 app.disable("x-powered-by");
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (
-        isAllowedCorsOrigin(origin, {
-          clientUrl,
-          nodeEnv: process.env.NODE_ENV,
-        })
-      ) {
-        callback(null, true);
-        return;
-      }
+const internalCors = cors({
+  origin(origin, callback) {
+    if (
+      isAllowedCorsOrigin(origin, {
+        clientUrl,
+        nodeEnv: process.env.NODE_ENV,
+      })
+    ) {
+      callback(null, true);
+      return;
+    }
 
-      callback(new Error("Origem não autorizada pelo SIREL"));
-    },
-    allowedHeaders: [
-      "Content-Type",
-      "X-Sirel-Csrf",
-      "X-Sirel-Subsystem",
-    ],
-    credentials: true,
-  }),
-);
+    callback(new Error("Origem não autorizada pelo SIREL"));
+  },
+  allowedHeaders: ["Content-Type", "X-Sirel-Csrf"],
+  credentials: true,
+});
+
+const transparencyPortalCors = cors({
+  origin(origin, callback) {
+    if (isTransparencyPortalSameOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("Origem nao autorizada pelo portal publico"));
+  },
+  allowedHeaders: ["Content-Type"],
+  credentials: false,
+});
+
+/**
+ * Cookies de sessão são compartilhados entre ambientes internos por
+ * compatibilidade. O portal é uma fronteira sem login e não pode encaminhar
+ * uma chamada interna mesmo quando o navegador apresenta esse cookie.
+ */
+app.use((req, res, next) => {
+  if (
+    isTransparencyPortalRequest(req) &&
+    !isTransparencyPortalPathAllowed(req.path, req.method)
+  ) {
+    res.status(404).json({ message: "Recurso nao encontrado." });
+    return;
+  }
+  next();
+});
+
+app.use((req, res, next) => {
+  const middleware = isTransparencyPortalRequest(req)
+    ? transparencyPortalCors
+    : internalCors;
+  middleware(req, res, next);
+});
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use("/api", (req, res, next) => {
-  if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path.startsWith("/trpc")) {
+  if (
+    ["GET", "HEAD", "OPTIONS"].includes(req.method) ||
+    req.path.startsWith("/trpc")
+  ) {
     next();
     return;
   }
@@ -896,7 +962,14 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-app.get("/healthz", (_req, res) => {
+app.get("/healthz", (req, res) => {
+  if (isTransparencyPortalRequest(req)) {
+    // A fronteira pública não precisa revelar composição de CORS, módulos ou
+    // demais detalhes operacionais para ser monitorada.
+    res.json({ ok: true });
+    return;
+  }
+
   res.json({
     ok: true,
     service: "sirel-modern-server",
@@ -922,9 +995,14 @@ app.post(
         res.status(400).json({ message: "Selecione um arquivo para upload." });
         return;
       }
-      if (extname(req.file.originalname).toLowerCase() === ".pdf" && !hasPdfFileSignature(req.file.path)) {
+      if (
+        extname(req.file.originalname).toLowerCase() === ".pdf" &&
+        !hasPdfFileSignature(req.file.path)
+      ) {
         rmSync(req.file.path, { force: true });
-        res.status(400).json({ message: "O arquivo PDF nao possui uma assinatura valida." });
+        res
+          .status(400)
+          .json({ message: "O arquivo PDF nao possui uma assinatura valida." });
         return;
       }
 
@@ -936,6 +1014,19 @@ app.post(
       const dataReferencia =
         String(req.body.dataReferencia ?? "").trim() || null;
       const palavrasChave = parseStringArrayField(req.body.palavrasChave);
+      const documentoAnteriorIdValue = Number(
+        req.body.documentoAnteriorId ?? 0,
+      );
+      const documentoAnteriorId =
+        Number.isSafeInteger(documentoAnteriorIdValue) &&
+        documentoAnteriorIdValue > 0
+          ? documentoAnteriorIdValue
+          : null;
+      const classificacaoIdValue = Number(req.body.classificacaoId ?? 0);
+      const classificacaoId =
+        Number.isSafeInteger(classificacaoIdValue) && classificacaoIdValue > 0
+          ? classificacaoIdValue
+          : null;
       if (
         !Number.isSafeInteger(processoId) ||
         processoId < 1 ||
@@ -945,9 +1036,9 @@ app.post(
         )
       ) {
         removeUploadedFile(req.file);
-        res
-          .status(400)
-          .json({ message: "Informe processo, tipo válido e título do documento." });
+        res.status(400).json({
+          message: "Informe processo, tipo válido e título do documento.",
+        });
         return;
       }
 
@@ -959,16 +1050,62 @@ app.post(
         .limit(1);
       if (!processo) {
         removeUploadedFile(req.file);
-        res.status(400).json({ message: "O processo informado não foi encontrado." });
+        res
+          .status(400)
+          .json({ message: "O processo informado não foi encontrado." });
         return;
       }
-      const latest = await db
-        .select({ versao: documentos.versao })
-        .from(documentos)
-        .where(eq(documentos.processoId, processoId))
-        .orderBy(desc(documentos.versao))
-        .limit(1);
-      const nextVersion = Number(latest[0]?.versao ?? 0) + 1;
+      const [documentoAnterior] = documentoAnteriorId
+        ? await db
+            .select()
+            .from(documentos)
+            .where(eq(documentos.id, documentoAnteriorId))
+            .limit(1)
+        : [null];
+      if (documentoAnteriorId && !documentoAnterior) {
+        removeUploadedFile(req.file);
+        res.status(400).json({ message: "Documento anterior nao encontrado." });
+        return;
+      }
+      if (documentoAnterior && documentoAnterior.processoId !== processoId) {
+        removeUploadedFile(req.file);
+        res.status(400).json({
+          message: "A nova versao precisa permanecer no mesmo processo.",
+        });
+        return;
+      }
+      const classificacaoEfetivaId =
+        classificacaoId ?? documentoAnterior?.classificacaoId ?? null;
+      const [classificacao] = classificacaoEfetivaId
+        ? await db
+            .select({
+              id: documentoClassificacoes.id,
+              nome: documentoClassificacoes.nome,
+              ativo: documentoClassificacoes.ativo,
+            })
+            .from(documentoClassificacoes)
+            .where(eq(documentoClassificacoes.id, classificacaoEfetivaId))
+            .limit(1)
+        : [null];
+      if (classificacaoEfetivaId && !classificacao?.ativo) {
+        removeUploadedFile(req.file);
+        res.status(400).json({
+          message: "Selecione uma classificacao institucional ativa.",
+        });
+        return;
+      }
+      const documentoRaizId = documentoAnterior
+        ? resolveDocumentoRaizId(documentoAnterior)
+        : null;
+      const existingVersions = documentoRaizId
+        ? await db
+            .select({ versao: documentos.versao })
+            .from(documentos)
+            .where(eq(documentos.documentoRaizId, documentoRaizId))
+        : [];
+      const nextVersion = documentoRaizId
+        ? nextDocumentoVersao(existingVersions)
+        : 1;
       const relativePath = buildUploadRelativePath(req.file);
 
       const [created] = await db
@@ -986,8 +1123,11 @@ app.post(
             | "RESULTADO"
             | "CONTRATO"
             | "OUTRO",
-          categoria,
+          categoria: categoria || classificacao?.nome || null,
+          classificacaoId: classificacaoEfetivaId,
           versao: nextVersion,
+          documentoRaizId,
+          versaoAnteriorId: documentoAnterior?.id ?? null,
           arquivoUrl: "",
           arquivoChave: relativePath,
           tamanhoBytes: req.file.size,
@@ -1007,20 +1147,25 @@ app.post(
       documentoPersistido = true;
 
       const downloadUrl = `/api/planejamento/documentos/${created.id}/download`;
-      await db
+      const [persisted] = await db
         .update(documentos)
-        .set({ arquivoUrl: downloadUrl, atualizadoEm: new Date() })
-        .where(eq(documentos.id, created.id));
+        .set({
+          arquivoUrl: downloadUrl,
+          documentoRaizId: documentoRaizId ?? created.id,
+          atualizadoEm: new Date(),
+        })
+        .where(eq(documentos.id, created.id))
+        .returning();
 
       await logAuditoria({ user } as any, {
         tabela: "documentos",
         registroId: created.id,
         acao: "CREATE",
-        dadosNovos: { ...created, arquivoUrl: downloadUrl },
+        dadosNovos: persisted,
         descricao: `Documento ${titulo} enviado por upload local`,
       });
 
-      res.status(201).json({ ...created, arquivoUrl: downloadUrl });
+      res.status(201).json(persisted);
     } catch (error) {
       if (!documentoPersistido) removeUploadedFile(req.file);
       console.error(error);
@@ -1977,14 +2122,20 @@ app.get("/api/cadastros-institucionais/atos/download", async (req, res) => {
 
 app.get("/api/publico/documentos/:token/download", async (req, res) => {
   try {
-    const documentoId = verifyPublicDocumentLink(String(req.params.token ?? ""));
+    const documentoId = verifyPublicDocumentLink(
+      String(req.params.token ?? ""),
+    );
     if (!documentoId) {
       res.status(404).json({ message: "Documento nao encontrado." });
       return;
     }
     const db = requireDb();
     const [result] = await db
-      .select({ documento: documentos, publicado: processos.publicado, ativo: processos.ativo })
+      .select({
+        documento: documentos,
+        publicado: processos.publicado,
+        ativo: processos.ativo,
+      })
       .from(documentos)
       .innerJoin(processos, eq(processos.id, documentos.processoId))
       .where(eq(documentos.id, documentoId))
@@ -1999,6 +2150,26 @@ app.get("/api/publico/documentos/:token/download", async (req, res) => {
       res.status(404).json({ message: "Documento nao encontrado." });
       return;
     }
+    const documentoRaizId = documento.documentoRaizId ?? documento.id;
+    const [versaoPublicaPosterior] = await db
+      .select({ id: documentos.id })
+      .from(documentos)
+      .where(
+        and(
+          eq(documentos.documentoRaizId, documentoRaizId),
+          gt(documentos.versao, documento.versao),
+          eq(documentos.publico, true),
+          eq(documentos.statusPublicacao, "APROVADO"),
+          sql`coalesce(jsonb_array_length(${documentos.restritoA}), 0) = 0`,
+        ),
+      )
+      .limit(1);
+    if (versaoPublicaPosterior) {
+      // Uma nova versão pública aprovada substitui a anterior inclusive para
+      // links opacos emitidos antes da atualização.
+      res.status(404).json({ message: "Documento nao encontrado." });
+      return;
+    }
     const absolutePath = resolveDocumentoPath(documento.arquivoChave);
     if (!existsSync(absolutePath)) {
       res.status(404).json({ message: "Documento nao encontrado." });
@@ -2006,9 +2177,15 @@ app.get("/api/publico/documentos/:token/download", async (req, res) => {
     }
     const extension = extname(documento.arquivoChave) || extname(absolutePath);
     const downloadName = `${slugifyFileName(documento.titulo || "documento") || "documento"}${extension}`;
-    res.setHeader("Content-Type", documento.mimeType?.trim() || "application/octet-stream");
+    res.setHeader(
+      "Content-Type",
+      documento.mimeType?.trim() || "application/octet-stream",
+    );
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${downloadName}"`,
+    );
     res.sendFile(absolutePath);
   } catch {
     res.status(500).json({ message: "Falha ao disponibilizar o documento." });
@@ -2036,8 +2213,14 @@ app.get(
       const restrictions = Array.isArray(documento.restritoA)
         ? documento.restritoA.map((role) => String(role).toLowerCase())
         : [];
-      if (user.role !== "admin" && restrictions.length > 0 && !restrictions.includes(user.role.toLowerCase())) {
-        res.status(403).json({ message: "Seu perfil nao possui acesso a este documento." });
+      if (
+        user.role !== "admin" &&
+        restrictions.length > 0 &&
+        !restrictions.includes(user.role.toLowerCase())
+      ) {
+        res
+          .status(403)
+          .json({ message: "Seu perfil nao possui acesso a este documento." });
         return;
       }
 
@@ -2083,6 +2266,26 @@ app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
       return;
     }
 
+    if (["EM_REVISAO", "APROVADO"].includes(documento.statusPublicacao)) {
+      res.status(409).json({
+        message:
+          "Retire ou conclua a decisao de publicacao antes de excluir este documento.",
+      });
+      return;
+    }
+    const [versaoPosterior] = await db
+      .select({ id: documentos.id })
+      .from(documentos)
+      .where(eq(documentos.versaoAnteriorId, documentoId))
+      .limit(1);
+    if (versaoPosterior) {
+      res.status(409).json({
+        message:
+          "Este documento possui uma versao posterior e precisa permanecer na linhagem auditavel.",
+      });
+      return;
+    }
+
     if (documento.arquivoChave) {
       const absolutePath = resolveDocumentoPath(documento.arquivoChave);
       if (existsSync(absolutePath)) {
@@ -2105,6 +2308,8 @@ app.delete("/api/planejamento/documentos/:documentoId", async (req, res) => {
     res.status(500).json({ message: "Falha ao excluir o documento." });
   }
 });
+
+registerArquivosHttp(app);
 
 app.use(
   "/api/trpc",
@@ -2137,18 +2342,32 @@ app.use((_req, res) => {
   res.status(404).json({ message: "Recurso nao encontrado." });
 });
 
-app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (error instanceof multer.MulterError) {
-    res.status(400).json({ message: "Upload invalido ou acima do limite permitido." });
-    return;
-  }
-  console.error(error);
-  res.status(500).json({ message: "Falha interna ao processar a solicitacao." });
-});
+app.use(
+  (
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    if (error instanceof multer.MulterError) {
+      res
+        .status(400)
+        .json({ message: "Upload invalido ou acima do limite permitido." });
+      return;
+    }
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Falha interna ao processar a solicitacao." });
+  },
+);
 
 const server = app.listen(port, host, () => {
   startImportacoesScheduler();
   startBllLocalScheduler();
+  startArquivosRuntime().catch((error) => {
+    console.error("[SIREL Arquivos] Falha no runtime:", error);
+  });
   console.log(`SIREL SIREL server listening on http://${host}:${port}`);
 });
 

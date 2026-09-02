@@ -13,7 +13,10 @@ import { requireDb } from "../db/client.js";
 import { resetBetaDatabase } from "../db/reset.js";
 import { hashPassword } from "../lib/auth-password.js";
 import { resolveLegacyImportBootstrap } from "../lib/legacy-import-bootstrap.js";
-import { normalizeLegacyCatalogLabel, toCleanString } from "../lib/legacy-text-normalizer.js";
+import {
+  normalizeLegacyCatalogLabel,
+  toCleanString,
+} from "../lib/legacy-text-normalizer.js";
 
 const {
   contratos,
@@ -29,7 +32,9 @@ const {
   fornecedores,
 } = schema;
 
-const canonicalModalidadeByCode = new Map(modalidadeCatalog.map((item) => [item.codigo, item]));
+const canonicalModalidadeByCode = new Map(
+  modalidadeCatalog.map((item) => [item.codigo, item]),
+);
 
 type LegacyRecord = Record<string, unknown>;
 
@@ -94,30 +99,76 @@ function toBoolean(value: unknown): boolean {
   return Boolean(value);
 }
 
-function normalizeWorkflowModule(value: unknown): "PLANEJAMENTO" | "COMPRAS" | "LICITACAO" | "PROCURADORIA" | "CONTROLADORIA" | "CONTRATOS" | "DOCUMENTOS" {
+function normalizeWorkflowModule(
+  value: unknown,
+):
+  | "PLANEJAMENTO"
+  | "COMPRAS"
+  | "LICITACAO"
+  | "PROCURADORIA"
+  | "CONTROLADORIA"
+  | "CONTRATOS"
+  | "DOCUMENTOS" {
   const text = toCleanString(value).toUpperCase();
-  if (["PLANEJAMENTO", "COMPRAS", "LICITACAO", "PROCURADORIA", "CONTROLADORIA", "CONTRATOS", "DOCUMENTOS"].includes(text)) {
+  if (
+    [
+      "PLANEJAMENTO",
+      "COMPRAS",
+      "LICITACAO",
+      "PROCURADORIA",
+      "CONTROLADORIA",
+      "CONTRATOS",
+      "DOCUMENTOS",
+    ].includes(text)
+  ) {
     return text as never;
   }
   return "PLANEJAMENTO";
 }
 
-function normalizeWorkflowStatus(value: unknown): "RASCUNHO" | "EM_ANDAMENTO" | "AGUARDANDO" | "CONCLUIDO" | "SUSPENSO" {
+function normalizeWorkflowStatus(
+  value: unknown,
+): "RASCUNHO" | "EM_ANDAMENTO" | "AGUARDANDO" | "CONCLUIDO" | "SUSPENSO" {
   const text = toCleanString(value).toUpperCase();
-  if (["RASCUNHO", "EM_ANDAMENTO", "AGUARDANDO", "CONCLUIDO", "SUSPENSO"].includes(text)) {
+  if (
+    [
+      "RASCUNHO",
+      "EM_ANDAMENTO",
+      "AGUARDANDO",
+      "CONCLUIDO",
+      "SUSPENSO",
+    ].includes(text)
+  ) {
     return text as never;
   }
   return "RASCUNHO";
 }
 
-function normalizeDocumentType(value: unknown): "DFD" | "ETP" | "TR" | "EDITAL" | "COMUNICACAO_INTERNA" | "RESULTADO" | "CONTRATO" | "OUTRO" {
+function normalizeDocumentType(
+  value: unknown,
+):
+  | "DFD"
+  | "ETP"
+  | "TR"
+  | "EDITAL"
+  | "COMUNICACAO_INTERNA"
+  | "RESULTADO"
+  | "CONTRATO"
+  | "OUTRO" {
   const text = toCleanString(value).toUpperCase();
   if (text.includes("DFD")) return "DFD";
   if (text.includes("ETP")) return "ETP";
-  if (text.includes("TERMO DE REFER") || text === "TR" || text.includes("TERMO_REFER")) return "TR";
+  if (
+    text.includes("TERMO DE REFER") ||
+    text === "TR" ||
+    text.includes("TERMO_REFER")
+  )
+    return "TR";
   if (text.includes("EDITAL")) return "EDITAL";
-  if (text.includes("COMUNIC") || text.includes("C.I") || text.includes("CI ")) return "COMUNICACAO_INTERNA";
-  if (text.includes("RESULTADO") || text.includes("HOMOLOG")) return "RESULTADO";
+  if (text.includes("COMUNIC") || text.includes("C.I") || text.includes("CI "))
+    return "COMUNICACAO_INTERNA";
+  if (text.includes("RESULTADO") || text.includes("HOMOLOG"))
+    return "RESULTADO";
   if (text.includes("CONTRATO")) return "CONTRATO";
   return "OUTRO";
 }
@@ -143,17 +194,28 @@ function normalizeKey(value: unknown) {
 
 function resolveCanonicalModalidadeCode(value: unknown) {
   const key = normalizeKey(value);
-  if (canonicalModalidadeByCode.has(key as (typeof modalidadeCatalog)[number]["codigo"])) {
+  if (
+    canonicalModalidadeByCode.has(
+      key as (typeof modalidadeCatalog)[number]["codigo"],
+    )
+  ) {
     return key as (typeof modalidadeCatalog)[number]["codigo"];
   }
-  if (key.includes("PREGAO") && key.includes("ELETRON")) return "PREGAO_ELETRONICO";
-  if (key.includes("PREGAO") && key.includes("PRESENC")) return "PREGAO_PRESENCIAL";
-  if (key.includes("CONCORRENCIA") && key.includes("ELETRON")) return "CONCORRENCIA_ELETRONICA";
-  if (key.includes("CONCORRENCIA") && key.includes("PRESENC")) return "CONCORRENCIA_PRESENCIAL";
-  if (key.includes("DISPENSA") && key.includes("SIMPLIFIC")) return "DISPENSA_SIMPLIFICADA";
-  if (key.includes("DISPENSA") && key.includes("ELETRON")) return "DISPENSA_ELETRONICA";
+  if (key.includes("PREGAO") && key.includes("ELETRON"))
+    return "PREGAO_ELETRONICO";
+  if (key.includes("PREGAO") && key.includes("PRESENC"))
+    return "PREGAO_PRESENCIAL";
+  if (key.includes("CONCORRENCIA") && key.includes("ELETRON"))
+    return "CONCORRENCIA_ELETRONICA";
+  if (key.includes("CONCORRENCIA") && key.includes("PRESENC"))
+    return "CONCORRENCIA_PRESENCIAL";
+  if (key.includes("DISPENSA") && key.includes("SIMPLIFIC"))
+    return "DISPENSA_SIMPLIFICADA";
+  if (key.includes("DISPENSA") && key.includes("ELETRON"))
+    return "DISPENSA_ELETRONICA";
   if (key.includes("INEXIG")) return "INEXIGIBILIDADE";
-  if (key.includes("LEILAO") && key.includes("ELETRON")) return "LEILAO_ELETRONICO";
+  if (key.includes("LEILAO") && key.includes("ELETRON"))
+    return "LEILAO_ELETRONICO";
   if (key.includes("CREDENCI")) return "CREDENCIAMENTO";
   return null;
 }
@@ -189,9 +251,17 @@ async function main() {
   const bootstrap = resolveLegacyImportBootstrap();
   const defaultPasswordHash = hashPassword(bootstrap.defaultPassword);
   const currentDir = dirname(fileURLToPath(import.meta.url));
-  const defaultSnapshotPath = resolve(currentDir, "../../../storage/migration/legacy_snapshot.json");
-  const snapshotPath = resolve(process.cwd(), cliArgs.snapshotPath ?? defaultSnapshotPath);
-  const snapshot = JSON.parse(readFileSync(snapshotPath, "utf-8")) as LegacySnapshot;
+  const defaultSnapshotPath = resolve(
+    currentDir,
+    "../../../storage/migration/legacy_snapshot.json",
+  );
+  const snapshotPath = resolve(
+    process.cwd(),
+    cliArgs.snapshotPath ?? defaultSnapshotPath,
+  );
+  const snapshot = JSON.parse(
+    readFileSync(snapshotPath, "utf-8"),
+  ) as LegacySnapshot;
 
   if (cliArgs.reset) {
     await resetBetaDatabase(db);
@@ -204,10 +274,18 @@ async function main() {
   const pessoaMap = new Map<number, number>();
   const fornecedorMap = new Map<number, number>();
   const processoMap = new Map<number, number>();
-  const existingProcessRows = await db.select({ id: processos.id, numeroSirel: processos.numeroSirel }).from(processos);
-  const existingProcessByNumero = new Map(existingProcessRows.map((row) => [toCleanString(row.numeroSirel), row.id]));
-  const existingFornecedorRows = await db.select({ id: fornecedores.id, cnpj: fornecedores.cnpj }).from(fornecedores);
-  const existingFornecedorByCnpj = new Map(existingFornecedorRows.map((row) => [toCleanString(row.cnpj), row.id]));
+  const existingProcessRows = await db
+    .select({ id: processos.id, numeroSirel: processos.numeroSirel })
+    .from(processos);
+  const existingProcessByNumero = new Map(
+    existingProcessRows.map((row) => [toCleanString(row.numeroSirel), row.id]),
+  );
+  const existingFornecedorRows = await db
+    .select({ id: fornecedores.id, cnpj: fornecedores.cnpj })
+    .from(fornecedores);
+  const existingFornecedorByCnpj = new Map(
+    existingFornecedorRows.map((row) => [toCleanString(row.cnpj), row.id]),
+  );
 
   for (const row of snapshot.secretarias) {
     const legacyId = Number(row.legacy_id);
@@ -219,7 +297,10 @@ async function main() {
       })
       .onConflictDoUpdate({
         target: secretarias.sigla,
-        set: { nome: normalizeLegacyCatalogLabel("secretaria", row.nome), atualizadoEm: new Date() },
+        set: {
+          nome: normalizeLegacyCatalogLabel("secretaria", row.nome),
+          atualizadoEm: new Date(),
+        },
       })
       .returning({ id: secretarias.id });
     secretariaMap.set(legacyId, record.id);
@@ -253,13 +334,17 @@ async function main() {
       .insert(modalidades)
       .values({
         codigo,
-        nome: canonicalModalidadeByCode.get(codigo)?.nome ?? normalizeLegacyCatalogLabel("modalidade", row.nome),
+        nome:
+          canonicalModalidadeByCode.get(codigo)?.nome ??
+          normalizeLegacyCatalogLabel("modalidade", row.nome),
         ativo: true,
       })
       .onConflictDoUpdate({
         target: modalidades.codigo,
         set: {
-          nome: canonicalModalidadeByCode.get(codigo)?.nome ?? normalizeLegacyCatalogLabel("modalidade", row.nome),
+          nome:
+            canonicalModalidadeByCode.get(codigo)?.nome ??
+            normalizeLegacyCatalogLabel("modalidade", row.nome),
           ativo: true,
         },
       })
@@ -281,8 +366,12 @@ async function main() {
       });
   }
 
-  const modalidadeRows = await db.select({ id: modalidades.id, codigo: modalidades.codigo }).from(modalidades);
-  const modalidadeIdByCode = new Map(modalidadeRows.map((row) => [row.codigo, row.id]));
+  const modalidadeRows = await db
+    .select({ id: modalidades.id, codigo: modalidades.codigo })
+    .from(modalidades);
+  const modalidadeIdByCode = new Map(
+    modalidadeRows.map((row) => [row.codigo, row.id]),
+  );
   for (const row of snapshot.modalidades) {
     const legacyId = Number(row.legacy_id);
     const codigo = resolveCanonicalModalidadeCode(row.nome);
@@ -304,25 +393,35 @@ async function main() {
       })
       .onConflictDoUpdate({
         target: statusProcesso.codigo,
-        set: { nome: normalizeLegacyCatalogLabel("statusProcesso", row.nome), ativo: true },
+        set: {
+          nome: normalizeLegacyCatalogLabel("statusProcesso", row.nome),
+          ativo: true,
+        },
       })
       .returning({ id: statusProcesso.id });
     statusMap.set(legacyId, record.id);
   }
 
   const existingUsers = await db.select().from(users);
-  const existingUserByLogin = new Map(existingUsers.map((row) => [toCleanString(row.loginMethod), row.id]));
+  const existingUserByLogin = new Map(
+    existingUsers.map((row) => [toCleanString(row.loginMethod), row.id]),
+  );
   for (const row of snapshot.users) {
     const legacyId = Number(row.legacy_id);
     const loginMethod = `legacy_django:${toCleanString(row.username, String(legacyId))}`;
-    const username = normalizeUsername(row.username || row.email || `legacy.${legacyId}`, `legacy.${legacyId}`);
+    const username = normalizeUsername(
+      row.username || row.email || `legacy.${legacyId}`,
+      `legacy.${legacyId}`,
+    );
     const currentId = existingUserByLogin.get(loginMethod);
     if (currentId) {
       await db
         .update(users)
         .set({
           username,
-          name: toCleanString(row.name || row.username || `Usuario ${legacyId}`),
+          name: toCleanString(
+            row.name || row.username || `Usuario ${legacyId}`,
+          ),
           email: toNullableString(String(row.email ?? "").toLowerCase()),
           role: toCleanString(row.suggested_role, "operador") as never,
           passwordHash: defaultPasswordHash,
@@ -386,13 +485,16 @@ async function main() {
       : `nome:${toCleanString(row.nome).toLowerCase()}|cargo:${toCleanString(row.cargo).toLowerCase()}|sec:${secretariaId ?? 0}`;
   const existingPessoaByKey = new Map(
     existingPessoas.map((row) => [
-      row.cpf ? `cpf:${row.cpf}` : `nome:${row.nome.trim().toLowerCase()}|cargo:${(row.cargo ?? "").trim().toLowerCase()}|sec:${row.secretariaId ?? 0}`,
+      row.cpf
+        ? `cpf:${row.cpf}`
+        : `nome:${row.nome.trim().toLowerCase()}|cargo:${(row.cargo ?? "").trim().toLowerCase()}|sec:${row.secretariaId ?? 0}`,
       row.id,
     ]),
   );
   for (const row of snapshot.pessoas) {
     const legacyId = Number(row.legacy_id);
-    const secretariaId = secretariaMap.get(Number(row.secretaria_legacy_id ?? 0)) ?? null;
+    const secretariaId =
+      secretariaMap.get(Number(row.secretaria_legacy_id ?? 0)) ?? null;
     const key = pessoaKey(row, secretariaId);
     const currentId = existingPessoaByKey.get(key);
     if (currentId) {
@@ -485,8 +587,11 @@ async function main() {
         numeroAdministrativo: toNullableString(row.numero_administrativo),
         numeroEdital: toNullableString(row.numero_edital),
         anoReferencia: Number(row.ano_referencia),
-        secretariaId: resolveSecretariaId(Number(row.secretaria_legacy_id ?? 0)),
-        modalidadeId: modalidadeMap.get(Number(row.modalidade_legacy_id ?? 0)) ?? null,
+        secretariaId: resolveSecretariaId(
+          Number(row.secretaria_legacy_id ?? 0),
+        ),
+        modalidadeId:
+          modalidadeMap.get(Number(row.modalidade_legacy_id ?? 0)) ?? null,
         statusId: statusMap.get(Number(row.status_legacy_id ?? 0)) ?? null,
         objeto: toCleanString(row.objeto),
         valorEstimado: toMoney(row.valor_estimado),
@@ -495,9 +600,15 @@ async function main() {
         criterioJulgamento: toNullableString(row.criterio_julgamento),
         modoDisputa: toNullableString(row.modo_disputa),
         tipoObjeto: toCleanString(row.tipo_objeto, "PRODUTO") as never,
-        tipoContratacao: toCleanString(row.tipo_contratacao, "AQUISICAO") as never,
-        autoridadeCompetenteId: pessoaMap.get(Number(row.autoridade_competente_legacy_id ?? 0)) ?? null,
-        condutorProcessoId: pessoaMap.get(Number(row.condutor_processo_legacy_id ?? 0)) ?? null,
+        tipoContratacao: toCleanString(
+          row.tipo_contratacao,
+          "AQUISICAO",
+        ) as never,
+        autoridadeCompetenteId:
+          pessoaMap.get(Number(row.autoridade_competente_legacy_id ?? 0)) ??
+          null,
+        condutorProcessoId:
+          pessoaMap.get(Number(row.condutor_processo_legacy_id ?? 0)) ?? null,
         dataAbertura: toDateOnly(row.data_hora_abertura),
         dataEncerramento: toDateOnly(row.fim_recolhimento_propostas),
         publicado: Boolean(row.data_publicacao),
@@ -514,16 +625,22 @@ async function main() {
           dataEntradaLicitacao: toDateOnly(row.criado_em),
           numeroAdministrativo: toNullableString(row.numero_administrativo),
           numeroEdital: toNullableString(row.numero_edital),
-          secretariaId: resolveSecretariaId(Number(row.secretaria_legacy_id ?? 0)),
-          modalidadeId: modalidadeMap.get(Number(row.modalidade_legacy_id ?? 0)) ?? null,
+          secretariaId: resolveSecretariaId(
+            Number(row.secretaria_legacy_id ?? 0),
+          ),
+          modalidadeId:
+            modalidadeMap.get(Number(row.modalidade_legacy_id ?? 0)) ?? null,
           statusId: statusMap.get(Number(row.status_legacy_id ?? 0)) ?? null,
           objeto: toCleanString(row.objeto),
           valorEstimado: toMoney(row.valor_estimado),
           valorHomologado,
           criterioJulgamento: toNullableString(row.criterio_julgamento),
           modoDisputa: toNullableString(row.modo_disputa),
-          autoridadeCompetenteId: pessoaMap.get(Number(row.autoridade_competente_legacy_id ?? 0)) ?? null,
-          condutorProcessoId: pessoaMap.get(Number(row.condutor_processo_legacy_id ?? 0)) ?? null,
+          autoridadeCompetenteId:
+            pessoaMap.get(Number(row.autoridade_competente_legacy_id ?? 0)) ??
+            null,
+          condutorProcessoId:
+            pessoaMap.get(Number(row.condutor_processo_legacy_id ?? 0)) ?? null,
           dataAbertura: toDateOnly(row.data_hora_abertura),
           dataEncerramento: toDateOnly(row.fim_recolhimento_propostas),
           homologado: isPositiveMoney(valorHomologado),
@@ -538,7 +655,9 @@ async function main() {
   const resolveProcessId = (row: LegacyRecord) => {
     const byLegacyId = processoMap.get(Number(row.processo_legacy_id ?? 0));
     if (byLegacyId) return byLegacyId;
-    return existingProcessByNumero.get(toCleanString(row.processo_numero_sirel));
+    return existingProcessByNumero.get(
+      toCleanString(row.processo_numero_sirel),
+    );
   };
 
   const resolveFornecedorId = (row: LegacyRecord) => {
@@ -556,9 +675,16 @@ async function main() {
         processoId,
         moduloAtual: normalizeWorkflowModule(row.modulo_atual),
         situacao: normalizeWorkflowStatus(row.situacao),
-        etapaAtual: normalizeLegacyCatalogLabel("workflowEtapa", row.etapa_atual, "Cadastro inicial"),
+        etapaAtual: normalizeLegacyCatalogLabel(
+          "workflowEtapa",
+          row.etapa_atual,
+          "Cadastro inicial",
+        ),
         dataInicio: toDateOnly(row.criado_em),
-        dataConclusao: normalizeWorkflowStatus(row.situacao) === "CONCLUIDO" ? toDateOnly(row.atualizado_em) : null,
+        dataConclusao:
+          normalizeWorkflowStatus(row.situacao) === "CONCLUIDO"
+            ? toDateOnly(row.atualizado_em)
+            : null,
         criadoEm: toDateTime(row.criado_em) ?? new Date(),
         atualizadoEm: toDateTime(row.atualizado_em) ?? new Date(),
       })
@@ -567,7 +693,11 @@ async function main() {
         set: {
           moduloAtual: normalizeWorkflowModule(row.modulo_atual),
           situacao: normalizeWorkflowStatus(row.situacao),
-          etapaAtual: normalizeLegacyCatalogLabel("workflowEtapa", row.etapa_atual, "Cadastro inicial"),
+          etapaAtual: normalizeLegacyCatalogLabel(
+            "workflowEtapa",
+            row.etapa_atual,
+            "Cadastro inicial",
+          ),
           atualizadoEm: toDateTime(row.atualizado_em) ?? new Date(),
         },
       });
@@ -582,7 +712,17 @@ async function main() {
       toCleanString(row.descricao),
       toCleanString(row.criado_em),
     ].join("|");
-  const movementSet = new Set(existingMovements.map((row) => [row.processoId, row.moduloOrigem ?? "", row.moduloDestino, row.descricao, row.criadoEm.toISOString()].join("|")));
+  const movementSet = new Set(
+    existingMovements.map((row) =>
+      [
+        row.processoId,
+        row.moduloOrigem ?? "",
+        row.moduloDestino,
+        row.descricao,
+        row.criadoEm.toISOString(),
+      ].join("|"),
+    ),
+  );
 
   for (const row of snapshot.movimentacoes_workflow) {
     const processoId = resolveProcessId(row);
@@ -602,33 +742,58 @@ async function main() {
   }
 
   const existingDocuments = await db.select().from(documentos);
-  const documentSet = new Set(existingDocuments.map((row) => [row.processoId, row.titulo, row.tipo, row.versao, row.arquivoChave ?? ""].join("|")));
+  const documentSet = new Set(
+    existingDocuments.map((row) =>
+      [
+        row.processoId,
+        row.titulo,
+        row.tipo,
+        row.versao,
+        row.arquivoChave ?? "",
+      ].join("|"),
+    ),
+  );
   for (const row of snapshot.documentos) {
     const processoId = resolveProcessId(row);
     if (!processoId) continue;
     const arquivo = (row.arquivo ?? {}) as LegacyRecord;
-    const key = [processoId, toCleanString(row.titulo), normalizeDocumentType(row.tipo), Number(row.versao ?? 1), toCleanString(arquivo.path)].join("|");
-    if (documentSet.has(key)) continue;
-    await db.insert(documentos).values({
+    const key = [
       processoId,
-      titulo: toCleanString(row.titulo || row.tipo || "Documento migrado"),
-      descricao: toNullableString(row.descricao),
-      tipo: normalizeDocumentType(row.tipo),
-      categoria: toNullableString(row.categoria),
-      versao: Number(row.versao ?? 1),
-      arquivoUrl: toNullableString(arquivo.url) ?? toNullableString(arquivo.absolute_path),
-      arquivoChave: toNullableString(arquivo.path),
-      tamanhoBytes: Number(arquivo.size_bytes ?? 0) || null,
-      mimeType: toNullableString(arquivo.mime_type),
-      publico: false,
-      statusPublicacao: "RASCUNHO",
-      aprovadoPor: null,
-      aprovadoEm: null,
-      restritoA: [],
-      criadoPor: null,
-      criadoEm: toDateTime(row.criado_em) ?? new Date(),
-      atualizadoEm: toDateTime(row.criado_em) ?? new Date(),
-    });
+      toCleanString(row.titulo),
+      normalizeDocumentType(row.tipo),
+      Number(row.versao ?? 1),
+      toCleanString(arquivo.path),
+    ].join("|");
+    if (documentSet.has(key)) continue;
+    const [documentoImportado] = await db
+      .insert(documentos)
+      .values({
+        processoId,
+        titulo: toCleanString(row.titulo || row.tipo || "Documento migrado"),
+        descricao: toNullableString(row.descricao),
+        tipo: normalizeDocumentType(row.tipo),
+        categoria: toNullableString(row.categoria),
+        versao: Number(row.versao ?? 1),
+        arquivoUrl:
+          toNullableString(arquivo.url) ??
+          toNullableString(arquivo.absolute_path),
+        arquivoChave: toNullableString(arquivo.path),
+        tamanhoBytes: Number(arquivo.size_bytes ?? 0) || null,
+        mimeType: toNullableString(arquivo.mime_type),
+        publico: false,
+        statusPublicacao: "RASCUNHO",
+        aprovadoPor: null,
+        aprovadoEm: null,
+        restritoA: [],
+        criadoPor: null,
+        criadoEm: toDateTime(row.criado_em) ?? new Date(),
+        atualizadoEm: toDateTime(row.criado_em) ?? new Date(),
+      })
+      .returning();
+    await db
+      .update(documentos)
+      .set({ documentoRaizId: documentoImportado.id })
+      .where(eq(documentos.id, documentoImportado.id));
     documentSet.add(key);
   }
 
@@ -636,7 +801,9 @@ async function main() {
     const processoId = resolveProcessId(row);
     const fornecedorId = resolveFornecedorId(row);
     if (!processoId || !fornecedorId) continue;
-    const numeroContrato = toCleanString(row.numero || `LEGADO-${row.legacy_id}`);
+    const numeroContrato = toCleanString(
+      row.numero || `LEGADO-${row.legacy_id}`,
+    );
     await db
       .insert(contratos)
       .values({
@@ -671,7 +838,7 @@ async function main() {
     scope: cliArgs.scope,
     reset: cliArgs.reset,
     secretarias: snapshot.secretarias.length,
-      modalidades: modalidadeCatalog.length,
+    modalidades: modalidadeCatalog.length,
     status: snapshot.status_processo.length,
     users: snapshot.users.length,
     pessoas: snapshot.pessoas.length,
@@ -693,4 +860,3 @@ main().catch((error) => {
   console.error("Falha na importacao do snapshot legado:", error);
   process.exitCode = 1;
 });
-

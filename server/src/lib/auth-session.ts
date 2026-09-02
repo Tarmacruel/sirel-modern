@@ -49,8 +49,9 @@ function readHeaderValue(req: Request | undefined, headerName: string) {
 }
 
 function resolveRequestHost(req: Request | undefined) {
-  const forwardedHost = readHeaderValue(req, "x-forwarded-host");
-  const host = forwardedHost || readHeaderValue(req, "host");
+  // Express only applies forwarded host headers when trust proxy is explicit.
+  const host =
+    String(req?.hostname ?? "").trim() || readHeaderValue(req, "host");
   return host.split(",")[0]?.trim().toLowerCase().split(":")[0] ?? "";
 }
 
@@ -112,7 +113,9 @@ export function verifySessionToken(token: string | null | undefined) {
   if (!payloadPart || !signaturePart) return null;
 
   try {
-    const payload = JSON.parse(base64UrlDecode(payloadPart)) as StoredSessionPayload;
+    const payload = JSON.parse(
+      base64UrlDecode(payloadPart),
+    ) as StoredSessionPayload;
     if (payload.ver !== TOKEN_VERSION) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     const expectedSignature = signPayload(payload);

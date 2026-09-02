@@ -1,6 +1,10 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
+import {
+  TRANSPARENCIA_PORTAL_HOST,
+  isTransparencyPortalHost,
+} from "@sirel/shared/portal-publico";
 
 import {
   NotFoundOrDeniedPage,
@@ -20,6 +24,12 @@ import {
 } from "@/lib/auth-session";
 import { queryClient } from "@/lib/query-client";
 import { trpc, trpcClient } from "@/lib/trpc";
+import {
+  portalPublicoQueryClient,
+  portalPublicoTrpc,
+  portalPublicoTrpcClient,
+} from "@/lib/portal-publico-trpc";
+import { PortalPublicoApp } from "@/portal-publico-app";
 
 const LoginPage = lazy(() =>
   import("@/pages/login-page").then((module) => ({
@@ -40,9 +50,15 @@ function PreparingSessionScreen({ label }: { label: string }) {
     <div className="min-h-screen bg-[var(--surface-base)] px-4 py-6 md:px-6 md:py-8">
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="rounded-[32px] border border-[var(--border-soft-contrast)] bg-[var(--surface-hero)] px-6 py-7 text-white shadow-[var(--shadow-floating)]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-100/72">Entrada segura</p>
-          <h1 className="mt-3 font-[var(--font-heading)] text-3xl font-black tracking-[-0.05em]">Preparando seu painel</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-200">{label}</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-100/72">
+            Entrada segura
+          </p>
+          <h1 className="mt-3 font-[var(--font-heading)] text-3xl font-black tracking-[-0.05em]">
+            Preparando seu painel
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-200">
+            {label}
+          </p>
         </div>
         <SectionSkeleton hero cards={4} rows={4} />
       </div>
@@ -73,10 +89,13 @@ function AuthenticatedApp({
     retry: false,
     staleTime: 30_000,
   });
-  const notificationsSummaryQuery = trpc.notificacoes.summary.useQuery(undefined, {
-    retry: false,
-    staleTime: 30_000,
-  });
+  const notificationsSummaryQuery = trpc.notificacoes.summary.useQuery(
+    undefined,
+    {
+      retry: false,
+      staleTime: 30_000,
+    },
+  );
   const user = meQuery.data?.user
     ? normalizeAuthSession({ user: meQuery.data.user }).user
     : session.user;
@@ -127,7 +146,10 @@ function AuthenticatedApp({
         onDismiss={() => setIdentityDismissed(true)}
         onLogout={onLogout}
         onCompleted={(nextUser) => {
-          const nextSession = normalizeAuthSession({ ...session, user: nextUser });
+          const nextSession = normalizeAuthSession({
+            ...session,
+            user: nextUser,
+          });
           saveStoredSession(nextSession);
           onSessionUpdate(nextSession);
           setIdentityDismissed(false);
@@ -171,7 +193,9 @@ function AppContent() {
   useEffect(() => {
     if (session || !cookieSessionQuery.data?.user) return;
 
-    const nextSession = normalizeAuthSession({ user: cookieSessionQuery.data.user });
+    const nextSession = normalizeAuthSession({
+      user: cookieSessionQuery.data.user,
+    });
     saveStoredSession(nextSession);
     setSession(nextSession);
   }, [cookieSessionQuery.data, session]);
@@ -195,10 +219,16 @@ function AppContent() {
     );
   }
 
-  return <AuthenticatedApp session={session} onLogout={handleLogout} onSessionUpdate={setSession} />;
+  return (
+    <AuthenticatedApp
+      session={session}
+      onLogout={handleLogout}
+      onSessionUpdate={setSession}
+    />
+  );
 }
 
-export default function App() {
+function InternalApp() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
@@ -208,4 +238,44 @@ export default function App() {
       </QueryClientProvider>
     </trpc.Provider>
   );
+}
+
+export function shouldRenderPortalPublico(
+  hostname: string | null | undefined,
+  options: { isDevelopment?: boolean } = {},
+) {
+  const isDevelopment = options.isDevelopment ?? import.meta.env.DEV;
+  const normalizedHostname = String(hostname ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, "");
+
+  return (
+    normalizedHostname === TRANSPARENCIA_PORTAL_HOST ||
+    (isDevelopment && isTransparencyPortalHost(normalizedHostname))
+  );
+}
+
+function PortalPublicoRoot() {
+  return (
+    <portalPublicoTrpc.Provider
+      client={portalPublicoTrpcClient}
+      queryClient={portalPublicoQueryClient}
+    >
+      <QueryClientProvider client={portalPublicoQueryClient}>
+        <PortalPublicoApp />
+      </QueryClientProvider>
+    </portalPublicoTrpc.Provider>
+  );
+}
+
+export default function App() {
+  const hostname =
+    typeof window === "undefined" ? "" : window.location.hostname;
+
+  if (shouldRenderPortalPublico(hostname)) {
+    return <PortalPublicoRoot />;
+  }
+
+  return <InternalApp />;
 }

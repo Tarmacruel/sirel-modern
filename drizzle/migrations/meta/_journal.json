@@ -414,6 +414,20 @@
       "when": 1787875201000,
       "tag": "0058_documentos_publicacao",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787875202000,
+      "tag": "0059_documentos_classificacao_versoes",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788366519644,
+      "tag": "0060_arquivos_acervo",
+      "breakpoints": true
     }
   ]
 }

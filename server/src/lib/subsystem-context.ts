@@ -2,10 +2,8 @@ import type { Request } from "express";
 
 import {
   getDefaultSubsystem,
-  getSubsystemByKey,
   resolveSubsystemByHost,
   type SubsystemDefinition,
-  type SubsystemKey,
 } from "@sirel/shared/subsystems";
 
 export type RequestMeta = {
@@ -21,12 +19,6 @@ function readHeaderValue(req: Request, headerName: string) {
   return Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
 }
 
-function resolveSubsystemByKeySafe(
-  key: string,
-): SubsystemDefinition | undefined {
-  return getSubsystemByKey(key.trim().toLowerCase() as SubsystemKey);
-}
-
 export function resolveRequestMeta(req: Request): RequestMeta {
   return {
     host: readHeaderValue(req, "host").trim(),
@@ -37,17 +29,10 @@ export function resolveRequestMeta(req: Request): RequestMeta {
 }
 
 export function resolveSubsystemFromRequest(req: Request): SubsystemDefinition {
-  const explicitSubsystem = readHeaderValue(req, "x-sirel-subsystem").trim();
-  const explicitDefinition = explicitSubsystem
-    ? resolveSubsystemByKeySafe(explicitSubsystem)
-    : undefined;
-
-  if (explicitDefinition) {
-    return explicitDefinition;
-  }
-
-  const requestMeta = resolveRequestMeta(req);
-  const host = requestMeta.forwardedHost || requestMeta.host;
+  // Express only resolves a forwarded host into `req.hostname` after an
+  // explicit trust-proxy configuration. Do not trust client headers here.
+  const host =
+    String(req.hostname ?? "").trim() || readHeaderValue(req, "host").trim();
 
   return host ? resolveSubsystemByHost(host) : getDefaultSubsystem();
 }

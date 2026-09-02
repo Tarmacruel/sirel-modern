@@ -17,7 +17,11 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // Homologação controlada pelo hostname institucional, sem wildcard.
-    allowedHosts: ["www.sirel.com.br"],
+    allowedHosts: [
+      "www.sirel.com.br",
+      "transparencia.sirel.com.br",
+      "arquivos.sirel.com.br",
+    ],
     cors: false,
     fs: {
       strict: true,
@@ -25,7 +29,7 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://localhost:3030",
-        changeOrigin: true,
+        changeOrigin: false,
       },
     },
   },

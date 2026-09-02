@@ -19,8 +19,10 @@ export type DocumentoTipo =
 
 export interface UploadProcessoDocumentoInput {
   processoId: number;
+  documentoAnteriorId?: number;
   tipo: DocumentoTipo;
   categoria?: string;
+  classificacaoId?: number;
   titulo: string;
   descricao?: string;
   dataReferencia?: string;
@@ -142,8 +144,14 @@ export async function uploadProcessoDocumento(
 ): Promise<UploadProcessoDocumentoResult> {
   const formData = new FormData();
   formData.append("processoId", String(input.processoId));
+  if (input.documentoAnteriorId) {
+    formData.append("documentoAnteriorId", String(input.documentoAnteriorId));
+  }
   formData.append("tipo", input.tipo);
   formData.append("categoria", input.categoria ?? "");
+  if (input.classificacaoId) {
+    formData.append("classificacaoId", String(input.classificacaoId));
+  }
   formData.append("titulo", input.titulo);
   formData.append("descricao", input.descricao ?? "");
   formData.append("dataReferencia", input.dataReferencia ?? "");

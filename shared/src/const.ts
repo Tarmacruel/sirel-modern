@@ -823,6 +823,7 @@ export const appModules = [
   { key: "prazos", label: "Prazos", href: "/prazos" },
   { key: "auditoria", label: "Auditoria", href: "/auditoria" },
   { key: "documentos", label: "Documentos", href: "/documentos" },
+  { key: "arquivos", label: "Arquivos", href: "/arquivos" },
   { key: "parametros", label: "Parâmetros", href: "/parametros" },
   { key: "usuarios", label: "Usu\u00e1rios", href: "/usuarios" },
 ] as const;

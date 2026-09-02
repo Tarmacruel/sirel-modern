@@ -2,6 +2,7 @@
   Download,
   FileCog,
   FileStack,
+  History,
   Search,
   ShieldCheck,
   Stamp,
@@ -159,9 +160,11 @@ function getDocumentoPublicacaoInfo(documento: unknown) {
 
 const initialUploadForm = {
   processoId: "",
+  documentoAnteriorId: "",
   tipo: "OUTRO" as DocumentoTipo,
   titulo: "",
   categoria: "",
+  classificacaoId: "",
   descricao: "",
   dataReferencia: "",
   palavrasChave: "",
@@ -171,9 +174,18 @@ const initialUploadForm = {
 const initialMetadataForm = {
   titulo: "",
   categoria: "",
+  classificacaoId: "",
   descricao: "",
   dataReferencia: "",
   palavrasChave: "",
+};
+
+const initialClassificacaoForm = {
+  id: null as number | null,
+  codigo: "",
+  nome: "",
+  descricao: "",
+  ativo: true,
 };
 
 const initialAccessForm = {
@@ -291,12 +303,23 @@ export function DocumentosPage() {
   const [tipo, setTipo] = useState<"" | DocumentoTipo>("");
   const [search, setSearch] = useState("");
   const [categoria, setCategoria] = useState("");
+  const [classificacaoFilter, setClassificacaoFilter] = useState("");
   const [publicoFilter, setPublicoFilter] = useState("todos");
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(
     null,
   );
   const [uploadForm, setUploadForm] = useState(initialUploadForm);
   const [metadataForm, setMetadataForm] = useState(initialMetadataForm);
+  const [classificacaoForm, setClassificacaoForm] = useState(
+    initialClassificacaoForm,
+  );
+  const [classificacaoModalOpen, setClassificacaoModalOpen] = useState(false);
+  const [classificacaoFeedback, setClassificacaoFeedback] = useState<
+    string | null
+  >(null);
+  const [classificacaoError, setClassificacaoError] = useState<string | null>(
+    null,
+  );
   const [accessForm, setAccessForm] = useState(initialAccessForm);
   const [workflowJustificativa, setWorkflowJustificativa] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -333,6 +356,18 @@ export function DocumentosPage() {
     undefined,
     { retry: false },
   );
+  const classificacaoOptionsQuery =
+    trpc.documentos.classificacoes.options.useQuery(undefined, {
+      retry: false,
+    });
+  const meQuery = trpc.auth.me.useQuery(undefined, { retry: false });
+  const canManageClassificacoes = ["admin", "gestor"].includes(
+    meQuery.data?.user.role ?? "",
+  );
+  const classificacaoListQuery = trpc.documentos.classificacoes.list.useQuery(
+    { page: 1, pageSize: 100 },
+    { retry: false, enabled: canManageClassificacoes },
+  );
   const ataDiscoveryProcessOptionsQuery =
     trpc.documentos.processOptions.useQuery(
       { search: deferredAtaDiscoverySearch || undefined },
@@ -345,10 +380,21 @@ export function DocumentosPage() {
       tipo: tipo || undefined,
       search: deferredSearch || undefined,
       categoria: deferredCategory || undefined,
+      classificacaoId: classificacaoFilter
+        ? Number(classificacaoFilter)
+        : undefined,
       publico:
         publicoFilter === "todos" ? undefined : publicoFilter === "publicos",
     }),
-    [deferredCategory, deferredSearch, page, pageSize, publicoFilter, tipo],
+    [
+      classificacaoFilter,
+      deferredCategory,
+      deferredSearch,
+      page,
+      pageSize,
+      publicoFilter,
+      tipo,
+    ],
   );
   const listQuery = trpc.documentos.list.useQuery(filters, {
     retry: false,
@@ -357,6 +403,17 @@ export function DocumentosPage() {
   const detailQuery = trpc.documentos.detail.useQuery(
     { documentoId: selectedDocumentId ?? 0 },
     { enabled: Boolean(selectedDocumentId), retry: false },
+  );
+  const documentAuditQuery = trpc.auditoria.list.useQuery(
+    {
+      page: 1,
+      pageSize: 12,
+      documentoId: selectedDocumentId ?? undefined,
+    },
+    {
+      enabled: Boolean(selectedDocumentId),
+      retry: false,
+    },
   );
   const rows = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
@@ -383,6 +440,9 @@ export function DocumentosPage() {
     setMetadataForm({
       titulo: detailQuery.data.titulo,
       categoria: detailQuery.data.categoria ?? "",
+      classificacaoId: detailQuery.data.classificacaoId
+        ? String(detailQuery.data.classificacaoId)
+        : "",
       descricao: detailQuery.data.descricao ?? "",
       dataReferencia: detailQuery.data.dataReferencia
         ? String(detailQuery.data.dataReferencia).slice(0, 10)
@@ -421,15 +481,14 @@ export function DocumentosPage() {
     onError: handleDocumentMutationError,
   });
 
-  const submitForReviewMutation =
-    trpc.documentos.submitForReview.useMutation({
-      onSuccess: async () => {
-        await handleDocumentMutationSuccess(
-          "Documento enviado para revisão de publicação.",
-        );
-      },
-      onError: handleDocumentMutationError,
-    });
+  const submitForReviewMutation = trpc.documentos.submitForReview.useMutation({
+    onSuccess: async () => {
+      await handleDocumentMutationSuccess(
+        "Documento enviado para revisão de publicação.",
+      );
+    },
+    onError: handleDocumentMutationError,
+  });
 
   const approvePublicationMutation =
     trpc.documentos.approvePublication.useMutation({
@@ -444,7 +503,9 @@ export function DocumentosPage() {
   const rejectPublicationMutation =
     trpc.documentos.rejectPublication.useMutation({
       onSuccess: async () => {
-        await handleDocumentMutationSuccess("Publicação do documento rejeitada.");
+        await handleDocumentMutationSuccess(
+          "Publicação do documento rejeitada.",
+        );
       },
       onError: handleDocumentMutationError,
     });
@@ -452,9 +513,43 @@ export function DocumentosPage() {
   const withdrawPublicationMutation =
     trpc.documentos.withdrawPublication.useMutation({
       onSuccess: async () => {
-        await handleDocumentMutationSuccess("Documento retirado do portal público.");
+        await handleDocumentMutationSuccess(
+          "Documento retirado do portal público.",
+        );
       },
       onError: handleDocumentMutationError,
+    });
+
+  const saveClassificacaoMutation =
+    trpc.documentos.classificacoes.save.useMutation({
+      onSuccess: async () => {
+        await refreshClassificacaoQueries();
+        setClassificacaoFeedback(
+          classificacaoForm.id
+            ? "Classificação institucional atualizada."
+            : "Classificação institucional criada.",
+        );
+        setClassificacaoError(null);
+        setClassificacaoForm(initialClassificacaoForm);
+        setClassificacaoModalOpen(false);
+      },
+      onError: (mutationError) => {
+        setClassificacaoFeedback(null);
+        setClassificacaoError(mutationError.message);
+      },
+    });
+
+  const archiveClassificacaoMutation =
+    trpc.documentos.classificacoes.archive.useMutation({
+      onSuccess: async () => {
+        await refreshClassificacaoQueries();
+        setClassificacaoFeedback("Classificação institucional arquivada.");
+        setClassificacaoError(null);
+      },
+      onError: (mutationError) => {
+        setClassificacaoFeedback(null);
+        setClassificacaoError(mutationError.message);
+      },
     });
 
   const workflowMutationPending =
@@ -470,6 +565,19 @@ export function DocumentosPage() {
       utils.documentos.detail.invalidate(),
       utils.documentos.summary.invalidate(),
       utils.documentos.listByProcesso.invalidate(),
+      utils.auditoria.list.invalidate(),
+      utils.auditoria.summary.invalidate(),
+    ]);
+  }
+
+  async function refreshClassificacaoQueries() {
+    await Promise.all([
+      utils.documentos.classificacoes.list.invalidate(),
+      utils.documentos.classificacoes.options.invalidate(),
+      utils.documentos.list.invalidate(),
+      utils.documentos.detail.invalidate(),
+      utils.auditoria.list.invalidate(),
+      utils.auditoria.summary.invalidate(),
     ]);
   }
 
@@ -538,9 +646,15 @@ export function DocumentosPage() {
 
       await uploadProcessoDocumento({
         processoId: Number(uploadForm.processoId),
+        documentoAnteriorId: uploadForm.documentoAnteriorId
+          ? Number(uploadForm.documentoAnteriorId)
+          : undefined,
         tipo: uploadForm.tipo,
         titulo: uploadForm.titulo,
         categoria: uploadForm.categoria || undefined,
+        classificacaoId: uploadForm.classificacaoId
+          ? Number(uploadForm.classificacaoId)
+          : undefined,
         descricao: uploadForm.descricao || undefined,
         dataReferencia: uploadForm.dataReferencia || undefined,
         palavrasChave: parseKeywords(uploadForm.palavrasChave),
@@ -550,6 +664,8 @@ export function DocumentosPage() {
         utils.documentos.list.invalidate(),
         utils.documentos.summary.invalidate(),
         utils.documentos.processOptions.invalidate(),
+        utils.auditoria.list.invalidate(),
+        utils.auditoria.summary.invalidate(),
       ]);
       setUploadForm(initialUploadForm);
       setFeedback("Documento anexado ao acervo com sucesso.");
@@ -622,6 +738,8 @@ export function DocumentosPage() {
         utils.documentos.list.invalidate(),
         utils.documentos.summary.invalidate(),
         utils.documentos.detail.invalidate(),
+        utils.auditoria.list.invalidate(),
+        utils.auditoria.summary.invalidate(),
       ]);
       setAtaSyncPreview(null);
       setAtaSyncEnabled(false);
@@ -651,6 +769,9 @@ export function DocumentosPage() {
         documentoId: selectedDocumentId,
         titulo: metadataForm.titulo,
         categoria: metadataForm.categoria || undefined,
+        classificacaoId: metadataForm.classificacaoId
+          ? Number(metadataForm.classificacaoId)
+          : null,
         descricao: metadataForm.descricao || undefined,
         dataReferencia: metadataForm.dataReferencia || undefined,
         palavrasChave: parseKeywords(metadataForm.palavrasChave),
@@ -740,6 +861,8 @@ export function DocumentosPage() {
         utils.documentos.list.invalidate(),
         utils.documentos.summary.invalidate(),
         utils.documentos.detail.invalidate(),
+        utils.auditoria.list.invalidate(),
+        utils.auditoria.summary.invalidate(),
       ]);
       setSelectedDocumentId(null);
       setFeedback("Documento removido do acervo.");
@@ -751,6 +874,97 @@ export function DocumentosPage() {
           ? deleteError.message
           : "Falha ao remover o documento.",
       );
+    }
+  }
+
+  function handleStartNewVersion() {
+    if (!detailQuery.data) return;
+
+    setAtaSyncEnabled(false);
+    setUploadForm({
+      ...initialUploadForm,
+      processoId: String(detailQuery.data.processoId),
+      documentoAnteriorId: String(detailQuery.data.id),
+      tipo: detailQuery.data.tipo,
+      titulo: detailQuery.data.titulo,
+      categoria: detailQuery.data.categoria ?? "",
+      classificacaoId: detailQuery.data.classificacaoId
+        ? String(detailQuery.data.classificacaoId)
+        : "",
+      descricao: detailQuery.data.descricao ?? "",
+      dataReferencia: detailQuery.data.dataReferencia
+        ? String(detailQuery.data.dataReferencia).slice(0, 10)
+        : "",
+      palavrasChave: Array.isArray(detailQuery.data.palavrasChave)
+        ? detailQuery.data.palavrasChave.join(", ")
+        : "",
+    });
+    setFeedback(
+      `Nova versão preparada a partir de ${detailQuery.data.titulo}. Selecione o arquivo atualizado para continuar.`,
+    );
+    setError(null);
+  }
+
+  function openClassificacaoEditor(item?: {
+    id: number;
+    codigo: string;
+    nome: string;
+    descricao: string | null;
+    ativo: boolean;
+  }) {
+    setClassificacaoForm(
+      item
+        ? {
+            id: item.id,
+            codigo: item.codigo,
+            nome: item.nome,
+            descricao: item.descricao ?? "",
+            ativo: item.ativo,
+          }
+        : initialClassificacaoForm,
+    );
+    setClassificacaoFeedback(null);
+    setClassificacaoError(null);
+    setClassificacaoModalOpen(true);
+  }
+
+  async function handleSaveClassificacao(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setClassificacaoFeedback(null);
+    setClassificacaoError(null);
+
+    try {
+      await saveClassificacaoMutation.mutateAsync({
+        id: classificacaoForm.id ?? undefined,
+        codigo: classificacaoForm.codigo,
+        nome: classificacaoForm.nome,
+        descricao: classificacaoForm.descricao || undefined,
+        ativo: classificacaoForm.ativo,
+      });
+    } catch {
+      // A mensagem da mutação já fica visível no catálogo.
+    }
+  }
+
+  async function handleArchiveClassificacao(item: {
+    id: number;
+    codigo: string;
+    nome: string;
+  }) {
+    if (
+      !window.confirm(
+        `Arquivar a classificação ${item.codigo} — ${item.nome}? Ela não poderá mais ser selecionada em novos documentos.`,
+      )
+    ) {
+      return;
+    }
+
+    setClassificacaoFeedback(null);
+    setClassificacaoError(null);
+    try {
+      await archiveClassificacaoMutation.mutateAsync({ id: item.id });
+    } catch {
+      // A mensagem da mutação já fica visível no catálogo.
     }
   }
 
@@ -882,6 +1096,99 @@ export function DocumentosPage() {
                     </article>
                   ))}
                 </div>
+                {canManageClassificacoes ? (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                          Catálogo institucional
+                        </p>
+                        <h3 className="mt-1 text-xl font-black text-slate-950">
+                          Classificações de documentos
+                        </h3>
+                        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                          Mantenha os códigos institucionais usados nos
+                          metadados, na busca e no portal público. Arquivar não
+                          altera documentos já vinculados.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => openClassificacaoEditor()}
+                      >
+                        Nova classificação
+                      </Button>
+                    </div>
+
+                    {classificacaoFeedback ? (
+                      <Alert className="mt-4" variant="success">
+                        {classificacaoFeedback}
+                      </Alert>
+                    ) : null}
+                    {classificacaoError ? (
+                      <Alert className="mt-4" variant="error">
+                        {classificacaoError}
+                      </Alert>
+                    ) : null}
+                    {classificacaoListQuery.isLoading ? (
+                      <Skeleton className="mt-4 h-36 w-full" />
+                    ) : classificacaoListQuery.error ? (
+                      <Alert className="mt-4" variant="error">
+                        Não foi possível consultar o catálogo institucional.
+                      </Alert>
+                    ) : (
+                      <div className="mt-4 divide-y divide-slate-200 rounded-2xl border border-slate-200">
+                        {classificacaoListQuery.data?.items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div>
+                              <p className="font-semibold text-slate-900">
+                                {item.codigo} — {item.nome}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-500">
+                                {item.descricao || "Sem descrição adicional."}
+                                {!item.ativo ? " · Arquivada" : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openClassificacaoEditor(item)}
+                              >
+                                Editar
+                              </Button>
+                              {item.ativo ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={
+                                    archiveClassificacaoMutation.isPending
+                                  }
+                                  onClick={() =>
+                                    void handleArchiveClassificacao(item)
+                                  }
+                                >
+                                  Arquivar
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                        {!classificacaoListQuery.data?.items.length ? (
+                          <p className="px-4 py-6 text-sm text-slate-600">
+                            Nenhuma classificação cadastrada.
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ),
           },
@@ -1168,7 +1475,7 @@ export function DocumentosPage() {
             content: (
               <div className="grid gap-6 xl:grid-cols-[1.2fr_0.85fr]">
                 <div className="space-y-4">
-                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_180px_180px_180px]">
+                  <div className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_160px_180px_220px_180px]">
                     <FormField label="Buscar">
                       <Input
                         value={search}
@@ -1205,6 +1512,22 @@ export function DocumentosPage() {
                         placeholder="Ex.: parecer, ata"
                       />
                     </FormField>
+                    <FormField label="Classificação institucional">
+                      <Select
+                        value={classificacaoFilter}
+                        onChange={(event) => {
+                          setPage(1);
+                          setClassificacaoFilter(event.target.value);
+                        }}
+                      >
+                        <option value="">Todas</option>
+                        {classificacaoOptionsQuery.data?.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.codigo} — {item.nome}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormField>
                     <FormField label="Intenção de publicação">
                       <Select
                         value={publicoFilter}
@@ -1228,7 +1551,9 @@ export function DocumentosPage() {
                           <TableHeaderCell>Processo</TableHeaderCell>
                           <TableHeaderCell>Tipo</TableHeaderCell>
                           <TableHeaderCell>Referência</TableHeaderCell>
-                          <TableHeaderCell>Status de publicação</TableHeaderCell>
+                          <TableHeaderCell>
+                            Status de publicação
+                          </TableHeaderCell>
                           <TableHeaderCell>Atualizado em</TableHeaderCell>
                         </tr>
                       </TableHead>
@@ -1257,7 +1582,15 @@ export function DocumentosPage() {
                                     {row.titulo}
                                   </div>
                                   <div className="text-xs text-slate-500">
-                                    {row.categoria ?? "Sem categoria"}
+                                    {[
+                                      row.classificacaoCodigo
+                                        ? `${row.classificacaoCodigo}${row.classificacaoNome ? ` · ${row.classificacaoNome}` : ""}`
+                                        : null,
+                                      row.categoria,
+                                      `v${row.versao}`,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ") || "Sem classificação"}
                                   </div>
                                 </TableCell>
                                 <TableCell>{row.processoNumeroSirel}</TableCell>
@@ -1391,6 +1724,28 @@ export function DocumentosPage() {
                           ))}
                         </Select>
                       </FormField>
+                      {uploadForm.documentoAnteriorId ? (
+                        <Alert variant="info" title="Nova versão em preparação">
+                          O arquivo enviado substituirá logicamente o documento
+                          #{uploadForm.documentoAnteriorId}, preservando a
+                          linhagem e exigindo nova revisão de publicação.
+                          <div className="mt-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setUploadForm((current) => ({
+                                  ...current,
+                                  documentoAnteriorId: "",
+                                }))
+                              }
+                            >
+                              Enviar como documento independente
+                            </Button>
+                          </div>
+                        </Alert>
+                      ) : null}
                       <div className="grid gap-3 md:grid-cols-2">
                         <FormField label="Tipo">
                           <Select
@@ -1434,6 +1789,27 @@ export function DocumentosPage() {
                         />
                       </FormField>
                       <div className="grid gap-3 md:grid-cols-2">
+                        <FormField
+                          label="Classificação institucional"
+                          description="Use o catálogo controlado para a classificação oficial."
+                        >
+                          <Select
+                            value={uploadForm.classificacaoId}
+                            onChange={(event) =>
+                              setUploadForm((current) => ({
+                                ...current,
+                                classificacaoId: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">Não classificado</option>
+                            {classificacaoOptionsQuery.data?.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.codigo} — {item.nome}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormField>
                         <FormField label="Categoria">
                           <Input
                             value={uploadForm.categoria}
@@ -1521,6 +1897,24 @@ export function DocumentosPage() {
                           />
                         </FormField>
                         <div className="grid gap-3 md:grid-cols-2">
+                          <FormField label="Classificação institucional">
+                            <Select
+                              value={metadataForm.classificacaoId}
+                              onChange={(event) =>
+                                setMetadataForm((current) => ({
+                                  ...current,
+                                  classificacaoId: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Não classificado</option>
+                              {classificacaoOptionsQuery.data?.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.codigo} — {item.nome}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormField>
                           <FormField label="Categoria">
                             <Input
                               value={metadataForm.categoria}
@@ -1588,6 +1982,68 @@ export function DocumentosPage() {
                             v{detailQuery.data.versao}
                           </p>
                         </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                            Linhagem de versões
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {detailQuery.data.related.map((item) => (
+                              <Button
+                                key={item.id}
+                                type="button"
+                                size="sm"
+                                variant={
+                                  item.id === selectedDocumentId
+                                    ? "default"
+                                    : "outline"
+                                }
+                                onClick={() => setSelectedDocumentId(item.id)}
+                              >
+                                v{item.versao} ·{" "}
+                                {getPublicacaoStatus(item.statusPublicacao)}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <History className="h-4 w-4 text-slate-600" />
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                              Rastreabilidade de publicação e acesso
+                            </p>
+                          </div>
+                          {documentAuditQuery.isLoading ? (
+                            <Skeleton className="mt-3 h-16 w-full" />
+                          ) : documentAuditQuery.error ? (
+                            <Alert className="mt-3" variant="error">
+                              Não foi possível carregar a trilha de auditoria
+                              deste documento.
+                            </Alert>
+                          ) : documentAuditQuery.data?.items.length ? (
+                            <ol className="mt-3 space-y-2">
+                              {documentAuditQuery.data.items.map((item) => (
+                                <li
+                                  key={item.id}
+                                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                                >
+                                  <p className="font-semibold text-slate-800">
+                                    {item.descricao ||
+                                      `${item.acao} registrado`}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {formatShortDateTimeBR(item.criadoEm)} ·{" "}
+                                    {item.usuarioNome || "Sistema"}
+                                  </p>
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p className="mt-3 text-sm text-slate-600">
+                              Nenhum evento de auditoria foi registrado para
+                              este documento.
+                            </p>
+                          )}
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           <Button
                             type="submit"
@@ -1596,6 +2052,13 @@ export function DocumentosPage() {
                             {updateMetadataMutation.isPending
                               ? "Salvando..."
                               : "Salvar metadados"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleStartNewVersion}
+                          >
+                            Criar nova versão
                           </Button>
                           {detailQuery.data.arquivoUrl ? (
                             <a
@@ -1663,7 +2126,7 @@ export function DocumentosPage() {
                           ) : null}
                           {selectedDocumentPublication.justificativa ? (
                             <p>
-                              Última justificativa: {" "}
+                              Última justificativa:{" "}
                               {selectedDocumentPublication.justificativa}
                             </p>
                           ) : null}
@@ -1741,11 +2204,9 @@ export function DocumentosPage() {
                                 ? "Registrando acesso..."
                                 : "Registrar acesso"}
                             </Button>
-                            {[
-                              "RASCUNHO",
-                              "REJEITADO",
-                              "RETIRADO",
-                            ].includes(selectedDocumentPublication.status) ? (
+                            {["RASCUNHO", "REJEITADO", "RETIRADO"].includes(
+                              selectedDocumentPublication.status,
+                            ) ? (
                               <Button
                                 type="button"
                                 disabled={workflowMutationPending}
@@ -1812,6 +2273,97 @@ export function DocumentosPage() {
           },
         ]}
       />
+      <Modal
+        open={classificacaoModalOpen}
+        onClose={() => {
+          setClassificacaoModalOpen(false);
+          setClassificacaoError(null);
+        }}
+        title={
+          classificacaoForm.id
+            ? "Editar classificação institucional"
+            : "Nova classificação institucional"
+        }
+        description="O código é único e passa a compor os filtros internos e públicos quando a classificação estiver ativa."
+        size="md"
+      >
+        <form className="space-y-4" onSubmit={handleSaveClassificacao}>
+          {classificacaoError ? (
+            <Alert variant="error">{classificacaoError}</Alert>
+          ) : null}
+          <FormField
+            label="Código"
+            description="Use uma sigla estável, por exemplo EDITAL ou LICITACAO_PARECER_JURIDICO."
+          >
+            <Input
+              value={classificacaoForm.codigo}
+              onChange={(event) =>
+                setClassificacaoForm((current) => ({
+                  ...current,
+                  codigo: event.target.value,
+                }))
+              }
+              maxLength={120}
+              required
+            />
+          </FormField>
+          <FormField label="Nome">
+            <Input
+              value={classificacaoForm.nome}
+              onChange={(event) =>
+                setClassificacaoForm((current) => ({
+                  ...current,
+                  nome: event.target.value,
+                }))
+              }
+              maxLength={255}
+              required
+            />
+          </FormField>
+          <FormField label="Descrição">
+            <Textarea
+              value={classificacaoForm.descricao}
+              onChange={(event) =>
+                setClassificacaoForm((current) => ({
+                  ...current,
+                  descricao: event.target.value,
+                }))
+              }
+              maxLength={2000}
+              rows={4}
+            />
+          </FormField>
+          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+            <Checkbox
+              checked={classificacaoForm.ativo}
+              onChange={(event) =>
+                setClassificacaoForm((current) => ({
+                  ...current,
+                  ativo: event.target.checked,
+                }))
+              }
+            />
+            Classificação ativa e disponível para novos documentos
+          </label>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setClassificacaoModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={saveClassificacaoMutation.isPending}
+            >
+              {saveClassificacaoMutation.isPending
+                ? "Salvando..."
+                : "Salvar classificação"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <Modal
         open={ataDiscovery !== null}
         onClose={() => setAtaDiscovery(null)}

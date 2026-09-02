@@ -22,6 +22,10 @@
       "types": "./dist/subsystems.d.ts",
       "import": "./dist/subsystems.js"
     },
+    "./portal-publico": {
+      "types": "./dist/portal-publico.d.ts",
+      "import": "./dist/portal-publico.js"
+    },
     "./licitacao-guided-flow": {
       "types": "./dist/licitacao-guided-flow.d.ts",
       "import": "./dist/licitacao-guided-flow.js"

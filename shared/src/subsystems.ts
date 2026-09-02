@@ -147,6 +147,8 @@ export const subsystemDefinitions = [
         "/licitacao",
         "/contratos",
         "/documentos",
+        "/arquivos",
+        "/arquivos/auditoria",
         "/workflow",
         "/dossie",
         "/prazos",
@@ -161,6 +163,7 @@ export const subsystemDefinitions = [
       "relatorios",
       "cadastros",
       "prazos",
+      "arquivos",
     ],
     commandPaletteKeys: [
       "dashboard",
@@ -170,6 +173,7 @@ export const subsystemDefinitions = [
       "relatorios",
       "cadastros",
       "prazos",
+      "arquivos",
     ],
     recommendedActions: [
       {

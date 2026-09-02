@@ -31,5 +31,6 @@ storage/migration/*.json
 !storage/reports/.gitkeep
 !output/.gitkeep
 storage/uploads/
+storage/arquivos-preview-cache/
 storage/backups/
 storage/backups-mirror/
