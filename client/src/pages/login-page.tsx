@@ -112,17 +112,17 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#08111d] text-white">
+    <div className="sirel-login relative min-h-screen overflow-hidden bg-[#08111d] text-white">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(93,173,226,0.26),transparent_34%),radial-gradient(circle_at_78%_14%,rgba(56,189,248,0.15),transparent_22%),linear-gradient(180deg,rgba(8,17,29,0.94)_0%,rgba(8,17,29,1)_100%)]" />
-        <div className="absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:34px_34px]" />
+        <div className="sirel-login__backdrop absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(93,173,226,0.26),transparent_34%),radial-gradient(circle_at_78%_14%,rgba(56,189,248,0.15),transparent_22%),linear-gradient(180deg,rgba(8,17,29,0.94)_0%,rgba(8,17,29,1)_100%)]" />
+        <div className="sirel-login__grid absolute inset-0 opacity-[0.15] [background-image:linear-gradient(rgba(255,255,255,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:34px_34px]" />
         <div className="absolute -left-24 top-10 h-64 w-64 rounded-full bg-sky-400/20 blur-3xl" />
         <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-cyan-300/12 blur-3xl" />
       </div>
 
       <div className="relative mx-auto flex min-h-screen max-w-7xl flex-col justify-center gap-5 px-4 py-4 sm:px-6 sm:py-6 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(380px,460px)] lg:items-stretch lg:gap-8 lg:px-8">
         <section className="order-2 lg:order-1">
-          <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,33,0.84)_0%,rgba(12,20,33,0.96)_100%)] px-5 py-5 shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl sm:px-7 sm:py-7 lg:px-9 lg:py-9">
+          <div className="sirel-login__panel sirel-login__brand-panel relative flex h-full flex-col justify-between overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,20,33,0.84)_0%,rgba(12,20,33,0.96)_100%)] px-5 py-5 shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl sm:px-7 sm:py-7 lg:px-9 lg:py-9">
             <div
               className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
               style={{ backgroundColor: accentColor }}
@@ -131,7 +131,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             <div>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[22px] border border-white/10 bg-white/95 px-2 py-2 shadow-[0_18px_44px_-26px_rgba(255,255,255,0.66)]">
+                  <div className="sirel-login__logo flex h-16 w-16 items-center justify-center rounded-[22px] border border-white/10 bg-white/95 px-2 py-2 shadow-[0_18px_44px_-26px_rgba(255,255,255,0.66)]">
                     {logoFailed ? (
                       <span className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] bg-[var(--brand-primary)] text-sm font-black tracking-[0.22em] text-slate-950">
                         TF
@@ -146,7 +146,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     )}
                   </div>
                   <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-sky-200/78">
+                    <p className="sirel-login__system-name text-[11px] font-bold uppercase tracking-[0.32em] text-sky-200/78">
                       {branding.systemName}
                     </p>
                     <h1 className="mt-1 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] sm:text-[2.4rem]">
@@ -156,7 +156,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </div>
 
                 <div
-                  className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100 sm:inline-flex"
+                  className="sirel-login__badge hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100 sm:inline-flex"
                   style={{ color: accentColor }}
                 >
                   <SubsystemIcon className="h-3.5 w-3.5" />
@@ -165,13 +165,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               </div>
 
               <div className="mt-10 max-w-3xl">
-                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-200/70">
+                <p className="sirel-login__eyebrow text-[11px] font-bold uppercase tracking-[0.28em] text-sky-200/70">
                   Entrada por subsistema
                 </p>
-                <h2 className="mt-3 font-[var(--font-heading)] text-4xl font-black leading-[0.98] tracking-[-0.05em] text-white sm:text-[3.3rem]">
+                <h2 className="sirel-login__headline mt-3 font-[var(--font-heading)] text-4xl font-black leading-[0.98] tracking-[-0.05em] text-white sm:text-[3.3rem]">
                   {subsystem.loginTitle}
                 </h2>
-                <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-[15px]">
+                <p className="sirel-login__description mt-5 max-w-2xl text-sm leading-7 text-slate-300 sm:text-[15px]">
                   {subsystem.description}
                 </p>
               </div>
@@ -180,23 +180,23 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 {subsystem.loginHighlights.map((item) => {
                   const Icon = resolveIcon(item.icon);
                   return (
-                    <article key={item.title} className="rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4">
+                    <article key={item.title} className="sirel-login__tile rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4">
                       <div
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05]"
+                        className="sirel-login__tile-icon inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.05]"
                         style={{ color: accentColor }}
                       >
                         <Icon className="h-4 w-4" />
                       </div>
-                      <h3 className="mt-4 text-sm font-bold text-white">{item.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-300">{item.description}</p>
+                      <h3 className="sirel-login__tile-title mt-4 text-sm font-bold text-white">{item.title}</h3>
+                      <p className="sirel-login__tile-description mt-2 text-sm leading-6 text-slate-300">{item.description}</p>
                     </article>
                   );
                 })}
               </div>
             </div>
 
-            <div className="mt-8 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400">
-              <p className="font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
+            <div className="sirel-login__identity mt-8 border-t border-white/10 pt-5 text-xs leading-6 text-slate-400">
+              <p className="sirel-login__identity-title font-semibold uppercase tracking-[0.22em] text-slate-300">Identidade institucional</p>
               <p className="mt-2">{branding.prefeituraLines[1]}</p>
               <p>{branding.prefeituraLines[2]}</p>
               <p>{branding.prefeituraLines[3]}</p>
@@ -205,19 +205,19 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         </section>
 
         <section className="order-1 lg:order-2">
-          <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,19,31,0.92)_0%,rgba(10,17,28,0.98)_100%)] shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl">
-            <div className="border-b border-white/8 px-5 py-5 sm:px-7 sm:py-6">
+          <div className="sirel-login__panel sirel-login__form-panel overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(11,19,31,0.92)_0%,rgba(10,17,28,0.98)_100%)] shadow-[0_32px_90px_-34px_rgba(2,6,23,0.92)] backdrop-blur-xl">
+            <div className="sirel-login__form-header border-b border-white/8 px-5 py-5 sm:px-7 sm:py-6">
               <div
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100"
+                className="sirel-login__badge inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100"
                 style={{ color: accentColor }}
               >
                 <SubsystemIcon className="h-3.5 w-3.5" />
                 Login {subsystem.shortTitle}
               </div>
-              <h2 className="mt-4 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] text-white">
+              <h2 className="sirel-login__headline mt-4 font-[var(--font-heading)] text-[2rem] font-black tracking-[-0.04em] text-white">
                 {subsystem.loginTitle}
               </h2>
-              <p className="mt-3 max-w-md text-sm leading-7 text-slate-300">
+              <p className="sirel-login__description mt-3 max-w-md text-sm leading-7 text-slate-300">
                 {subsystem.loginSubtitle}
               </p>
             </div>
@@ -227,7 +227,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <FormField
                   label="Usuário"
                   description={`Use seu login institucional para acessar ${subsystem.shortTitle}.`}
-                  className="text-slate-100"
+                  className="sirel-login__form-field text-slate-100"
                 >
                   <Input
                     required
@@ -236,14 +236,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     value={login}
                     onChange={(event) => setLogin(event.target.value)}
                     placeholder="seu.usuario"
-                    className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 text-white placeholder:text-slate-500 focus:border-sky-300/40"
+                    className="sirel-login__input h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 text-white placeholder:text-slate-500 focus:border-sky-300/40"
                   />
                 </FormField>
 
                 <FormField
                   label="Senha"
                   description="Seu acesso fica vinculado ao perfil operacional e à trilha de auditoria."
-                  className="text-slate-100"
+                  className="sirel-login__form-field text-slate-100"
                 >
                   <div className="relative">
                     <Input
@@ -253,12 +253,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Digite sua senha"
-                      className="h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 pr-12 text-white placeholder:text-slate-500 focus:border-sky-300/40"
+                      className="sirel-login__input h-12 rounded-[20px] border-white/10 bg-white/[0.04] px-4 pr-12 text-white placeholder:text-slate-500 focus:border-sky-300/40"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
-                      className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-[16px] border border-white/10 bg-white/[0.04] text-slate-300 transition hover:text-white"
+                      className="sirel-login__password-toggle absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-[16px] border border-white/10 bg-white/[0.04] text-slate-300 transition hover:text-white"
                       aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -286,31 +286,31 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 </Button>
               </form>
 
-              <div className="mt-6 rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
-                <p className="font-semibold text-white">Antes de entrar</p>
+              <div className="sirel-login__notice mt-6 rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
+                <p className="sirel-login__notice-title font-semibold text-white">Antes de entrar</p>
                 <p className="mt-2">
                   Este ambiente abre uma visão focada em {subsystem.shortTitle}, mantendo a mesma autenticação e a sessão auditada do SIREL.
                 </p>
               </div>
 
-              <div className="mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <div className="sirel-login__footer mt-6 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs leading-6 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => setUsernameRecoveryOpen(true)}
-                    className="rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
+                    className="sirel-login__link rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
                   >
                     Esqueci meu usuario
                   </button>
                   <button
                     type="button"
                     onClick={() => setPasswordResetOpen(true)}
-                    className="rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
+                    className="sirel-login__link rounded-full border border-white/10 px-3 py-1.5 font-semibold text-sky-100/90 transition hover:border-white/25 hover:text-white"
                   >
                     Redefinir senha
                   </button>
                 </div>
-                <div className="inline-flex items-center gap-2 text-sky-100/80">
+                <div className="sirel-login__secure inline-flex items-center gap-2 text-sky-100/80">
                   <span>Ambiente autenticado</span>
                   <ArrowRight className="h-4 w-4" />
                 </div>

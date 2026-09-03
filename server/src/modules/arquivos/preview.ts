@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 import { arquivosConfig } from "./config.js";
@@ -30,8 +31,10 @@ async function runLibreOffice(inputPath: string, outDir: string) {
   if (!executable) throw new Error("LibreOffice não encontrado.");
 
   await mkdir(outDir, { recursive: true });
-  const profileDir = join(outDir, ".lo-profile");
-  await mkdir(profileDir, { recursive: true });
+  // O perfil precisa ficar fora do cache: em Windows, o LibreOffice pode
+  // falhar quando os subdiretórios internos do perfil são criados dentro de
+  // um caminho de cache longo (especialmente com nomes acentuados).
+  const profileDir = await mkdtemp(join(tmpdir(), "sirel-office-profile-"));
   const profileUrl = pathToFileURL(profileDir).href;
 
   try {
@@ -79,15 +82,23 @@ async function runLibreOffice(inputPath: string, outDir: string) {
       child.on("error", (error) => finish(error));
       child.on("close", (code) => {
         if (code === 0) finish();
-        else finish(new Error(`LibreOffice retornou código ${code}. ${stderr}`.trim()));
+        else
+          finish(
+            new Error(`LibreOffice retornou código ${code}. ${stderr}`.trim()),
+          );
       });
     });
   } finally {
-    await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+    await rm(profileDir, { recursive: true, force: true }).catch(
+      () => undefined,
+    );
   }
 }
 
-export async function officePreviewPath(inputPath: string, relativePath: string) {
+export async function officePreviewPath(
+  inputPath: string,
+  relativePath: string,
+) {
   const info = await stat(inputPath);
   if (info.size > arquivosConfig.previewMaxBytes) {
     throw new Error("Arquivo excede o limite configurado para preview.");
@@ -97,7 +108,11 @@ export async function officePreviewPath(inputPath: string, relativePath: string)
     .update(`${relativePath}\0${info.size}\0${info.mtimeMs}`)
     .digest("hex");
 
-  const cacheDir = resolve(arquivosConfig.previewCacheDir, key.slice(0, 2), key);
+  const cacheDir = resolve(
+    arquivosConfig.previewCacheDir,
+    key.slice(0, 2),
+    key,
+  );
   const outputName = `${basename(inputPath, extname(inputPath))}.pdf`;
   const outputPath = join(cacheDir, outputName);
 

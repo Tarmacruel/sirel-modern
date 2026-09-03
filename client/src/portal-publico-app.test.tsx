@@ -61,6 +61,7 @@ function successfulQuery<T>(data: T) {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.removeItem("sirel-transparencia-theme");
   trpcMocks.processosUseQuery.mockReset();
   trpcMocks.documentosUseQuery.mockReset();
   trpcMocks.classificacoesUseQuery.mockReset();
@@ -139,6 +140,35 @@ describe("shouldRenderPortalPublico", () => {
 });
 
 describe("PortalPublicoApp", () => {
+  it("permite alternar entre modo claro e modo escuro sem afetar a consulta", async () => {
+    const user = userEvent.setup();
+    trpcMocks.processosUseQuery.mockReturnValue(
+      successfulQuery({
+        pagina: 1,
+        limite: 12,
+        total: 0,
+        itens: [],
+      }),
+    );
+    trpcMocks.documentosUseQuery.mockReturnValue(
+      successfulQuery({ pagina: 1, limite: 50, total: 0, itens: [] }),
+    );
+
+    render(<PortalPublicoApp />);
+
+    const portal = screen.getByTestId("portal-publico");
+    expect(portal).toHaveAttribute("data-portal-theme", "light");
+
+    await user.click(screen.getByRole("button", { name: "Escuro" }));
+    expect(portal).toHaveAttribute("data-portal-theme", "dark");
+    expect(window.localStorage.getItem("sirel-transparencia-theme")).toBe(
+      "dark",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Claro" }));
+    expect(portal).toHaveAttribute("data-portal-theme", "light");
+  });
+
   it("consulta somente os processos publicados e revela os documentos públicos selecionados", async () => {
     const user = userEvent.setup();
     trpcMocks.processosUseQuery.mockReturnValue(

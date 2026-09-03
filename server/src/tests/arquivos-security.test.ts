@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { arquivosConfig } from "../modules/arquivos/config.js";
-import { isBlockedExtension, normalizeRelativePath, safeResolve } from "../modules/arquivos/security.js";
+import { isBlockedExtension, normalizeNewFolderName, normalizeRelativePath, safeResolve } from "../modules/arquivos/security.js";
 
 let testRoot = "";
 let originalRoot = "";
@@ -61,6 +61,13 @@ describe("SIREL Arquivos - segurança de caminho", () => {
       stat: expect.objectContaining({ isFile: expect.any(Function) }),
     });
     await expect(safeResolve("../fora.txt", { allowDirectory: false })).rejects.toThrow();
+  });
+
+  it("valida nomes de novas pastas", () => {
+    expect(normalizeNewFolderName("Documentos complementares")).toBe("Documentos complementares");
+    expect(() => normalizeNewFolderName("pasta/fora")).toThrow();
+    expect(() => normalizeNewFolderName("CON")).toThrow();
+    expect(() => normalizeNewFolderName("pasta.")).toThrow();
   });
 
 });

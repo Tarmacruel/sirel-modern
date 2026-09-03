@@ -9,6 +9,8 @@ export type ArquivoAuditAction =
   | "DOWNLOAD"
   | "FAVORITE"
   | "UNFAVORITE"
+  | "UPLOAD"
+  | "CREATE_FOLDER"
   | "DENIED"
   | "REINDEX";
 

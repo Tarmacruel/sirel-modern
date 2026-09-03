@@ -32,7 +32,7 @@ export function ArquivosAuditoriaPage() {
     <div className="space-y-5">
       <SectionCard
         title="Auditoria — SIREL Arquivos"
-        description="Visualizações, downloads, pesquisas, favoritos, acessos e reindexações."
+        description="Visualizações, downloads, uploads, pesquisas, favoritos, acessos e reindexações."
         action={
           <Button variant="outline" size="sm" onClick={() => (window.location.href = "/arquivos")}>
             <ArrowLeft className="h-4 w-4" />
@@ -47,7 +47,7 @@ export function ArquivosAuditoriaPage() {
           </div>
           <Select value={action} onChange={(e) => { setPage(1); setAction(e.target.value); }}>
             <option value="">Todas as ações</option>
-            {["LIST","SEARCH","VIEW","DOWNLOAD","FAVORITE","UNFAVORITE","DENIED","REINDEX"].map((value) => (
+            {["LIST","SEARCH","VIEW","DOWNLOAD","UPLOAD","CREATE_FOLDER","FAVORITE","UNFAVORITE","DENIED","REINDEX"].map((value) => (
               <option key={value} value={value}>{value}</option>
             ))}
           </Select>
@@ -101,7 +101,7 @@ export function ArquivosAuditoriaPage() {
 
       <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-xs text-[var(--text-secondary)]">
         <ShieldCheck className="mr-2 inline h-4 w-4" />
-        A trilha deste módulo é independente da auditoria transacional do SIREL e registra leitura/download de arquivos.
+        A trilha deste módulo é independente da auditoria transacional do SIREL e registra navegação, leitura, download e alterações no acervo.
       </div>
     </div>
   );

@@ -8,20 +8,28 @@ import {
   FileText,
   Folder,
   FolderArchive,
+  FolderPlus,
   Image,
+  LayoutGrid,
+  LoaderCircle,
+  List,
   RefreshCcw,
+  Rows3,
   Search,
   ShieldCheck,
   Star,
+  Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SectionCard } from "@/components/shared/section-card";
+import { Modal } from "@/components/shared/modal";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { uploadArquivo } from "@/lib/arquivos-upload";
 import { trpc } from "@/lib/trpc";
 
 type Item = {
@@ -36,6 +44,20 @@ type Item = {
   favorite?: boolean;
   parentPath?: string;
 };
+
+type ViewMode = "list" | "grid" | "compact";
+
+const VIEW_MODE_STORAGE_KEY = "sirel.arquivos.view-mode";
+
+function readViewMode(): ViewMode {
+  if (typeof window === "undefined") return "list";
+  try {
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return stored === "grid" || stored === "compact" ? stored : "list";
+  } catch {
+    return "list";
+  }
+}
 
 function formatBytes(value: number | null | undefined) {
   const bytes = Number(value ?? 0);
@@ -92,6 +114,13 @@ export function ArquivosPage() {
   const [search, setSearch] = useState("");
   const deferredSearch = useDebouncedValue(search.trim());
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<{ name: string; path: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -99,6 +128,14 @@ export function ArquivosPage() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+    } catch {
+      // Preferir o funcionamento da tela mesmo quando o navegador bloqueia o storage.
+    }
+  }, [viewMode]);
 
   const summary = trpc.arquivos.summary.useQuery(undefined, { retry: false });
   const list = trpc.arquivos.list.useQuery({ path }, { retry: false, enabled: !deferredSearch });
@@ -131,8 +168,11 @@ export function ArquivosPage() {
       await Promise.all([utils.arquivos.summary.invalidate(), utils.arquivos.list.invalidate()]);
     },
   });
+  const createFolderMutation = trpc.arquivos.createFolder.useMutation();
 
   const rows = (deferredSearch.length >= 2 ? searchQuery.data ?? [] : list.data ?? []) as Item[];
+  const isGridView = viewMode !== "list";
+  const isCompactView = viewMode === "compact";
 
   const breadcrumbs = useMemo(() => {
     const parts = path.split("/").filter(Boolean);
@@ -148,12 +188,71 @@ export function ArquivosPage() {
     setPath(nextPath);
   }
 
+  async function handleUpload(file: File) {
+    if (uploading) return;
+
+    setUploading(true);
+    setFeedback(null);
+    try {
+      const result = await uploadArquivo({ path, arquivo: file });
+      setFeedback(`Arquivo enviado: ${result.name}`);
+      await Promise.all([
+        utils.arquivos.list.invalidate(),
+        utils.arquivos.search.invalidate(),
+        utils.arquivos.summary.invalidate(),
+      ]);
+    } catch (error: any) {
+      setFeedback(error?.message ?? "Não foi possível enviar o arquivo.");
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  }
+
+  function openNewFolderDialog() {
+    setNewFolderName("");
+    setNewFolderError(null);
+    setNewFolderOpen(true);
+  }
+
+  function closeNewFolderDialog() {
+    if (!createFolderMutation.isPending) setNewFolderOpen(false);
+  }
+
+  async function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name) {
+      setNewFolderError("Informe o nome da pasta.");
+      return;
+    }
+
+    setNewFolderError(null);
+    try {
+      const result = await createFolderMutation.mutateAsync({ path, name });
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      setFeedback(`Pasta criada: ${result.name}`);
+      await Promise.all([
+        utils.arquivos.list.invalidate(),
+        utils.arquivos.search.invalidate(),
+        utils.arquivos.summary.invalidate(),
+      ]);
+    } catch (error: any) {
+      setNewFolderError(error?.message ?? "Não foi possível criar a pasta.");
+    }
+  }
+
   async function openPreview(item: Item) {
+    if (previewLoading) return;
+
+    setPreviewLoading({ name: item.name, path: item.relativePath });
     try {
       const ticket = await ticketMutation.mutateAsync({ path: item.relativePath, mode: "preview" });
       setPreview({ name: item.name, url: ticket.url });
     } catch (error: any) {
       setFeedback(error?.message ?? "Não foi possível gerar o preview.");
+    } finally {
+      setPreviewLoading(null);
     }
   }
 
@@ -215,7 +314,56 @@ export function ArquivosPage() {
         title="Localizar documentos"
         description="Pesquise pelo nome do arquivo, número do processo, pregão ou qualquer trecho do caminho."
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-1" aria-label="Modo de exibição">
+              <Button
+                variant={viewMode === "list" ? "secondary" : "ghost"}
+                size="icon"
+                title="Exibição em lista"
+                aria-label="Exibição em lista"
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "grid" ? "secondary" : "ghost"}
+                size="icon"
+                title="Exibição em grade"
+                aria-label="Exibição em grade"
+                aria-pressed={viewMode === "grid"}
+                onClick={() => setViewMode("grid")}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === "compact" ? "secondary" : "ghost"}
+                size="icon"
+                title="Exibição em grade compacta"
+                aria-label="Exibição em grade compacta"
+                aria-pressed={viewMode === "compact"}
+                onClick={() => setViewMode("compact")}
+              >
+                <Rows3 className="h-4 w-4" />
+              </Button>
+            </div>
+            {summary.data?.canCreateFolder ? (
+              <Button variant="outline" size="sm" onClick={openNewFolderDialog}>
+                <FolderPlus className="h-4 w-4" />
+                Nova pasta
+              </Button>
+            ) : null}
+            {summary.data?.canUpload ? (
+              <Button
+                variant="outline"
+                size="sm"
+                loading={uploading}
+                onClick={() => uploadInputRef.current?.click()}
+              >
+                <Upload className="h-4 w-4" />
+                {uploading ? "Enviando..." : "Enviar arquivo"}
+              </Button>
+            ) : null}
             {summary.data?.canAudit ? (
               <Button variant="outline" size="sm" onClick={() => (window.location.href = "/arquivos/auditoria")}>
                 <ShieldCheck className="h-4 w-4" />
@@ -236,6 +384,15 @@ export function ArquivosPage() {
           </div>
         }
       >
+        <input
+          ref={uploadInputRef}
+          type="file"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void handleUpload(file);
+          }}
+        />
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
           <Input
@@ -370,25 +527,34 @@ export function ArquivosPage() {
           <p className="mt-3 font-semibold text-[var(--text-primary)]">Nenhum item encontrado.</p>
         </div>
       ) : (
-        <div className="grid gap-2">
+        <div className={isGridView ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "grid gap-2"}>
           {rows.map((item) => {
             const Icon = iconFor(item);
             return (
               <article
                 key={item.relativePath}
-                className="group grid gap-3 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4 transition hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-soft)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                className={isGridView
+                  ? isCompactView
+                    ? "group flex min-h-[108px] flex-col rounded-[18px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3 transition hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-soft)]"
+                    : "group flex min-h-[154px] flex-col rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4 transition hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-soft)]"
+                  : "group grid gap-3 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4 transition hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-soft)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"}
               >
                 <button
                   type="button"
                   onClick={() => activateItem(item)}
-                  className="flex min-w-0 items-center gap-3 text-left"
+                  className={isGridView ? "flex min-w-0 flex-1 items-start gap-3 text-left" : "flex min-w-0 items-center gap-3 text-left"}
                 >
-                  <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[var(--surface-highlight)] text-[var(--accent-color)]">
+                  <div className={isGridView
+                    ? isCompactView
+                      ? "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[var(--surface-highlight)] text-[var(--accent-color)]"
+                      : "inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-[var(--surface-highlight)] text-[var(--accent-color)]"
+                    : "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[var(--surface-highlight)] text-[var(--accent-color)]"}
+                  >
                     <Icon className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate font-semibold text-[var(--text-primary)]">{item.name}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+                    <div className={isGridView ? "break-words font-semibold text-[var(--text-primary)]" : "truncate font-semibold text-[var(--text-primary)]"}>{item.name}</div>
+                    <div className={isCompactView ? "mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--text-muted)]" : "mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]"}>
                       {deferredSearch ? <span className="max-w-[70vw] truncate">{item.parentPath || item.relativePath}</span> : null}
                       {item.kind !== "folder" ? <span>{formatBytes(item.size)}</span> : <span>Pasta</span>}
                       {item.modifiedAt ? <span>{new Date(item.modifiedAt).toLocaleString("pt-BR")}</span> : null}
@@ -396,25 +562,41 @@ export function ArquivosPage() {
                   </div>
                 </button>
 
-                <div className="flex items-center justify-end gap-2">
+                <div className={isGridView ? (isCompactView ? "mt-2 flex flex-wrap items-center justify-start gap-1.5" : "mt-4 flex flex-wrap items-center justify-start gap-2") : "flex items-center justify-end gap-2"}>
                   <button
                     type="button"
                     title={item.favorite ? "Remover dos favoritos" : "Favoritar"}
                     aria-label={item.favorite ? `Remover ${item.name} dos favoritos` : `Adicionar ${item.name} aos favoritos`}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-[16px] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-amber-500"
+                    className={isCompactView
+                      ? "inline-flex !h-8 !w-8 items-center justify-center !rounded-[12px] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-amber-500"
+                      : "inline-flex h-10 w-10 items-center justify-center rounded-[16px] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-amber-500"}
                     onClick={() => favoriteMutation.mutate({ path: item.relativePath })}
                   >
                     <Star className={["h-4 w-4", item.favorite ? "fill-current text-amber-500" : ""].join(" ")} />
                   </button>
 
                   {item.previewable && item.kind !== "folder" ? (
-                    <Button variant="outline" size="sm" onClick={() => openPreview(item)}>
-                      Visualizar
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={isCompactView ? "!h-8 !rounded-xl !px-2 !text-[11px]" : undefined}
+                      loading={previewLoading?.path === item.relativePath}
+                      disabled={Boolean(previewLoading)}
+                      onClick={() => void openPreview(item)}
+                    >
+                      {previewLoading?.path === item.relativePath
+                        ? "Preparando..."
+                        : "Visualizar"}
                     </Button>
                   ) : null}
 
                   {item.downloadable && item.kind !== "folder" ? (
-                    <Button variant="outline" size="sm" onClick={() => download(item)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={isCompactView ? "!h-8 !rounded-xl !px-2 !text-[11px]" : undefined}
+                      onClick={() => download(item)}
+                    >
                       <Download className="h-4 w-4" />
                       Baixar
                     </Button>
@@ -425,6 +607,29 @@ export function ArquivosPage() {
           })}
         </div>
       )}
+
+      {previewLoading ? (
+        <div
+          className="fixed inset-0 z-[350] flex items-center justify-center bg-[var(--surface-overlay)]/90 p-4 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="w-full max-w-md rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-6 py-8 text-center shadow-[var(--shadow-floating)]">
+            <LoaderCircle className="mx-auto h-10 w-10 animate-spin text-[var(--accent-color)]" />
+            <p className="mt-4 text-lg font-bold text-[var(--text-primary)]">
+              Preparando visualização
+            </p>
+            <p className="mt-2 truncate text-sm font-semibold text-[var(--text-secondary)]">
+              {previewLoading.name}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
+              O documento está sendo convertido para um formato de leitura.
+              Aguarde um instante.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {preview ? (
         <div className="fixed inset-0 z-[300] flex flex-col bg-[var(--surface-overlay)] p-2 md:p-4">
@@ -446,6 +651,53 @@ export function ArquivosPage() {
           </div>
         </div>
       ) : null}
+
+      <Modal
+        open={newFolderOpen}
+        title="Criar nova pasta"
+        description="Organize o acervo criando uma pasta dentro do local atualmente aberto."
+        onClose={closeNewFolderDialog}
+        size="md"
+        actions={
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={closeNewFolderDialog} disabled={createFolderMutation.isPending}>
+              Cancelar
+            </Button>
+            <Button loading={createFolderMutation.isPending} onClick={() => void handleCreateFolder()}>
+              <FolderPlus className="h-4 w-4" />
+              Criar pasta
+            </Button>
+          </div>
+        }
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleCreateFolder();
+          }}
+        >
+          <label className="block text-sm font-semibold text-[var(--text-primary)]" htmlFor="nova-pasta-nome">
+            Nome da pasta
+          </label>
+          <Input
+            id="nova-pasta-nome"
+            value={newFolderName}
+            onChange={(event) => {
+              setNewFolderName(event.target.value);
+              setNewFolderError(null);
+            }}
+            placeholder="Ex.: Documentos complementares"
+            maxLength={180}
+            autoFocus
+            disabled={createFolderMutation.isPending}
+          />
+          <p className="text-xs leading-5 text-[var(--text-muted)]">
+            Local de criação: <span className="font-semibold text-[var(--text-secondary)]">{path || "Raiz do acervo"}</span>
+          </p>
+          {newFolderError ? <Alert variant="error">{newFolderError}</Alert> : null}
+        </form>
+      </Modal>
     </div>
   );
 }

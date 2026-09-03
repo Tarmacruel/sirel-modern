@@ -1,16 +1,18 @@
+import { mkdir } from "node:fs/promises";
+
 import { sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { requireDb } from "../db/client.js";
-import { adminProcedure, auditorProcedure, protectedProcedure, router } from "../trpc.js";
+import { adminProcedure, auditorProcedure, operadorProcedure, protectedProcedure, router } from "../trpc.js";
 import { logArquivoAudit, resolveClientIp } from "../modules/arquivos/audit.js";
 import { arquivosConfig } from "../modules/arquivos/config.js";
 import { listDirectory } from "../modules/arquivos/filesystem.js";
 import { reindexArquivos } from "../modules/arquivos/indexer.js";
 import { kindFor, previewableFor } from "../modules/arquivos/mime.js";
 import { officePreviewPath } from "../modules/arquivos/preview.js";
-import { safeResolve } from "../modules/arquivos/security.js";
+import { normalizeNewFolderName, safeResolve } from "../modules/arquivos/security.js";
 import { createArquivosTicket } from "../modules/arquivos/tickets.js";
 
 const pathInput = z.object({
@@ -65,6 +67,8 @@ export const arquivosRouter = router({
       lastIndexedAt: row.last_indexed_at ?? null,
       canAudit: ["admin", "auditor"].includes(String(ctx.user?.role)),
       canReindex: String(ctx.user?.role) === "admin",
+      canUpload: ["admin", "gestor", "operador"].includes(String(ctx.user?.role)),
+      canCreateFolder: ["admin", "gestor", "operador"].includes(String(ctx.user?.role)),
     };
   }),
 
@@ -250,6 +254,55 @@ export const arquivosRouter = router({
       });
 
       return { favorite: !exists };
+    }),
+
+  createFolder: operadorProcedure
+    .input(z.object({
+      path: z.string().max(4000).optional().default(""),
+      name: z.string().trim().min(1).max(180),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const parent = await safeResolve(input.path, { allowDirectory: true });
+        if (!parent.stat?.isDirectory()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O destino informado não é uma pasta." });
+        }
+
+        const name = normalizeNewFolderName(input.name);
+        if (arquivosConfig.ignoredNames.has(name.toLowerCase())) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Este nome de pasta é reservado pelo acervo." });
+        }
+
+        const relativePath = [parent.relativePath, name].filter(Boolean).join("/");
+        const target = await safeResolve(relativePath, { mustExist: false, allowDirectory: true });
+        if (target.stat) {
+          throw new TRPCError({ code: "CONFLICT", message: "Já existe um arquivo ou pasta com esse nome." });
+        }
+
+        try {
+          await mkdir(target.absolutePath);
+        } catch (error: any) {
+          if (error?.code === "EEXIST") {
+            throw new TRPCError({ code: "CONFLICT", message: "Já existe um arquivo ou pasta com esse nome." });
+          }
+          throw error;
+        }
+
+        await logArquivoAudit({
+          userId: ctx.user!.id,
+          action: "CREATE_FOLDER",
+          relativePath,
+          fileName: name,
+          ...reqMeta(ctx),
+          success: true,
+          detail: "Pasta criada.",
+        });
+
+        return { success: true, name, relativePath };
+      } catch (error) {
+        await logDenied(ctx, input.path || "", error);
+        throw error;
+      }
     }),
 
   issueTicket: protectedProcedure.input(ticketInput).mutation(async ({ ctx, input }) => {

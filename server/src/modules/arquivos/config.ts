@@ -47,6 +47,7 @@ export const arquivosConfig = {
     7200,
   ),
   previewMaxBytes: envNumber("ARQUIVOS_PREVIEW_MAX_MB", 250, 1, 2048) * 1024 * 1024,
+  uploadMaxBytes: envNumber("ARQUIVOS_UPLOAD_MAX_MB", 250, 1, 2048) * 1024 * 1024,
   textPreviewMaxBytes: envNumber("ARQUIVOS_TEXT_PREVIEW_MAX_MB", 5, 1, 50) * 1024 * 1024,
   autoIndex: envBoolean("ARQUIVOS_AUTO_INDEX", true),
   watch: envBoolean("ARQUIVOS_WATCH", true),

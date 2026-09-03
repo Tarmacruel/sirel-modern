@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,14 +8,27 @@ import {
   FileText,
   Landmark,
   LoaderCircle,
+  Moon,
   Search,
+  Sun,
 } from "lucide-react";
 import { documentoTipoOptions } from "@sirel/shared/schemas/documentos";
 
 import { portalPublicoTrpc } from "@/lib/portal-publico-trpc";
+import "./styles/portal-publico.css";
 
 const PAGE_SIZE = 12;
+const portalThemeStorageKey = "sirel-transparencia-theme";
+
 type DocumentoTipoPublico = (typeof documentoTipoOptions)[number];
+type PortalTheme = "light" | "dark";
+
+function resolvePortalTheme(): PortalTheme {
+  if (typeof window === "undefined") return "light";
+
+  const savedTheme = window.localStorage.getItem(portalThemeStorageKey);
+  return savedTheme === "dark" || savedTheme === "light" ? savedTheme : "light";
+}
 
 function formatPublicDate(value: unknown) {
   if (!value) return null;
@@ -50,6 +63,7 @@ function getVisibleRange(page: number, limit: number, total: number) {
  * no authentication, internal navigation or local session persistence.
  */
 export function PortalPublicoApp() {
+  const [theme, setTheme] = useState<PortalTheme>(resolvePortalTheme);
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -61,6 +75,11 @@ export function PortalPublicoApp() {
     "",
   );
   const [documentClassification, setDocumentClassification] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(portalThemeStorageKey, theme);
+  }, [theme]);
 
   const processInput = useMemo(
     () => ({
@@ -147,109 +166,135 @@ export function PortalPublicoApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[#eef3f8] text-slate-900 selection:bg-sky-200">
-      <header className="border-b border-white/15 bg-[#112d4e] text-white">
-        <div className="mx-auto flex min-h-20 max-w-6xl items-center gap-4 px-5 py-4 sm:px-8">
-          <img
-            src="/logo-prefeitura.png"
-            alt="Prefeitura Municipal de Teixeira de Freitas"
-            className="h-11 w-11 rounded-full bg-white object-contain p-1"
-          />
-          <div className="min-w-0">
-            <p className="text-[0.68rem] font-bold uppercase tracking-[0.2em] text-sky-100">
-              Prefeitura Municipal de Teixeira de Freitas
-            </p>
-            <p className="mt-0.5 text-lg font-extrabold tracking-[-0.02em]">
-              Portal da Transparência
-            </p>
+    <main
+      className="portal-publico"
+      data-portal-theme={theme}
+      data-testid="portal-publico"
+    >
+      <header className="portal-publico__header">
+        <div className="portal-publico__container portal-publico__header-inner">
+          <div className="portal-publico__brand">
+            <div className="portal-publico__brand-mark">
+              <img
+                src="/logo-prefeitura.png"
+                alt="Prefeitura Municipal de Teixeira de Freitas"
+              />
+            </div>
+            <div>
+              <p className="portal-publico__brand-overline">
+                Prefeitura Municipal de Teixeira de Freitas
+              </p>
+              <p className="portal-publico__brand-name">
+                Portal da Transparência
+              </p>
+            </div>
+          </div>
+
+          <div
+            className="portal-publico__theme-switch"
+            role="group"
+            aria-label="Aparência do portal"
+          >
+            <button
+              type="button"
+              className="portal-publico__theme-button"
+              data-active={theme === "light"}
+              aria-pressed={theme === "light"}
+              onClick={() => setTheme("light")}
+            >
+              <Sun aria-hidden="true" />
+              <span>Claro</span>
+            </button>
+            <button
+              type="button"
+              className="portal-publico__theme-button"
+              data-active={theme === "dark"}
+              aria-pressed={theme === "dark"}
+              onClick={() => setTheme("dark")}
+            >
+              <Moon aria-hidden="true" />
+              <span>Escuro</span>
+            </button>
           </div>
         </div>
       </header>
 
-      <section className="overflow-hidden bg-[#112d4e] text-white">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 pb-14 pt-8 sm:px-8 md:grid-cols-[minmax(0,1fr)_15rem] md:items-end md:pb-16 md:pt-12">
-          <div className="max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-sky-200">
-              Consulta pública
-            </p>
-            <h1 className="mt-4 font-[var(--font-heading)] text-4xl font-black tracking-[-0.055em] sm:text-5xl">
+      <section
+        className="portal-publico__intro"
+        aria-labelledby="portal-publico-titulo"
+      >
+        <div className="portal-publico__container portal-publico__intro-grid">
+          <div className="portal-publico__intro-copy">
+            <p className="portal-publico__eyebrow">Consulta pública</p>
+            <h1 id="portal-publico-titulo">
               Processos e documentos publicados
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200 sm:text-lg">
-              Consulte os processos ativos divulgados pelo Município e baixe
-              apenas os documentos oficialmente aprovados para publicação.
+            <p className="portal-publico__intro-description">
+              Consulte licitações ativas e acesse somente os documentos
+              oficialmente aprovados para publicação.
             </p>
           </div>
-          <div className="border-l border-sky-200/30 pl-5 text-sm leading-6 text-sky-100 md:pb-1">
-            <Landmark
-              className="mb-3 h-6 w-6 text-sky-300"
-              aria-hidden="true"
-            />
-            Dados internos, responsáveis, prazos e documentos restritos não são
-            exibidos neste ambiente.
-          </div>
+
+          <aside className="portal-publico__intro-note">
+            <Landmark aria-hidden="true" />
+            <p>
+              Dados internos, responsáveis, prazos e documentos restritos não
+              são exibidos neste ambiente.
+            </p>
+          </aside>
         </div>
       </section>
 
-      <section className="relative -mt-7 px-5 pb-16 sm:px-8">
-        <div className="mx-auto max-w-6xl">
+      <section className="portal-publico__workspace">
+        <div className="portal-publico__container">
           <form
             aria-label="Buscar processos publicados"
             onSubmit={submitSearch}
-            className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_22px_44px_-30px_rgba(15,39,69,0.7)] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:p-5"
+            className="portal-publico__search"
           >
-            <label className="relative block">
+            <label className="portal-publico__search-field">
               <span className="sr-only">
                 Buscar por número SIREL, edital ou objeto
               </span>
-              <Search
-                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
-                aria-hidden="true"
-              />
+              <Search aria-hidden="true" />
               <input
                 type="search"
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
                 placeholder="Número SIREL, edital ou objeto"
-                className="h-12 w-full rounded-xl border border-slate-300 bg-slate-50 pl-12 pr-4 text-base text-slate-900 outline-none transition focus:border-sky-600 focus:bg-white focus:ring-4 focus:ring-sky-100"
               />
             </label>
             <button
               type="submit"
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-sky-700 px-5 font-bold text-white transition hover:bg-sky-800 focus:outline-none focus:ring-4 focus:ring-sky-200"
+              className="portal-publico__button portal-publico__button--primary"
             >
-              <Search className="h-4 w-4" aria-hidden="true" />
+              <Search aria-hidden="true" />
               Pesquisar
             </button>
             {search || searchDraft ? (
               <button
                 type="button"
                 onClick={clearSearch}
-                className="h-12 rounded-xl px-4 font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-200"
+                className="portal-publico__button portal-publico__button--quiet"
               >
                 Limpar
               </button>
             ) : null}
           </form>
 
-          <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)] lg:items-start">
-            <section aria-labelledby="processos-publicados-titulo">
-              <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-300 pb-4">
+          <div className="portal-publico__content-grid">
+            <section
+              className="portal-publico__results"
+              aria-labelledby="processos-publicados-titulo"
+            >
+              <div className="portal-publico__section-heading">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">
+                  <p className="portal-publico__eyebrow">
                     Resultado da consulta
                   </p>
-                  <h2
-                    id="processos-publicados-titulo"
-                    className="mt-1 text-2xl font-extrabold tracking-[-0.03em] text-slate-900"
-                  >
-                    Processos publicados
-                  </h2>
+                  <h2 id="processos-publicados-titulo">Processos publicados</h2>
                 </div>
-                <p
-                  className="text-sm font-medium text-slate-600"
-                  aria-live="polite"
-                >
+                <p className="portal-publico__result-count" aria-live="polite">
                   {processesQuery.isFetching
                     ? "Atualizando resultados…"
                     : getVisibleRange(currentPage, limit, total)}
@@ -257,30 +302,21 @@ export function PortalPublicoApp() {
               </div>
 
               {processesQuery.isPending ? (
-                <div
-                  className="flex min-h-44 items-center justify-center gap-3 border-b border-slate-200 text-slate-600"
-                  aria-live="polite"
-                >
-                  <LoaderCircle
-                    className="h-5 w-5 animate-spin text-sky-700"
-                    aria-hidden="true"
-                  />
+                <div className="portal-publico__loading" aria-live="polite">
+                  <LoaderCircle aria-hidden="true" />
                   Carregando processos publicados…
                 </div>
               ) : null}
 
               {processesQuery.isError ? (
-                <div
-                  role="alert"
-                  className="mt-5 border-l-4 border-rose-600 bg-rose-50 px-4 py-4 text-sm leading-6 text-rose-950"
-                >
+                <div className="portal-publico__notice" role="alert">
                   Não foi possível carregar os processos agora. Tente novamente
                   em alguns instantes.
                 </div>
               ) : null}
 
               {!processesQuery.isPending && !processesQuery.isError ? (
-                <div className="divide-y divide-slate-200 border-b border-slate-200">
+                <div className="portal-publico__process-list">
                   {processes.map((processo) => {
                     const publicationDate = formatPublicDate(
                       processo.dataPublicacao,
@@ -295,28 +331,25 @@ export function PortalPublicoApp() {
                         onClick={() => selectProcess(processo.numero)}
                         aria-pressed={isSelected}
                         aria-label={`Consultar documentos públicos do processo ${processo.numero}`}
-                        className="group flex w-full items-start gap-4 py-5 text-left transition hover:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-sky-200"
+                        className="portal-publico__process"
+                        data-selected={isSelected}
                       >
                         <span
-                          className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-sky-600 transition group-hover:scale-125"
+                          className="portal-publico__process-marker"
                           aria-hidden="true"
                         />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <strong className="text-sm font-extrabold text-sky-800">
-                              {processo.numero}
-                            </strong>
+                        <span className="portal-publico__process-content">
+                          <span className="portal-publico__process-kicker">
+                            <strong>{processo.numero}</strong>
                             {processo.modalidade ? (
-                              <span className="text-xs font-bold uppercase tracking-[0.13em] text-slate-500">
-                                {processo.modalidade}
-                              </span>
+                              <span>{processo.modalidade}</span>
                             ) : null}
                           </span>
-                          <span className="mt-2 block text-base font-semibold leading-6 text-slate-900">
+                          <span className="portal-publico__process-title">
                             {processo.objeto ||
                               "Objeto publicado sem descrição adicional."}
                           </span>
-                          <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
+                          <span className="portal-publico__process-meta">
                             {processo.edital ? (
                               <span>Edital {processo.edital}</span>
                             ) : null}
@@ -324,25 +357,22 @@ export function PortalPublicoApp() {
                               <span>{processo.secretaria}</span>
                             ) : null}
                             {publicationDate ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <CalendarDays
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                />
+                              <span className="portal-publico__date">
+                                <CalendarDays aria-hidden="true" />
                                 Publicado em {publicationDate}
                               </span>
                             ) : null}
                           </span>
                         </span>
                         <ChevronRight
-                          className="mt-1 h-5 w-5 shrink-0 text-slate-400 transition group-hover:translate-x-1 group-hover:text-sky-700"
+                          className="portal-publico__process-arrow"
                           aria-hidden="true"
                         />
                       </button>
                     );
                   })}
                   {!processes.length ? (
-                    <div className="py-12 text-center text-sm leading-6 text-slate-600">
+                    <div className="portal-publico__empty-state">
                       Nenhum processo publicado foi encontrado para esta busca.
                     </div>
                   ) : null}
@@ -352,7 +382,7 @@ export function PortalPublicoApp() {
               {totalPages > 1 ? (
                 <nav
                   aria-label="Paginação de processos publicados"
-                  className="mt-6 flex items-center justify-between gap-3"
+                  className="portal-publico__pagination"
                 >
                   <button
                     type="button"
@@ -361,12 +391,12 @@ export function PortalPublicoApp() {
                       setPage((current) => Math.max(1, current - 1));
                       setSelectedProcessNumber(null);
                     }}
-                    className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+                    className="portal-publico__button portal-publico__button--outline"
                   >
-                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    <ArrowLeft aria-hidden="true" />
                     Anterior
                   </button>
-                  <span className="text-sm font-semibold text-slate-600">
+                  <span>
                     Página {currentPage} de {totalPages}
                   </span>
                   <button
@@ -378,43 +408,38 @@ export function PortalPublicoApp() {
                       setPage((current) => Math.min(totalPages, current + 1));
                       setSelectedProcessNumber(null);
                     }}
-                    className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 transition hover:border-sky-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
+                    className="portal-publico__button portal-publico__button--outline"
                   >
                     Próxima
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </button>
                 </nav>
               ) : null}
             </section>
 
             <aside
+              className="portal-publico__documents"
               aria-labelledby="documentos-publicos-titulo"
-              className="border-t-4 border-sky-700 bg-white px-5 py-6 shadow-[0_18px_36px_-30px_rgba(15,39,69,0.9)] sm:px-6"
             >
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">
-                Documentos aprovados
-              </p>
-              <h2
-                id="documentos-publicos-titulo"
-                className="mt-2 text-2xl font-extrabold tracking-[-0.03em] text-slate-900"
-              >
-                {selectedProcessNumber
-                  ? `Processo ${selectedProcessNumber}`
-                  : "Selecione um processo"}
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                {selectedProcess
-                  ? selectedProcess.objeto ||
-                    "Documentos oficiais disponíveis para consulta."
-                  : "Escolha um processo na lista para visualizar os documentos liberados ao público."}
-              </p>
+              <div className="portal-publico__documents-heading">
+                <p className="portal-publico__eyebrow">Documentos aprovados</p>
+                <h2 id="documentos-publicos-titulo">
+                  {selectedProcessNumber
+                    ? `Processo ${selectedProcessNumber}`
+                    : "Selecione um processo"}
+                </h2>
+                <p>
+                  {selectedProcess
+                    ? selectedProcess.objeto ||
+                      "Documentos oficiais disponíveis para consulta."
+                    : "Escolha um processo na lista para visualizar os documentos liberados ao público."}
+                </p>
+              </div>
 
               {selectedProcessNumber ? (
-                <div className="mt-5 space-y-3 border-y border-slate-200 py-4">
-                  <label className="block">
-                    <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                      Buscar nos documentos
-                    </span>
+                <div className="portal-publico__document-filters">
+                  <label className="portal-publico__field">
+                    <span>Buscar nos documentos</span>
                     <input
                       type="search"
                       value={documentSearch}
@@ -422,14 +447,11 @@ export function PortalPublicoApp() {
                         setDocumentSearch(event.target.value)
                       }
                       placeholder="Título, edital ou classificação"
-                      className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-sky-600 focus:bg-white focus:ring-4 focus:ring-sky-100"
                     />
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                        Tipo
-                      </span>
+                  <div className="portal-publico__filter-grid">
+                    <label className="portal-publico__field">
+                      <span>Tipo</span>
                       <select
                         value={documentType}
                         onChange={(event) =>
@@ -437,7 +459,6 @@ export function PortalPublicoApp() {
                             event.target.value as "" | DocumentoTipoPublico,
                           )
                         }
-                        className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-sky-600 focus:bg-white focus:ring-4 focus:ring-sky-100"
                       >
                         <option value="">Todos os tipos</option>
                         {documentoTipoOptions.map((tipo) => (
@@ -447,16 +468,13 @@ export function PortalPublicoApp() {
                         ))}
                       </select>
                     </label>
-                    <label className="block">
-                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-                        Classificação
-                      </span>
+                    <label className="portal-publico__field">
+                      <span>Classificação</span>
                       <select
                         value={documentClassification}
                         onChange={(event) =>
                           setDocumentClassification(event.target.value)
                         }
-                        className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-sky-600 focus:bg-white focus:ring-4 focus:ring-sky-100"
                       >
                         <option value="">Todas as classificações</option>
                         {documentClassificationsQuery.data?.map(
@@ -476,7 +494,7 @@ export function PortalPublicoApp() {
                     <button
                       type="button"
                       onClick={clearDocumentFilters}
-                      className="text-sm font-semibold text-sky-800 underline-offset-4 transition hover:text-sky-950 hover:underline focus:outline-none focus:ring-4 focus:ring-sky-100"
+                      className="portal-publico__text-button"
                     >
                       Limpar filtros dos documentos
                     </button>
@@ -485,23 +503,14 @@ export function PortalPublicoApp() {
               ) : null}
 
               {selectedProcessNumber && documentsQuery.isPending ? (
-                <div
-                  className="mt-7 flex items-center gap-3 text-sm text-slate-600"
-                  aria-live="polite"
-                >
-                  <LoaderCircle
-                    className="h-5 w-5 animate-spin text-sky-700"
-                    aria-hidden="true"
-                  />
+                <div className="portal-publico__loading" aria-live="polite">
+                  <LoaderCircle aria-hidden="true" />
                   Carregando documentos públicos…
                 </div>
               ) : null}
 
               {selectedProcessNumber && documentsQuery.isError ? (
-                <div
-                  role="alert"
-                  className="mt-6 border-l-4 border-rose-600 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-950"
-                >
+                <div className="portal-publico__notice" role="alert">
                   Não foi possível carregar os documentos deste processo agora.
                 </div>
               ) : null}
@@ -509,22 +518,20 @@ export function PortalPublicoApp() {
               {selectedProcessNumber &&
               !documentsQuery.isPending &&
               !documentsQuery.isError ? (
-                <div className="mt-6 divide-y divide-slate-200 border-y border-slate-200">
+                <div className="portal-publico__document-list">
                   {publicDocuments.map((documento) => (
                     <a
                       key={`${documento.titulo}-${documento.versao}-${documento.downloadUrl}`}
                       href={documento.downloadUrl}
-                      className="group flex items-start gap-3 py-4 transition hover:bg-sky-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
+                      className="portal-publico__document"
                     >
                       <FileText
-                        className="mt-0.5 h-5 w-5 shrink-0 text-sky-700"
+                        className="portal-publico__document-icon"
                         aria-hidden="true"
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-bold leading-5 text-slate-900 group-hover:text-sky-800">
-                          {documento.titulo}
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-600">
+                      <span>
+                        <strong>{documento.titulo}</strong>
+                        <small>
                           {[
                             documento.tipo,
                             documento.classificacao ?? documento.categoria,
@@ -535,16 +542,16 @@ export function PortalPublicoApp() {
                           ]
                             .filter(Boolean)
                             .join(" · ")}
-                        </span>
+                        </small>
                       </span>
                       <FileDown
-                        className="mt-0.5 h-4 w-4 shrink-0 text-slate-500 transition group-hover:translate-y-0.5 group-hover:text-sky-700"
+                        className="portal-publico__download-icon"
                         aria-hidden="true"
                       />
                     </a>
                   ))}
                   {!publicDocuments.length ? (
-                    <p className="py-6 text-sm leading-6 text-slate-600">
+                    <p className="portal-publico__empty-documents">
                       Não há documentos aprovados para publicação neste
                       processo.
                     </p>
@@ -556,8 +563,8 @@ export function PortalPublicoApp() {
         </div>
       </section>
 
-      <footer className="border-t border-slate-300 bg-white px-5 py-7 sm:px-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 text-sm leading-6 text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+      <footer className="portal-publico__footer">
+        <div className="portal-publico__container">
           <p>Portal público do SIREL — Sistema de Licitações.</p>
           <p>Consulta atualizada conforme as publicações aprovadas.</p>
         </div>

@@ -55,6 +55,26 @@ export function normalizeRelativePath(input: string | null | undefined) {
   return parts.join("/");
 }
 
+export function normalizeNewFolderName(input: string | null | undefined) {
+  const name = String(input ?? "").normalize("NFC").trim();
+  const canonical = name.replace(/[. ]+$/g, "");
+  const reservedWindowsName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+  if (
+    !name ||
+    name === "." ||
+    name === ".." ||
+    name.length > 180 ||
+    /[\u0000-\u001f\u007f<>:"/\\|?*]/.test(name) ||
+    canonical !== name ||
+    reservedWindowsName.test(canonical)
+  ) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Nome de pasta inválido." });
+  }
+
+  return name;
+}
+
 export function isBlockedExtension(name: string) {
   return arquivosConfig.blockedExtensions.has(extensionOf(name));
 }
