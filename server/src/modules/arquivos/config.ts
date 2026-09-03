@@ -49,6 +49,11 @@ export const arquivosConfig = {
   previewMaxBytes: envNumber("ARQUIVOS_PREVIEW_MAX_MB", 250, 1, 2048) * 1024 * 1024,
   uploadMaxBytes: envNumber("ARQUIVOS_UPLOAD_MAX_MB", 250, 1, 2048) * 1024 * 1024,
   textPreviewMaxBytes: envNumber("ARQUIVOS_TEXT_PREVIEW_MAX_MB", 5, 1, 50) * 1024 * 1024,
+  contentIndexMaxBytes: envNumber("ARQUIVOS_CONTENT_INDEX_MAX_MB", 50, 1, 500) * 1024 * 1024,
+  contentIndexMaxChars: envNumber("ARQUIVOS_CONTENT_INDEX_MAX_CHARS", 1_000_000, 10_000, 5_000_000),
+  contentIndexTimeoutMs: envNumber("ARQUIVOS_CONTENT_INDEX_TIMEOUT_SECONDS", 90, 10, 600) * 1000,
+  contentIndexConcurrency: envNumber("ARQUIVOS_CONTENT_INDEX_CONCURRENCY", 2, 1, 8),
+  pdftotextPath: String(process.env.PDFTOTEXT_PATH ?? "pdftotext").trim(),
   autoIndex: envBoolean("ARQUIVOS_AUTO_INDEX", true),
   watch: envBoolean("ARQUIVOS_WATCH", true),
   previewCacheDir: resolve(

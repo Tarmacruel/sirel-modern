@@ -428,6 +428,13 @@
       "when": 1788366519644,
       "tag": "0060_arquivos_acervo",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788366519645,
+      "tag": "0061_arquivos_busca_textual",
+      "breakpoints": true
     }
   ]
 }

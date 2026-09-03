@@ -4,11 +4,13 @@ import {
   Clock3,
   Download,
   File,
+  FileSearch,
   FileSpreadsheet,
   FileText,
   Folder,
   FolderArchive,
   FolderPlus,
+  FolderOpen,
   Image,
   LayoutGrid,
   LoaderCircle,
@@ -18,6 +20,7 @@ import {
   Search,
   ShieldCheck,
   Star,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -43,9 +46,13 @@ type Item = {
   downloadable?: boolean;
   favorite?: boolean;
   parentPath?: string;
+  searchField?: "name" | "content";
+  searchScope?: "current" | "all";
 };
 
 type ViewMode = "list" | "grid" | "compact";
+type SearchField = "name" | "content";
+type SearchScope = "current" | "all";
 
 const VIEW_MODE_STORAGE_KEY = "sirel.arquivos.view-mode";
 
@@ -112,7 +119,10 @@ export function ArquivosPage() {
   const utils = trpc.useUtils();
   const [path, setPath] = useState(readPath);
   const [search, setSearch] = useState("");
+  const [searchField, setSearchField] = useState<SearchField>("name");
+  const [searchScope, setSearchScope] = useState<SearchScope>("current");
   const deferredSearch = useDebouncedValue(search.trim());
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState<{ name: string; path: string } | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -121,6 +131,9 @@ export function ArquivosPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Item | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -138,9 +151,15 @@ export function ArquivosPage() {
   }, [viewMode]);
 
   const summary = trpc.arquivos.summary.useQuery(undefined, { retry: false });
-  const list = trpc.arquivos.list.useQuery({ path }, { retry: false, enabled: !deferredSearch });
+  const list = trpc.arquivos.list.useQuery({ path }, { retry: false, enabled: deferredSearch.length < 2 });
   const searchQuery = trpc.arquivos.search.useQuery(
-    { q: deferredSearch || "__", limit: 100 },
+    {
+      q: deferredSearch || "__",
+      field: searchField,
+      scope: searchScope,
+      path,
+      limit: 100,
+    },
     { retry: false, enabled: deferredSearch.length >= 2 },
   );
   const favoritesQuery = trpc.arquivos.favorites.useQuery(undefined, {
@@ -169,6 +188,7 @@ export function ArquivosPage() {
     },
   });
   const createFolderMutation = trpc.arquivos.createFolder.useMutation();
+  const deleteFileMutation = trpc.arquivos.deleteFile.useMutation();
 
   const rows = (deferredSearch.length >= 2 ? searchQuery.data ?? [] : list.data ?? []) as Item[];
   const isGridView = viewMode !== "list";
@@ -239,6 +259,43 @@ export function ArquivosPage() {
       ]);
     } catch (error: any) {
       setNewFolderError(error?.message ?? "Não foi possível criar a pasta.");
+    }
+  }
+
+  function openDeleteDialog(item: Item) {
+    setDeleteTarget(item);
+    setDeletePassword("");
+    setDeleteError(null);
+  }
+
+  function closeDeleteDialog() {
+    if (!deleteFileMutation.isPending) setDeleteTarget(null);
+  }
+
+  async function handleDeleteFile() {
+    if (!deleteTarget) return;
+    const password = deletePassword;
+    if (!password) {
+      setDeleteError("Digite sua senha para confirmar a exclusão.");
+      return;
+    }
+
+    setDeleteError(null);
+    try {
+      const result = await deleteFileMutation.mutateAsync({ path: deleteTarget.relativePath, password });
+      setDeleteTarget(null);
+      setFeedback(`Documento excluído: ${result.name}`);
+      await Promise.all([
+        utils.arquivos.list.invalidate(),
+        utils.arquivos.favorites.invalidate(),
+        utils.arquivos.recent.invalidate(),
+        utils.arquivos.search.invalidate(),
+        utils.arquivos.summary.invalidate(),
+      ]);
+    } catch (error: any) {
+      setDeleteError(error?.message ?? "Não foi possível excluir o documento.");
+    } finally {
+      setDeletePassword("");
     }
   }
 
@@ -396,12 +453,86 @@ export function ArquivosPage() {
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
           <Input
+            ref={searchInputRef}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="pl-11"
-            placeholder="Ex.: PE-059-2026, recurso, edital, PAPI..."
+            className="pl-11 pr-11"
+            placeholder={searchField === "content"
+              ? "Ex.: palavra ou frase dentro do documento..."
+              : "Ex.: PE-059-2026, recurso, edital, PAPI..."}
           />
+          {search ? (
+            <button
+              type="button"
+              aria-label="Limpar pesquisa"
+              title="Limpar pesquisa"
+              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)]"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setSearch("");
+                searchInputRef.current?.focus();
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-1" role="group" aria-label="Campo da pesquisa">
+            <span className="px-2 text-xs font-semibold text-[var(--text-muted)]">Buscar por</span>
+            <Button
+              type="button"
+              variant={searchField === "name" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={searchField === "name"}
+              onClick={() => setSearchField("name")}
+            >
+              <Search className="h-4 w-4" />
+              Nome e caminho
+            </Button>
+            <Button
+              type="button"
+              variant={searchField === "content" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={searchField === "content"}
+              onClick={() => setSearchField("content")}
+            >
+              <FileSearch className="h-4 w-4" />
+              Conteúdo do documento
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-1" role="group" aria-label="Escopo da pesquisa">
+            <span className="px-2 text-xs font-semibold text-[var(--text-muted)]">Pesquisar em</span>
+            <Button
+              type="button"
+              variant={searchScope === "current" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={searchScope === "current"}
+              onClick={() => setSearchScope("current")}
+            >
+              <FolderOpen className="h-4 w-4" />
+              Pasta atual
+            </Button>
+            <Button
+              type="button"
+              variant={searchScope === "all" ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={searchScope === "all"}
+              onClick={() => setSearchScope("all")}
+            >
+              <Search className="h-4 w-4" />
+              Todo o acervo
+            </Button>
+          </div>
+        </div>
+        {searchField === "content" ? (
+          <div className="mt-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <FileSearch className="h-4 w-4 shrink-0 text-[var(--accent-color)]" />
+            {summary.data?.contentIndexedFiles
+              ? `Busca textual disponível em ${summary.data.contentIndexedFiles.toLocaleString("pt-BR")} documento(s) indexado(s).`
+              : "A busca textual depende da reindexação do acervo pelo administrador."}
+          </div>
+        ) : null}
       </SectionCard>
 
       {!path && deferredSearch.length < 2 ? (
@@ -601,6 +732,20 @@ export function ArquivosPage() {
                       Baixar
                     </Button>
                   ) : null}
+
+                  {summary.data?.canDelete && item.kind !== "folder" ? (
+                    <Button
+                      variant="destructive"
+                      size={isCompactView ? "icon" : "sm"}
+                      className={isCompactView ? "!h-8 !w-8 !rounded-xl !px-2" : undefined}
+                      title="Excluir documento"
+                      aria-label={`Excluir ${item.name}`}
+                      onClick={() => openDeleteDialog(item)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {isCompactView ? null : "Excluir"}
+                    </Button>
+                  ) : null}
                 </div>
               </article>
             );
@@ -697,6 +842,54 @@ export function ArquivosPage() {
           </p>
           {newFolderError ? <Alert variant="error">{newFolderError}</Alert> : null}
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteTarget)}
+        title="Excluir documento"
+        description="Esta ação remove o arquivo do acervo e não pode ser desfeita."
+        onClose={closeDeleteDialog}
+        size="md"
+        actions={
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={closeDeleteDialog} disabled={deleteFileMutation.isPending}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" loading={deleteFileMutation.isPending} onClick={() => void handleDeleteFile()}>
+              <Trash2 className="h-4 w-4" />
+              Excluir definitivamente
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <Alert variant="warning" title="Confirmação obrigatória">
+            Para excluir <span className="font-semibold">{deleteTarget?.name}</span>, informe sua senha de acesso.
+          </Alert>
+          <label className="block text-sm font-semibold text-[var(--text-primary)]" htmlFor="excluir-documento-senha">
+            Sua senha
+          </label>
+          <Input
+            id="excluir-documento-senha"
+            type="password"
+            value={deletePassword}
+            onChange={(event) => {
+              setDeletePassword(event.target.value);
+              setDeleteError(null);
+            }}
+            autoComplete="current-password"
+            placeholder="Digite sua senha"
+            disabled={deleteFileMutation.isPending}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleDeleteFile();
+              }
+            }}
+            autoFocus
+          />
+          {deleteError ? <Alert variant="error">{deleteError}</Alert> : null}
+        </div>
       </Modal>
     </div>
   );

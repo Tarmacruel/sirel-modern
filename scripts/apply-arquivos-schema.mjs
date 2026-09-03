@@ -19,12 +19,21 @@ CREATE TABLE IF NOT EXISTS arquivo_index (
   kind varchar(32) NOT NULL,
   size bigint,
   modified_at timestamptz,
+  content_text text,
+  content_indexed_at timestamptz,
   indexed_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE arquivo_index
+  ADD COLUMN IF NOT EXISTS content_text text,
+  ADD COLUMN IF NOT EXISTS content_indexed_at timestamptz;
 
 CREATE INDEX IF NOT EXISTS arquivo_index_parent_idx ON arquivo_index(parent_path);
 CREATE INDEX IF NOT EXISTS arquivo_index_kind_idx ON arquivo_index(kind);
 CREATE INDEX IF NOT EXISTS arquivo_index_name_lower_idx ON arquivo_index(lower(name));
+CREATE INDEX IF NOT EXISTS arquivo_index_content_search_idx
+  ON arquivo_index
+  USING gin (to_tsvector('simple', coalesce(content_text, '')));
 
 CREATE TABLE IF NOT EXISTS arquivo_favoritos (
   id bigserial PRIMARY KEY,

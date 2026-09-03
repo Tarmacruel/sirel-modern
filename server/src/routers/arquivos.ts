@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
+import { basename, join } from "node:path";
 
 import { sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -12,8 +13,9 @@ import { listDirectory } from "../modules/arquivos/filesystem.js";
 import { reindexArquivos } from "../modules/arquivos/indexer.js";
 import { kindFor, previewableFor } from "../modules/arquivos/mime.js";
 import { officePreviewPath } from "../modules/arquivos/preview.js";
-import { normalizeNewFolderName, safeResolve } from "../modules/arquivos/security.js";
+import { normalizeNewFolderName, rejectSymbolicEntry, safeResolve } from "../modules/arquivos/security.js";
 import { createArquivosTicket } from "../modules/arquivos/tickets.js";
+import { verifyPassword } from "../lib/auth-password.js";
 
 const pathInput = z.object({
   path: z.string().max(4000).optional().default(""),
@@ -56,7 +58,9 @@ export const arquivosRouter = router({
         count(*) FILTER (WHERE kind <> 'folder')::int AS files,
         count(*) FILTER (WHERE kind = 'folder')::int AS folders,
         coalesce(sum(size) FILTER (WHERE kind <> 'folder'), 0)::bigint AS bytes,
-        max(indexed_at) AS last_indexed_at
+        max(indexed_at) AS last_indexed_at,
+        count(*) FILTER (WHERE kind <> 'folder' AND content_text IS NOT NULL)::int AS content_indexed_files,
+        max(content_indexed_at) AS content_last_indexed_at
       FROM arquivo_index
     `);
     const row = rowsFromResult(result)[0] ?? {};
@@ -65,10 +69,13 @@ export const arquivosRouter = router({
       folders: Number(row.folders ?? 0),
       bytes: Number(row.bytes ?? 0),
       lastIndexedAt: row.last_indexed_at ?? null,
+      contentIndexedFiles: Number(row.content_indexed_files ?? 0),
+      contentLastIndexedAt: row.content_last_indexed_at ?? null,
       canAudit: ["admin", "auditor"].includes(String(ctx.user?.role)),
       canReindex: String(ctx.user?.role) === "admin",
       canUpload: ["admin", "gestor", "operador"].includes(String(ctx.user?.role)),
       canCreateFolder: ["admin", "gestor", "operador"].includes(String(ctx.user?.role)),
+      canDelete: ["admin", "gestor", "operador"].includes(String(ctx.user?.role)),
     };
   }),
 
@@ -100,10 +107,46 @@ export const arquivosRouter = router({
   }),
 
   search: protectedProcedure
-    .input(z.object({ q: z.string().trim().min(2).max(200), limit: z.number().int().min(1).max(200).default(80) }))
+    .input(z.object({
+      q: z.string().trim().min(2).max(200),
+      field: z.enum(["name", "content"]).default("name"),
+      scope: z.enum(["current", "all"]).default("current"),
+      path: z.string().max(4000).optional().default(""),
+      limit: z.number().int().min(1).max(200).default(80),
+    }))
     .query(async ({ ctx, input }) => {
+      let scopePath = "";
+      if (input.scope === "current") {
+        try {
+          const scope = await safeResolve(input.path, { allowDirectory: true });
+          if (!scope.stat?.isDirectory()) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "A pasta atual não está disponível." });
+          }
+          scopePath = scope.relativePath;
+        } catch (error) {
+          await logDenied(ctx, input.path, error);
+          throw error;
+        }
+      }
+
       const db = requireDb();
       const pattern = `%${input.q}%`;
+      const scopeCondition = scopePath
+        ? sql`(i.relative_path = ${scopePath} OR i.relative_path LIKE ${`${scopePath}/%`})`
+        : sql`TRUE`;
+      const searchCondition = input.field === "content"
+        ? sql`i.kind <> 'folder' AND i.content_indexed_at IS NOT NULL AND (
+            i.content_text ILIKE ${pattern}
+            OR to_tsvector('simple', coalesce(i.content_text, '')) @@ plainto_tsquery('simple', ${input.q})
+          )`
+        : sql`(i.name ILIKE ${pattern} OR i.relative_path ILIKE ${pattern})`;
+      const orderBy = input.field === "content"
+        ? sql`i.name ASC`
+        : sql`
+            CASE WHEN i.name ILIKE ${input.q + "%"} THEN 0 ELSE 1 END,
+            i.kind = 'folder' DESC,
+            i.name ASC
+          `;
       const result = await db.execute(sql`
         SELECT
           i.relative_path, i.parent_path, i.name, i.extension, i.kind, i.size, i.modified_at,
@@ -112,18 +155,21 @@ export const arquivosRouter = router({
             WHERE f.user_id = ${ctx.user!.id} AND f.relative_path = i.relative_path
           ) AS favorite
         FROM arquivo_index i
-        WHERE i.name ILIKE ${pattern} OR i.relative_path ILIKE ${pattern}
-        ORDER BY
-          CASE WHEN i.name ILIKE ${input.q + "%"} THEN 0 ELSE 1 END,
-          i.kind = 'folder' DESC,
-          i.name ASC
+        WHERE ${scopeCondition} AND ${searchCondition}
+        ORDER BY ${orderBy}
         LIMIT ${input.limit}
       `);
 
       await logArquivoAudit({
         userId: ctx.user!.id,
         action: "SEARCH",
-        detail: input.q,
+        detail: JSON.stringify({
+          q: input.q,
+          field: input.field,
+          scope: input.scope,
+          path: input.path || null,
+          resolvedPath: scopePath || null,
+        }),
         ...reqMeta(ctx),
       });
 
@@ -138,6 +184,8 @@ export const arquivosRouter = router({
         previewable: row.kind === "folder" ? false : previewableFor(String(row.name)),
         downloadable: row.kind !== "folder",
         favorite: Boolean(row.favorite),
+        searchField: input.field,
+        searchScope: input.scope,
       }));
     }),
 
@@ -301,6 +349,92 @@ export const arquivosRouter = router({
         return { success: true, name, relativePath };
       } catch (error) {
         await logDenied(ctx, input.path || "", error);
+        throw error;
+      }
+    }),
+
+  deleteFile: operadorProcedure
+    .input(z.object({
+      path: z.string().min(1).max(4000),
+      password: z.string().min(1).max(120),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let failureAuditLogged = false;
+      let auditFileName = basename(input.path.replace(/\\/g, "/"));
+
+      const logDeleteFailure = async (detail: string, fileName = auditFileName, fileSize?: number | null) => {
+        if (failureAuditLogged) return;
+        failureAuditLogged = true;
+        await logArquivoAudit({
+          userId: ctx.user!.id,
+          action: "DELETE",
+          relativePath: input.path,
+          fileName: fileName || null,
+          fileSize: fileSize ?? null,
+          ...reqMeta(ctx),
+          success: false,
+          detail,
+        });
+      };
+
+      try {
+        const db = requireDb();
+        const userResult = await db.execute(sql`
+          SELECT password_hash
+          FROM users
+          WHERE id = ${ctx.user!.id}
+          LIMIT 1
+        `);
+        const currentUser = rowsFromResult(userResult)[0];
+        if (!currentUser || !verifyPassword(input.password, String(currentUser.password_hash ?? ""))) {
+          await logDeleteFailure("Senha de confirmação inválida.");
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Senha de confirmação inválida." });
+        }
+
+        const resolved = await safeResolve(input.path, { allowDirectory: false });
+        const lexicalPath = join(arquivosConfig.rootResolved, resolved.relativePath);
+        const lexicalInfo = await rejectSymbolicEntry(lexicalPath);
+        if (!resolved.stat?.isFile() || !lexicalInfo.isFile()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A exclusão está disponível somente para documentos." });
+        }
+
+        auditFileName = basename(resolved.absolutePath);
+        await unlink(resolved.absolutePath);
+
+        try {
+          await db.execute(sql`
+            DELETE FROM arquivo_index
+            WHERE relative_path = ${resolved.relativePath}
+          `);
+          await db.execute(sql`
+            DELETE FROM arquivo_favoritos
+            WHERE relative_path = ${resolved.relativePath}
+          `);
+        } catch (error) {
+          // O watcher fará a reconciliação caso a limpeza auxiliar do índice falhe.
+          console.warn(
+            "[SIREL Arquivos] Documento removido, mas a limpeza do índice falhou:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+
+        await logArquivoAudit({
+          userId: ctx.user!.id,
+          action: "DELETE",
+          relativePath: resolved.relativePath,
+          fileName: auditFileName,
+          fileSize: resolved.stat.size,
+          ...reqMeta(ctx),
+          success: true,
+          detail: "Documento excluído após confirmação de senha.",
+        });
+
+        return { success: true, name: auditFileName, relativePath: resolved.relativePath };
+      } catch (error) {
+        await logDeleteFailure(
+          error instanceof Error ? error.message : "Falha ao excluir o documento.",
+          auditFileName,
+        );
         throw error;
       }
     }),

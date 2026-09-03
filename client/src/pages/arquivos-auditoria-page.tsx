@@ -1,5 +1,5 @@
-import { ArrowLeft, Search, ShieldCheck } from "lucide-react";
-import { useDeferredValue, useState } from "react";
+import { ArrowLeft, Search, ShieldCheck, X } from "lucide-react";
+import { useDeferredValue, useRef, useState } from "react";
 
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert } from "@/components/ui/alert";
@@ -15,6 +15,7 @@ export function ArquivosAuditoriaPage() {
   const [action, setAction] = useState("");
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const query = trpc.arquivos.audit.useQuery(
     {
@@ -32,7 +33,7 @@ export function ArquivosAuditoriaPage() {
     <div className="space-y-5">
       <SectionCard
         title="Auditoria — SIREL Arquivos"
-        description="Visualizações, downloads, uploads, pesquisas, favoritos, acessos e reindexações."
+        description="Visualizações, downloads, uploads, criação e exclusão de pastas/documentos, pesquisas, favoritos e reindexações."
         action={
           <Button variant="outline" size="sm" onClick={() => (window.location.href = "/arquivos")}>
             <ArrowLeft className="h-4 w-4" />
@@ -43,11 +44,33 @@ export function ArquivosAuditoriaPage() {
         <div className="grid gap-3 md:grid-cols-[1fr_220px]">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-            <Input value={search} onChange={(e) => { setPage(1); setSearch(e.target.value); }} className="pl-11" placeholder="Usuário, arquivo, pasta ou detalhe..." />
+            <Input
+              ref={searchInputRef}
+              value={search}
+              onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+              className="pl-11 pr-11"
+              placeholder="Usuário, arquivo, pasta ou detalhe..."
+            />
+            {search ? (
+              <button
+                type="button"
+                aria-label="Limpar pesquisa"
+                title="Limpar pesquisa"
+                className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl text-[var(--text-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--text-primary)]"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setPage(1);
+                  setSearch("");
+                  searchInputRef.current?.focus();
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
           <Select value={action} onChange={(e) => { setPage(1); setAction(e.target.value); }}>
             <option value="">Todas as ações</option>
-            {["LIST","SEARCH","VIEW","DOWNLOAD","UPLOAD","CREATE_FOLDER","FAVORITE","UNFAVORITE","DENIED","REINDEX"].map((value) => (
+            {["LIST","SEARCH","VIEW","DOWNLOAD","UPLOAD","CREATE_FOLDER","DELETE","FAVORITE","UNFAVORITE","DENIED","REINDEX"].map((value) => (
               <option key={value} value={value}>{value}</option>
             ))}
           </Select>
@@ -101,7 +124,7 @@ export function ArquivosAuditoriaPage() {
 
       <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-xs text-[var(--text-secondary)]">
         <ShieldCheck className="mr-2 inline h-4 w-4" />
-        A trilha deste módulo é independente da auditoria transacional do SIREL e registra navegação, leitura, download e alterações no acervo.
+        A trilha deste módulo é independente da auditoria transacional do SIREL e registra navegação, leitura, download, exclusão e alterações no acervo.
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ export type ArquivoAuditAction =
   | "UNFAVORITE"
   | "UPLOAD"
   | "CREATE_FOLDER"
+  | "DELETE"
   | "DENIED"
   | "REINDEX";
 

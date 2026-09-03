@@ -3271,6 +3271,8 @@ export const arquivoIndex = pgTable(
     kind: varchar("kind", { length: 32 }).notNull(),
     size: bigint("size", { mode: "number" }),
     modifiedAt: timestamp("modified_at", { withTimezone: true }),
+    contentText: text("content_text"),
+    contentIndexedAt: timestamp("content_indexed_at", { withTimezone: true }),
     indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

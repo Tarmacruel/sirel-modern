@@ -379,6 +379,8 @@ Observacoes:
 - `HOST` fica limitado a `127.0.0.1` por padrão. Para expor o backend na rede local, configure outro host de forma explícita e restrinja o firewall;
 - copie `OPERACAO_LOCAL_SENSIVEL.example.txt` para o arquivo local ignorado pelo Git antes de registrar informações operacionais. Nunca versionar esse arquivo ou segredos reais.
 
+A busca textual do acervo e preenchida durante a indexacao: PDF usa `pdftotext` e Office usa LibreOffice. Os limites podem ser ajustados por `ARQUIVOS_CONTENT_INDEX_MAX_MB`, `ARQUIVOS_CONTENT_INDEX_MAX_CHARS` e `ARQUIVOS_CONTENT_INDEX_TIMEOUT_SECONDS`.
+
 ## Scripts principais
 
 - `npm run dev`
