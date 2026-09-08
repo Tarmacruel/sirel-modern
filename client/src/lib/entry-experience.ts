@@ -1,4 +1,4 @@
-export type EntryActionTone = "default" | "accent" | "warning" | "danger" | "success";
+﻿export type EntryActionTone = "default" | "accent" | "warning" | "danger" | "success";
 export type EntryActionIconKey =
   | "dashboard"
   | "processos"
@@ -101,6 +101,9 @@ export function pageSubtitleForLocation(location: string) {
   }
   if (location.startsWith("/processos")) {
     return "Visão transversal do processo com marcos, documentos e rastreabilidade.";
+  }
+  if (location.startsWith("/folgas")) {
+    return "Escolha e acompanhe folgas com validação automática de continuidade, feriados e ocupação.";
   }
   if (location.startsWith("/consultas")) {
     return "Busca central para localizar processos, fornecedores e dossiês rapidamente.";

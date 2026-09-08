@@ -35,3 +35,9 @@ storage/arquivos-preview-cache/
 server/storage/arquivos-preview-cache/
 storage/backups/
 storage/backups-mirror/
+
+# SIREL Folgas - artefatos locais
+.patch-backup-sirel-folgas/
+
+.patch-source/
+initial-working-tree.json

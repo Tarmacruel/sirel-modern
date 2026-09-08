@@ -20,6 +20,10 @@ import {
   redirectArquivosRootIfNeeded,
 } from "@/lib/arquivos-host";
 
+import { isFolgasHost } from "@/lib/folgas-host";
+const FolgasPage = lazy(() => import("@/pages/folgas-page").then(m => ({default: m.FolgasPage})));
+const FolgasAdminPage = lazy(() => import("@/pages/folgas-admin-page").then(m => ({default: m.FolgasAdminPage})));
+
 const AuditoriaPage = lazy(() =>
   import("@/pages/auditoria-page").then((module) => ({
     default: module.AuditoriaPage,
@@ -196,6 +200,8 @@ function HomeEntry({ user }: { user: AuthUser }) {
     redirectArquivosRootIfNeeded();
   }, []);
 
+  if (isFolgasHost()) return <FolgasPage />;
+
   if (isArquivosHostname()) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-[var(--text-secondary)]">
@@ -284,6 +290,8 @@ function resolveSubsystemForUser(
 }
 
 export const appRoutes: readonly AppRouteDefinition[] = [
+  { id: "folgas-admin", path: "/folgas/admin", subsystemKeys: ["hub", "admin"], requiredRoles: ["admin", "gestor"], render: () => <FolgasAdminPage /> },
+  { id: "folgas", path: "/folgas", subsystemKeys: ["hub", "admin"], render: () => <FolgasPage /> },
   {
     id: "dashboard",
     path: "/",

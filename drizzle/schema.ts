@@ -1,4 +1,7 @@
 import {
+  check,
+  unique,
+  smallint,
   bigint,
   boolean,
   bigserial,
@@ -3317,3 +3320,60 @@ export const arquivoAuditLog = pgTable(
     pathIdx: index("arquivo_audit_path_idx").on(table.relativePath),
   }),
 );
+
+// SIREL Folgas: identities reuse users and the canonical pessoas registry.
+export const folgaCampanhas = pgTable("folga_campanhas", {
+  id: serial("id").primaryKey(), nome: varchar("nome",{length:180}).notNull(), ano: integer("ano").notNull(),
+  dataInicio: date("data_inicio",{mode:"string"}).notNull(), dataFim: date("data_fim",{mode:"string"}).notNull(),
+  selecaoInicio: timestamp("selecao_inicio",{withTimezone:true}), selecaoFim: timestamp("selecao_fim",{withTimezone:true}),
+  maxFolgas: smallint("max_folgas").notNull().default(2), maxDiasConsecutivos: smallint("max_dias_consecutivos").notNull().default(3),
+  status: varchar("status",{length:16}).notNull().default("RASCUNHO"), criadoPor: integer("criado_por").references(()=>users.id,{onDelete:"set null"}),
+  criadoEm: timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(), atualizadoEm: timestamp("atualizado_em",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[
+  check("folga_campanhas_ano_check",sql`${t.ano} BETWEEN 2020 AND 2100`),
+  check("folga_campanhas_max_folgas_check",sql`${t.maxFolgas} BETWEEN 1 AND 20`),
+  check("folga_campanhas_max_dias_consecutivos_check",sql`${t.maxDiasConsecutivos} BETWEEN 1 AND 10`),
+  check("folga_campanhas_status_check",sql`${t.status} IN ('RASCUNHO','ABERTA','FECHADA','ARQUIVADA')`),
+  check("folga_campanhas_periodo_ck",sql`${t.dataInicio} <= ${t.dataFim}`),
+  check("folga_campanhas_selecao_ck",sql`${t.selecaoInicio} IS NULL OR ${t.selecaoFim} IS NULL OR ${t.selecaoInicio} <= ${t.selecaoFim}`),
+  index("folga_campanhas_status_idx").on(t.status,t.ano.desc()),
+]);
+export const folgaParticipantes = pgTable("folga_participantes", {
+  id: serial("id").primaryKey(), campanhaId: integer("campanha_id").notNull().references(()=>folgaCampanhas.id,{onDelete:"cascade"}),
+  userId: integer("user_id").references(()=>users.id,{onDelete:"restrict"}), pessoaId: integer("pessoa_id").references(()=>pessoas.id,{onDelete:"restrict"}),
+  ativo: boolean("ativo").notNull().default(true), limiteFolgas: smallint("limite_folgas"),
+  criadoEm: timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(), atualizadoEm: timestamp("atualizado_em",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[
+  unique("folga_participantes_campanha_usuario_uq").on(t.campanhaId,t.userId),
+  unique("folga_participantes_campanha_pessoa_uq").on(t.campanhaId,t.pessoaId),
+  unique("folga_participantes_campanha_id_uq").on(t.campanhaId,t.id),
+  check("folga_participantes_identidade_ck",sql`${t.userId} IS NOT NULL OR ${t.pessoaId} IS NOT NULL`),
+  check("folga_participantes_limite_folgas_check",sql`${t.limiteFolgas} IS NULL OR ${t.limiteFolgas} BETWEEN 1 AND 20`),
+  index("folga_participantes_usuario_idx").on(t.userId,t.campanhaId),
+]);
+export const folgaDiasNaoUteis = pgTable("folga_dias_nao_uteis", {
+  id: serial("id").primaryKey(), campanhaId: integer("campanha_id").notNull().references(()=>folgaCampanhas.id,{onDelete:"cascade"}),
+  data: date("data",{mode:"string"}).notNull(), tipo: varchar("tipo",{length:24}).notNull(), descricao: varchar("descricao",{length:220}).notNull(),
+  bloqueiaSelecao: boolean("bloqueia_selecao").notNull().default(true), contaComoSemExpediente: boolean("conta_como_sem_expediente").notNull().default(true),
+  criadoEm: timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(), atualizadoEm: timestamp("atualizado_em",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[
+  unique("folga_dias_nao_uteis_campanha_data_uq").on(t.campanhaId,t.data),
+  check("folga_dias_nao_uteis_tipo_check",sql`${t.tipo} IN ('FERIADO','PONTO_FACULTATIVO','BLOQUEIO_ADMIN')`),
+  index("folga_dias_nao_uteis_data_idx").on(t.campanhaId,t.data),
+]);
+export const folgaReservas = pgTable("folga_reservas", {
+  id: serial("id").primaryKey(), campanhaId: integer("campanha_id").notNull().references(()=>folgaCampanhas.id,{onDelete:"cascade"}),
+  participanteId: integer("participante_id").notNull(), userId: integer("user_id").references(()=>users.id,{onDelete:"restrict"}),
+  dataFolga: date("data_folga",{mode:"string"}).notNull(),
+  criadoEm: timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(), atualizadoEm: timestamp("atualizado_em",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[
+  unique("folga_reservas_data_exclusiva_uq").on(t.campanhaId,t.dataFolga),
+  unique("folga_reservas_usuario_data_uq").on(t.campanhaId,t.userId,t.dataFolga),
+  foreignKey({name:"folga_reservas_participante_fk",columns:[t.campanhaId,t.participanteId],foreignColumns:[folgaParticipantes.campanhaId,folgaParticipantes.id]}).onDelete("restrict"),
+  index("folga_reservas_usuario_idx").on(t.campanhaId,t.userId,t.dataFolga),
+]);
+export const folgaAuditLog = pgTable("folga_audit_log", {
+  id: bigserial("id",{mode:"number"}).primaryKey(), campanhaId: integer("campanha_id").references(()=>folgaCampanhas.id,{onDelete:"set null"}),
+  usuarioAtorId: integer("usuario_ator_id").references(()=>users.id,{onDelete:"set null"}), usuarioAlvoId: integer("usuario_alvo_id").references(()=>users.id,{onDelete:"set null"}),
+  acao: varchar("acao",{length:80}).notNull(),payload:jsonb("payload").notNull().default({}),ipOrigem:varchar("ip_origem",{length:45}),criadoEm:timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(),
+},t=>[index("folga_audit_log_campanha_idx").on(t.campanhaId,t.criadoEm.desc()),index("folga_audit_log_ator_idx").on(t.usuarioAtorId,t.criadoEm.desc())]);

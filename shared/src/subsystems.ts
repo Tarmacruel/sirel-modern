@@ -89,7 +89,7 @@ const adminRoles = ["admin"] as const;
 export const subsystemDefinitions = [
   {
     key: "hub",
-    hostnames: ["www.sirel.com.br", "app.sirel.com.br", "sirel.com.br"],
+    hostnames: ["www.sirel.com.br", "app.sirel.com.br", "sirel.com.br", "folgas.sirel.com.br", "folga.sirel.com.br"],
     localHostAliases: [
       "localhost",
       "127.0.0.1",
@@ -147,6 +147,7 @@ export const subsystemDefinitions = [
         "/licitacao",
         "/contratos",
         "/documentos",
+        "/folgas",
         "/arquivos",
         "/arquivos/auditoria",
         "/workflow",
@@ -163,6 +164,7 @@ export const subsystemDefinitions = [
       "relatorios",
       "cadastros",
       "prazos",
+      "folgas",
       "arquivos",
     ],
     commandPaletteKeys: [
@@ -173,6 +175,7 @@ export const subsystemDefinitions = [
       "relatorios",
       "cadastros",
       "prazos",
+      "folgas",
       "arquivos",
     ],
     recommendedActions: [
@@ -818,6 +821,7 @@ export const subsystemDefinitions = [
         "/relatorios",
       ],
       crossRoutes: [
+        "/folgas",
         "/processos",
         "/processos/:processoId",
         "/consultas",

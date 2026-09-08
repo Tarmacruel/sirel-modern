@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PropsWithChildren } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type CSSProperties, type PropsWithChildren } from "react";
 import { Link, useLocation } from "wouter";
 import {
   BarChart3,
@@ -59,6 +59,7 @@ const icons: Record<string, typeof LayoutDashboard> = {
   dossie: FileText,
   itens: Boxes,
   planejamento: FolderKanban,
+  folgas: CalendarCheck,
   pca: CalendarCheck,
   compras: ShoppingCart,
   licitacao: ScrollText,
@@ -467,7 +468,7 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
         ) : null}
 
         <main className="relative z-0 flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="relative z-[90] shrink-0 border-b border-[var(--header-border)] bg-[color:var(--header-bg)]/96 px-4 py-3 backdrop-blur lg:h-[90px] lg:px-6 lg:py-4">
+          <header className="relative z-[90] shrink-0 border-b border-[var(--header-border)] bg-[color:var(--header-bg)]/96 px-4 py-3 backdrop-blur lg:min-h-[90px] lg:px-6 lg:py-4">
             <div className="flex flex-wrap items-start justify-between gap-4 lg:h-full lg:items-center">
               <div className="flex min-w-0 items-start gap-3">
                 <button

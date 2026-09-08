@@ -1,4 +1,4 @@
-import { router } from "../trpc.js";
+﻿import { router } from "../trpc.js";
 import { auditoriaRouter } from "./auditoria.js";
 import { arquivosRouter } from "./arquivos.js";
 import { authRouter } from "./auth.js";
@@ -9,6 +9,7 @@ import { contratosRouter } from "./contratos.js";
 import { dashboardRouter } from "./dashboard.js";
 import { dossieRouter } from "./dossie.js";
 import { documentosRouter } from "./documentos.js";
+import { folgasRouter } from "./folgas.js";
 import { healthRouter } from "./health.js";
 import { importacoesRouter } from "./importacoes.js";
 import { itensRouter } from "./itens.js";
@@ -25,6 +26,7 @@ import { pncpTeixeiraRouter } from "./importacoes-pncp-teixeira.js";
 import { portalPublicoRouter } from "./portal-publico.js";
 
 export const appRouter = router({
+  folgas: folgasRouter,
   health: healthRouter,
   auth: authRouter,
   portalPublico: portalPublicoRouter,

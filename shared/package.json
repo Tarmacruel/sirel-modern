@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./folgas-rules": {
+      "types": "./dist/folgas-rules.d.ts",
+      "import": "./dist/folgas-rules.js"
+    },
     "./const": {
       "types": "./dist/const.d.ts",
       "import": "./dist/const.js"

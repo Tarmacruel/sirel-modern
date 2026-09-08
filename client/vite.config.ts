@@ -14,11 +14,13 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5173,
+    port: Number(process.env.SIREL_WEB_PORT ?? 5173),
     strictPort: true,
     // Homologação controlada pelo hostname institucional, sem wildcard.
     allowedHosts: [
       "www.sirel.com.br",
+      "folgas.sirel.com.br",
+      "folga.sirel.com.br",
       "transparencia.sirel.com.br",
       "arquivos.sirel.com.br",
     ],
@@ -28,7 +30,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:3030",
+        target: process.env.SIREL_API_ORIGIN ?? "http://localhost:3030",
         changeOrigin: false,
       },
     },
