@@ -1,5 +1,19 @@
 # FOLGAS IMPLEMENTATION REPORT
 
+## Relatório PDF implementado — 09/09/2026
+
+Esta seção registra a entrega posterior às atualizações históricas abaixo. Branch `fase-2-seguranca-evolucoes`; commit inicial desta etapa: `32f9f80e06536acd20b5569aebc74b32fdd96cb3`. O commit que introduz esta seção contém a implementação do PDF; a confirmação do hash local/remoto fica em `storage/reports/folgas-20260908/pdf-git-confirmation.json`.
+
+Layout conceitual aprovado pelo operador e implementado no botão **Baixar relatório PDF**, em `/folgas/admin`. Admin/gestor escolhe a campanha e baixa o arquivo diretamente; a API `folgas.adminExportPdf` exige a sessão e o CSRF atuais. Usuário comum não pode exportar a relação nominal. A resposta usa `Cache-Control: no-store`, sem criar arquivos públicos no servidor.
+
+O PDF A4 apresenta identificação institucional, campanha/período/status, data e hora de emissão em Brasília, três indicadores e tabela cronológica com data, dia da semana, participante e ordem da folga. Inclui pessoas sem usuário quando há reserva confirmada. Há tratamento de campanha vazia, quebra de nomes longos, cabeçalho nas continuações e paginação. Os dados da campanha e das reservas são lidos em uma única consulta; o download não modifica dados nem abre a campanha.
+
+Exemplar real gerado: `output/pdf/relatorio-geral-folgas-2026.pdf`, com 2 reservas de 1 participante no instante da emissão, em uma página. O arquivo contém dados administrativos e fica fora do Git. Poppler renderizou o exemplar real, a campanha vazia e um exemplo de três páginas; as imagens foram inspecionadas. `pdftotext` confirmou os nomes, datas e numeração do exemplar real. As fixtures sintéticas não foram inseridas no banco operacional.
+
+Validação: 2 testes do renderizador; 7 integrações HTTP/PostgreSQL separado, incluindo exportação por admin/gestor, bloqueio por perfil/CSRF, campanha inexistente e pessoa sem conta; 13 cenários de smoke em cada navegador Chrome/Edge, incluindo o download. O endpoint publicado respondeu 401 sem sessão, a rota administrativa e www responderam 200. Check, test:all e build foram executados para esta alteração; logs operacionais `pdf-check-operational.log`, `pdf-tests-operational.log`, `pdf-build-operational.log` e `pdf-integration-operational.log`, evidência `pdf-verification.json`, em `storage/reports/folgas-20260908`.
+
+Arquivos: `server/src/modules/folgas/report.ts`, `report.test.ts`, `integration.test.ts`, `server/src/routers/folgas.ts`, `client/src/pages/folgas-admin-page.tsx`, smoke de navegador e documentação de operação/testes. Não há migration nova. Backup seletivo em `folgas-backup-20260908/pdf-update`; rollback consiste em reverter apenas o commit desta funcionalidade, preservando os dados e mudanças posteriores.
+
 ## Atualização da entrega — 09/09/2026
 
 O operador aprovou a leva e autorizou sua publicação também no Git. Destino: `origin`, repositório `Tarmacruel/sirel-modern`, branch `fase-2-seguranca-evolucoes`. O código publicado permanece no commit `f9c745882bb142948cdf9e9f026060f08133a3d2`; os commits seguintes registram a entrega e esta atualização. A confirmação do hash remoto ficará em `storage/reports/folgas-20260908/git-push-confirmation.json`.

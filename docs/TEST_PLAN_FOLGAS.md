@@ -6,6 +6,7 @@ Na raiz da cópia em validação:
 
 ```powershell
 npm run test --workspace server -- src/modules/folgas/rules.test.ts
+npm run test --workspace server -- src/modules/folgas/report.test.ts
 npm run test --workspace client -- src/lib/folgas-host.test.ts
 node scripts/test-folgas-integration.mjs
 npm run check
@@ -16,6 +17,8 @@ npm run build
 Para integração, `DATABASE_URL` identifica o banco operacional e `TEST_DATABASE_URL` deve apontar para outro banco PostgreSQL, com o schema completo aplicado. Configure as URLs por ambiente privado; não as coloque em documentação ou histórico de comandos. O runner exige ambas e habilita o guard existente de isolamento. A suíte usa HTTP tRPC, `auth.login`, cookies reais e CSRF, cria identidades sintéticas e remove seus próprios registros ao final. Nunca execute em banco operacional.
 
 Sem a habilitação explícita de integração, `npm run test:all` pula os testes dependentes de PostgreSQL. Isso não substitui a execução separada acima.
+
+O relatório PDF tem testes para campanha vazia em uma página e paginação de nomes longos. A integração HTTP verifica exportação por admin/gestor, bloqueio por papel/CSRF, campanha inexistente, inclusão de pessoa sem conta e resposta sem cache. O smoke nos dois navegadores baixa o arquivo pelo botão e confere a assinatura PDF. A validação visual usa Poppler para renderizar o documento real e os exemplos vazio/multipágina; conferir também nomes e datas com `pdftotext`, sem publicar dados pessoais no Git.
 
 Cobertura: exemplos obrigatórios de 4 dias, virada de ano, feriados nas duas bordas, datas inválidas/duplicadas, limites, não participante, ausência de sessão, CSRF, acesso a todas as procedures administrativas, admin para pessoa sem conta, fechamento, impacto/rollback, auditoria e duas sessões simultâneas. A concorrência deve terminar com exatamente uma linha para a data; há também tentativa de INSERT duplicado diretamente no PostgreSQL.
 

@@ -4,6 +4,7 @@ import {
   CalendarOff,
   ChevronLeft,
   CircleAlert,
+  Download,
   RefreshCcw,
   Save,
   Trash2,
@@ -70,6 +71,31 @@ export function FolgasAdminPage() {
   });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const reportMutation = trpc.folgas.adminExportPdf.useMutation({
+    onSuccess: (report) => {
+      const bytes = Uint8Array.from(atob(report.base64), (char) =>
+        char.charCodeAt(0),
+      );
+      const url = URL.createObjectURL(
+        new Blob([bytes], { type: report.mimeType }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = report.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError(null);
+      setMessage(
+        "Relatório PDF gerado com as reservas confirmadas da campanha.",
+      );
+    },
+    onError: (mutationError) => {
+      setMessage(null);
+      setError(mutationError.message);
+    },
+  });
 
   const invalidate = async () => {
     await Promise.all([
@@ -231,11 +257,30 @@ export function FolgasAdminPage() {
               acompanhe as reservas.
             </p>
           </div>
-          <Link href="/folgas">
-            <Button variant="outline" className="gap-2">
-              <ChevronLeft className="h-4 w-4" /> Voltar ao calendário
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="gap-2"
+              disabled={
+                creatingNew || !selectedCampaignId || reportMutation.isPending
+              }
+              onClick={() => {
+                if (!selectedCampaignId) return;
+                setMessage(null);
+                setError(null);
+                reportMutation.mutate({ campaignId: selectedCampaignId });
+              }}
+            >
+              <Download className="h-4 w-4" />
+              {reportMutation.isPending
+                ? "Gerando PDF..."
+                : "Baixar relatório PDF"}
             </Button>
-          </Link>
+            <Link href="/folgas">
+              <Button variant="outline" className="gap-2">
+                <ChevronLeft className="h-4 w-4" /> Voltar ao calendário
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
 

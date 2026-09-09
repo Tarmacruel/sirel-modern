@@ -253,6 +253,7 @@ suite("Folgas HTTP + PostgreSQL isolado", () => {
     }
     for (const [path, input, query] of [
       ["adminDashboard", { campaignId }, true],
+      ["adminExportPdf", { campaignId }, false],
       ["adminSaveCampaign", { ...campaign, id: campaignId }, false],
       [
         "adminSetParticipant",
@@ -337,6 +338,47 @@ suite("Folgas HTTP + PostgreSQL isolado", () => {
       (await call("folgas.adminSearchPeople", { search: prefix }, admin, true))
         .ok,
     ).toBe(true);
+  });
+  it("admin e gestor exportam PDF da campanha, incluindo pessoa sem conta", async () => {
+    const { loadFolgasReport } = await import("./report.js");
+    const data = await loadFolgasReport(campaignId);
+    expect(
+      data.reservations.some((r) => r.name === prefix + "_sem_conta"),
+    ).toBe(true);
+    expect(data.reservations.map((r) => r.date)).toEqual(
+      [...data.reservations.map((r) => r.date)].sort(),
+    );
+    for (const session of [admin, gestor]) {
+      const response = await call(
+        "folgas.adminExportPdf",
+        { campaignId },
+        session,
+      );
+      expect(response.ok).toBe(true);
+      if (!response.ok) throw Error(response.error.message);
+      expect(response.data.mimeType).toBe("application/pdf");
+      expect(response.data.filename).toBe(`folgas-campanha-${campaignId}.pdf`);
+      const pdf = Buffer.from(response.data.base64, "base64");
+      expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(pdf.length).toBeGreaterThan(2000);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(
+      (
+        await call(
+          "folgas.adminExportPdf",
+          { campaignId },
+          { ...admin, csrf: "incorreto" },
+        )
+      ).ok,
+    ).toBe(false);
+    const absent = await call(
+      "folgas.adminExportPdf",
+      { campaignId: 2147483647 },
+      admin,
+    );
+    expect(absent.ok).toBe(false);
+    if (!absent.ok) expect(absent.error.data.code).toBe("NOT_FOUND");
   });
   it("fechamento, impacto nas reservas, rollback e auditoria administrativa", async () => {
     expect(

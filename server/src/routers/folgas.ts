@@ -464,6 +464,20 @@ async function setReservations(
 }
 
 export const folgasRouter = router({
+  adminExportPdf: gestorProcedure
+    .input(z.object({ campaignId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { loadFolgasReport, renderFolgasReport } =
+        await import("../modules/folgas/report.js");
+      const data = await loadFolgasReport(input.campaignId);
+      const pdf = await renderFolgasReport(data);
+      ctx.res.setHeader("Cache-Control", "no-store");
+      return {
+        filename: `folgas-campanha-${data.campaign.id}.pdf`,
+        mimeType: "application/pdf" as const,
+        base64: pdf.toString("base64"),
+      };
+    }),
   overview: protectedProcedure
     .input(campaignIdInput)
     .query(async ({ ctx, input }) => {
