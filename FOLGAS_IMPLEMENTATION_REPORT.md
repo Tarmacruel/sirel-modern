@@ -1,5 +1,15 @@
 # FOLGAS IMPLEMENTATION REPORT
 
+## Atualização da entrega — 09/09/2026
+
+O operador aprovou a leva e autorizou sua publicação também no Git. Destino: `origin`, repositório `Tarmacruel/sirel-modern`, branch `fase-2-seguranca-evolucoes`. O código publicado permanece no commit `f9c745882bb142948cdf9e9f026060f08133a3d2`; os commits seguintes registram a entrega e esta atualização. A confirmação do hash remoto ficará em `storage/reports/folgas-20260908/git-push-confirmation.json`.
+
+O site, a rota `/folgas/admin` e a raiz do domínio principal responderam HTTP 200 nesta revisão. A campanha ID 1 permanece em **RASCUNHO**, com **15 participantes ativos, 2 reservas e 8 dias não úteis**, conforme leitura registrada em `git-release-state.json`. O cadastro continua disponível pelo próprio site. As alterações feitas pelo admin após a primeira publicação foram preservadas; nenhuma reserva ou pessoa foi removida para publicar no Git.
+
+A auditoria registra uso autenticado do painel: inclusão de participantes, cadastro de dia não útil, edição da campanha e confirmação de reservas. O operador aprovou a validação. A observação automatizada do login especificamente no subdomínio não foi concluída e não é apresentada como executada. A publicação desta leva conserva o RASCUNHO autorizado; nenhuma nova abertura da campanha foi feita pelo agente.
+
+Esta atualização prevalece sobre as contagens e pendências históricas abaixo, que descrevem o instante da implantação de 08/09. Os testes e builds aprovados continuam válidos: não houve alteração de código desde sua execução, somente atualização documental. Mudanças locais anteriores em outros módulos permanecem fora dos commits de Folgas.
+
 Atualizado em 08/09/2026. **Rascunho publicado em https://folgas.sirel.com.br por autorização explícita do operador. A campanha oficial permanece em RASCUNHO, com cadastro de participantes pelo próprio site. A abertura das reservas não foi executada.**
 
 ## Estado inicial e final

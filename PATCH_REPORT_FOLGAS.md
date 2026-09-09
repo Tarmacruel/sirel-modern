@@ -1,5 +1,7 @@
 # PATCH REPORT — SIREL Folgas publicado em RASCUNHO
 
+Atualização 09/09/2026: operador aprovou a leva e seu envio ao GitHub, branch `fase-2-seguranca-evolucoes`. O site e a rota administrativa seguem HTTP 200. Estado atual: RASCUNHO, 15 participantes ativos, 2 reservas e 8 dias não úteis, após operações autenticadas do admin. Essas operações foram preservadas. As contagens abaixo são o registro histórico da primeira publicação. Não houve nova alteração de código nem abertura da campanha pelo agente nesta leva.
+
 08/09/2026 — código operacional f9c745882bb142948cdf9e9f026060f08133a3d2, branch fase-2-seguranca-evolucoes.
 
 - RESOLVIDO: quatro âncoras MANUAL do instalador, sem substituir App.tsx ou autenticação.
