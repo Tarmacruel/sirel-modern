@@ -19,6 +19,7 @@ export default defineConfig({
     // Homologação controlada pelo hostname institucional, sem wildcard.
     allowedHosts: [
       "www.sirel.com.br",
+      "licitacao.sirel.com.br",
       "folgas.sirel.com.br",
       "folga.sirel.com.br",
       "transparencia.sirel.com.br",

@@ -77,7 +77,11 @@ async function extractOfficeText(filePath: string) {
       (entry) => entry.isFile() && extname(entry.name).toLowerCase() === ".txt",
     );
     if (!output) return null;
-    return readTextFile(join(outputDir, output.name));
+    // Aguarde a leitura antes de remover o diretório temporário. Sem o
+    // `await`, o `finally` pode apagar o arquivo enquanto `readTextFile`
+    // ainda está abrindo-o, causando ENOENT durante a indexação em segundo
+    // plano.
+    return await readTextFile(join(outputDir, output.name));
   } finally {
     await Promise.all([
       rm(outputDir, { recursive: true, force: true }),

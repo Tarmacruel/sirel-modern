@@ -356,7 +356,7 @@ CLIENT_URL=http://localhost:5173
 VITE_API_URL=/api/trpc
 JWT_SECRET=
 ARQUIVOS_ENABLED=true
-ARQUIVOS_ROOT=D:\Dados\SIREL-Arquivos
+ARQUIVOS_ROOT=Z:\
 ARQUIVOS_HOSTNAME=arquivos.sirel.com.br
 ARQUIVOS_TICKET_SECRET=
 SIREL_DEFAULT_PASSWORD=defina_localmente
@@ -443,3 +443,14 @@ Validacoes tecnicas mais recentes:
 - relatorios operacionais locais;
 - reforco de seguranca com recuperacao de senha, envio de e-mail e politicas adicionais;
 - evolucao do design system com tema institucional azul royal.
+
+
+### Bloqueio das fases da Licitacao
+
+Defina `LICITACAO_FLUXO_ENFORCEMENT=BLOCKING` no `.env` e recarregue o backend para exigir os requisitos de cada fase em todas as modalidades. `ADVISORY` permite manter orientacoes sem bloquear. A chave legada `LICITACAO.FLUXO.ENFORCEMENT`, quando definida, tem precedencia.
+
+O detalhe da licitacao retorna `flow` com fases aplicaveis, evidencias, pendencias e permissoes. Publicacao, avanco, habilitacao, recursos e homologacao usam a mesma avaliacao no servidor. A origem fora do fluxo nao dispensa completude. Declaracao fisica exige justificativa, numero e local; documento em outro setor permanece pendente. O registro identifica usuario e data pela auditoria.
+
+Na dispensa sem disputa, a sequencia e Preparacao ? Publicacao ? Julgamento ? Habilitacao ? Controle Interno ? Homologacao. Nao se exige BLL, lances nem atas exclusivas de sessao competitiva. A importacao de ata preserva a fase no modo BLOCKING: os dados podem ser conferidos antes do avanco explicito.
+
+Roteiro acompanhado: [teste de dispensa simplificada](docs/teste-dispensa-simplificada.md).

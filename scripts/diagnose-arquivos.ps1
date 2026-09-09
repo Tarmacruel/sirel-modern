@@ -1,5 +1,5 @@
 param(
-  [string]$Root = "E:\DADOS\LICITACAO.1"
+  [string]$Root = "Z:\"
 )
 
 $ErrorActionPreference = "Continue"

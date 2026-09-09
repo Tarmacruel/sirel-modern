@@ -141,8 +141,8 @@ function getPhaseStatus(
   }
   if (phase.key === activePhase) return "viewing";
   if (phase.key === currentProcessPhase) return "current";
-  if (phase.completed) return "completed";
   if (!phase.accessible) return "blocked";
+  if (phase.completed) return "completed";
   if (phase.pendingCount > 0) return "available_with_pending";
   return "available";
 }

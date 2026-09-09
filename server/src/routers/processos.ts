@@ -1,3 +1,6 @@
+import { isLicitacaoFlowBlocking } from "../lib/licitacao-flow-policy.js";
+import { getCriticalStatusKind } from "../lib/process-status-critical.js";
+import { assertLicitacaoFlow } from "../lib/licitacao-flow-guard.js";
 ﻿import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -536,6 +539,10 @@ export const processosRouter = router({
 
   create: gestorProcedure.input(processoCreateInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
+    if (isLicitacaoFlowBlocking() && input.statusId) {
+      const [initialStatus] = await db.select().from(statusProcesso).where(eq(statusProcesso.id, input.statusId)).limit(1);
+      if (getCriticalStatusKind(initialStatus) === "HOMOLOGACAO") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre o processo na preparacao e conclua o fluxo antes de homologar." });
+    }
     await validateDispensaLimit({
       db,
       modalidadeId: input.modalidadeId,
@@ -662,6 +669,10 @@ export const processosRouter = router({
       });
     }
 
+    if (input.situacao === "CONCLUIDO") {
+      const [currentWorkflow] = await db.select().from(workflowProcesso).where(eq(workflowProcesso.processoId, input.processoId)).limit(1);
+      if (currentWorkflow?.moduloAtual === "LICITACAO") await assertLicitacaoFlow(db, input.processoId, "close");
+    }
     const updateData: any = {
       atualizadoEm: new Date(),
     };
@@ -883,6 +894,7 @@ export const processosRouter = router({
   advanceMacroPhase: gestorProcedure.input(processoAdvanceMacroPhaseInputSchema).mutation(async ({ ctx, input }) => {
     const context = await loadMacroTransitionContext(input.processoId, input.moduloDestino);
     const { db, baseRow, blockers } = context;
+    if (input.moduloDestino === "CONTRATOS") await assertLicitacaoFlow(db, input.processoId, "close");
     const justificativaAuditoria = input.justificativaAuditoria?.trim();
 
     if (blockers.length && !input.permitirBypass) {

@@ -38,6 +38,14 @@ export function clearCsrfCookie(res: Response) {
   });
 }
 
+export function ensureCsrfCookie(req: Request, res: Response) {
+  // A sessão pode sobreviver ao cookie CSRF ou chegar de outro subdomínio.
+  // Preserve o token existente para não invalidar requisições de outras abas.
+  if (!readCookie(req, CSRF_COOKIE_NAME)) {
+    setCsrfCookie(res);
+  }
+}
+
 export function hasValidCsrfToken(req: Request) {
   const cookie = readCookie(req, CSRF_COOKIE_NAME);
   const header = String(req.headers[CSRF_HEADER_NAME] ?? "");

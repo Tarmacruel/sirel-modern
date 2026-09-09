@@ -29,7 +29,7 @@ import {
 } from "../lib/subsystem-access.js";
 import { adminProcedure, anonymousProcedure, protectedProcedure, router } from "../trpc.js";
 import { getSessionSecret } from "../lib/auth-session.js";
-import { clearCsrfCookie, setCsrfCookie } from "../lib/csrf.js";
+import { clearCsrfCookie, ensureCsrfCookie, setCsrfCookie } from "../lib/csrf.js";
 
 const LOGIN_WINDOW_MINUTES = 15;
 const RECOVERY_WINDOW_MINUTES = 15;
@@ -471,7 +471,9 @@ export const authRouter = router({
       });
     }
 
-    return { user: await toAuthResponseUser(user) };
+    const responseUser = await toAuthResponseUser(user);
+    ensureCsrfCookie(ctx.req, ctx.res);
+    return { user: responseUser };
   }),
 
   recoverUsername: anonymousProcedure.input(recoverUsernameInputSchema).mutation(async ({ ctx, input }) => {

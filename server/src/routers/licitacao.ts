@@ -1,3 +1,5 @@
+import { assertLicitacaoFlow, loadLicitacaoFlow } from "../lib/licitacao-flow-guard.js";
+import { isCompletedFlowException } from "../lib/licitacao-flow-state.js";
 import { TRPCError } from "@trpc/server";
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 
@@ -11,7 +13,7 @@ import {
   calcularPrazoLegalMinimo,
   type RegraPrazoLegal,
 } from "@sirel/shared/prazos-legais";
-import { isInexigibilidadeModalidade } from "@sirel/shared/licitacao-guided-flow";
+import { hasLicitacaoDispute, getLicitacaoDocumentRequirements, isInexigibilidadeModalidade } from "@sirel/shared/licitacao-guided-flow";
 import {
   licitacaoAdvanceStageInputSchema,
   licitacaoDetailInputSchema,
@@ -518,18 +520,9 @@ async function buildInternalChecklist(
     byCategory.set(category, [...(byCategory.get(category) ?? []), documento]);
   });
 
-  const allowedCategories = new Set(
-    getLicitacaoChecklistCategories({ modalidadeCodigo, modoDisputa }),
-  );
-
-  const itens = licitacaoInternalDocumentChecklist
-    .filter((item) => allowedCategories.has(item.category))
-    .filter(
-      (item) =>
-        !("condicional" in item) ||
-        item.condicional !== "DECLARACAO_NAO_FRACIONAMENTO" ||
-        exigeDeclaracaoNaoFracionamento,
-    )
+  const flowEvidence = (await loadLicitacaoFlow(db, processoId)).state.evidence;
+  const itens = getLicitacaoDocumentRequirements({ modalidadeCodigo, modoDisputa, exigeDeclaracaoNaoFracionamento })
+    .filter((item) => item.phase === "PREPARACAO")
     .map((item) => {
       const documentosCategoria = byCategory.get(item.category) ?? [];
       const override = overrides.get(item.category);
@@ -538,15 +531,12 @@ async function buildInternalChecklist(
         override?.naoAplicavel,
       );
       const naoAplicavel = statusFlexivel === "NAO_APLICAVEL";
-      const concluidoPorFlex = statusFlexivel !== "PADRAO";
+      const concluidoPorFlex = isCompletedFlowException(override);
       const concluidoPorCatalogo =
         catalogCompletionByCategory.get(item.category) ?? false;
       return {
         ...item,
-        concluido:
-          documentosCategoria.length > 0 ||
-          concluidoPorFlex ||
-          concluidoPorCatalogo,
+        concluido: flowEvidence.find((evidence) => evidence.category === item.category)?.concluido ?? false,
         naoAplicavel,
         statusFlexivel,
         justificativaNaoAplicavel: override?.justificativa ?? null,
@@ -1241,6 +1231,7 @@ export const licitacaoRouter = router({
               dataAberturaPropostas: licitacao?.dataAberturaPropostas ?? null,
             }),
         flowEnforcement: getLicitacaoFlowEnforcement(),
+        flow: (await loadLicitacaoFlow(db, input.processoId)).state,
         transparencia: getTransparenciaProviderStatus(),
         resumo: {
           totalItens: itens.length,
@@ -1454,14 +1445,6 @@ export const licitacaoRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
       const processo = await getBaseProcesso(db, input.processoId);
-      if (!processo.foraDoFluxo) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "A marcação de não aplicável só está disponível para processos fora do fluxo.",
-        });
-      }
-
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
       );
@@ -1474,6 +1457,16 @@ export const licitacaoRouter = router({
       }
 
       const categoria = input.categoria.trim();
+      const [config] = await db.select().from(licitacoes).where(eq(licitacoes.processoId, input.processoId)).limit(1);
+      const requirement = getLicitacaoDocumentRequirements({
+        modalidadeCodigo: processo.modalidadeCodigo, modoDisputa: processo.modoDisputa,
+        exigeDeclaracaoNaoFracionamento: config?.exigeDeclaracaoNaoFracionamento,
+        publicarNoDou: config?.publicarNoDou, publicarEmJornal: config?.publicarEmJornal,
+      }).find((item) => item.category === categoria);
+      if (!requirement || requirement.completionStrategy === "CATALOG_SELECTION" || requirement.completionStrategy === "SYSTEM_FIELD") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Requisito indisponivel para declaracao; utilize o cadastro correspondente." });
+      }
+
       const statusFlexivel = normalizeChecklistFlexStatus(
         input.statusFlexivel,
         input.naoAplicavel,
@@ -1517,7 +1510,7 @@ export const licitacaoRouter = router({
           message: "Informe o departamento responsável pelo documento.",
         });
       }
-      if (statusFlexivel === "CONCLUIDO_FISICO" && !localArquivamento) {
+      if (statusFlexivel === "CONCLUIDO_FISICO" && (!localArquivamento || !processoFisicoNumero)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Informe o local de arquivamento do processo físico.",
@@ -1645,6 +1638,7 @@ export const licitacaoRouter = router({
     .input(licitacaoPublishInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
+      await assertLicitacaoFlow(db, input.processoId, "publish", undefined, input);
       const processo = await getBaseProcesso(db, input.processoId);
       if (!processo.modalidadeId || !processo.modalidadeCodigo) {
         throw new TRPCError({
@@ -1690,7 +1684,6 @@ export const licitacaoRouter = router({
       );
       if (
         isLicitacaoFlowBlocking() &&
-        !processo.foraDoFluxo &&
         checklist.obrigatoriosPendentes.length
       ) {
         throw new TRPCError({
@@ -1793,6 +1786,10 @@ export const licitacaoRouter = router({
         });
       }
       const selectedCriticalStatusKind = getCriticalStatusKind(selectedStatus);
+      if (isLicitacaoFlowBlocking() && selectedCriticalStatusKind === "HOMOLOGACAO") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Registre a homologacao pela etapa Homologacao." });
+      }
+
       const dataStatusCritico = parseOptionalDate(input.dataStatus);
       if (statusChanged && selectedCriticalStatusKind && !dataStatusCritico) {
         throw new TRPCError({
@@ -1802,7 +1799,7 @@ export const licitacaoRouter = router({
       }
 
       const licitacaoPatch = {
-        statusLicitacao: "RECEBIMENTO_PROPOSTAS" as LicitacaoStatus,
+        statusLicitacao: (hasLicitacaoDispute({ modalidadeCodigo: processo.modalidadeCodigo, modoDisputa: processo.modoDisputa }) ? (licitacao.inversaoFasesHabilitada ? "HABILITACAO" : "RECEBIMENTO_PROPOSTAS") : "JULGAMENTO") as LicitacaoStatus,
         dataPublicacaoEdital,
         dataRecebimentoPropostasInicio,
         dataRecebimentoPropostasFim,
@@ -2301,6 +2298,8 @@ export const licitacaoRouter = router({
         });
       }
 
+      await assertLicitacaoFlow(db, licitacao.processoId, "phase", "LANCES");
+
       const [created] = await db
         .insert(lancesLicitacao)
         .values({
@@ -2371,6 +2370,8 @@ export const licitacaoRouter = router({
         });
       }
 
+      const checkedFlow = await assertLicitacaoFlow(db, licitacao.processoId, "phase", "HABILITACAO");
+
       await db
         .update(licitantes)
         .set({
@@ -2381,6 +2382,9 @@ export const licitacaoRouter = router({
           atualizadoEm: new Date(),
         })
         .where(eq(licitantes.id, input.licitanteId));
+      const targetIndex = checkedFlow?.phases.findIndex((phase) => phase.key === "HABILITACAO") ?? 0;
+      const currentIndex = checkedFlow?.phases.findIndex((phase) => phase.key === checkedFlow.currentPhase) ?? -1;
+      if (!checkedFlow || targetIndex > currentIndex) {
       await db
         .update(licitacoes)
         .set({
@@ -2393,6 +2397,7 @@ export const licitacaoRouter = router({
         licitacao.processoId,
         "Licitação / habilitação",
       );
+      }
       await appendMovement(db, {
         processoId: licitacao.processoId,
         usuarioId: ctx.user?.id ?? null,
@@ -2407,6 +2412,7 @@ export const licitacaoRouter = router({
     .input(licitacaoSaveRecursoInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
+      const checkedFlow = await assertLicitacaoFlow(db, input.processoId, "phase", "RECURSOS");
       const licitacao = await ensureLicitacao(db, input.processoId);
       const [licitante] = await db
         .select()
@@ -2458,6 +2464,9 @@ export const licitacaoRouter = router({
         });
       }
 
+      const targetIndex = checkedFlow?.phases.findIndex((phase) => phase.key === "RECURSOS") ?? 0;
+      const currentIndex = checkedFlow?.phases.findIndex((phase) => phase.key === checkedFlow.currentPhase) ?? -1;
+      if (!checkedFlow || targetIndex > currentIndex) {
       await db
         .update(licitacoes)
         .set({
@@ -2466,6 +2475,7 @@ export const licitacaoRouter = router({
         })
         .where(eq(licitacoes.id, licitacao.id));
       await syncWorkflowStep(db, input.processoId, "Licitação / fase recursal");
+      }
       await appendMovement(db, {
         processoId: input.processoId,
         usuarioId: ctx.user?.id ?? null,
@@ -2480,6 +2490,7 @@ export const licitacaoRouter = router({
     .input(licitacaoAdvanceStageInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
+      await assertLicitacaoFlow(db, input.processoId, "phase", input.statusLicitacao);
       const processo = await getBaseProcesso(db, input.processoId);
       const justificativaAuditoria = toNullableText(
         input.justificativaAuditoria,
@@ -2539,6 +2550,7 @@ export const licitacaoRouter = router({
     .input(licitacaoHomologarInputSchema)
     .mutation(async ({ ctx, input }) => {
       const db = requireDb();
+      await assertLicitacaoFlow(db, input.processoId, "homologar");
       const processo = await getBaseProcesso(db, input.processoId);
       const licitacao = await ensureLicitacao(db, input.processoId);
       const justificativaAuditoria = toNullableText(

@@ -39,6 +39,7 @@ export interface LicitacaoFlowContext {
   publicarNoDou?: boolean | null;
   publicarEmJornal?: boolean | null;
   fundamentoLegalInciso?: string | null;
+  inversaoFasesHabilitada?: boolean | null;
 }
 
 export interface LicitacaoDocumentRequirement {
@@ -80,6 +81,7 @@ const emptyContext: Required<LicitacaoFlowContext> = {
   publicarNoDou: false,
   publicarEmJornal: false,
   fundamentoLegalInciso: "",
+  inversaoFasesHabilitada: false,
 };
 
 export const licitacaoGuidedPhaseOrder = [
@@ -210,6 +212,7 @@ function normalizeContext(context: LicitacaoFlowContext = {}) {
     publicarNoDou: Boolean(context.publicarNoDou),
     publicarEmJornal: Boolean(context.publicarEmJornal),
     fundamentoLegalInciso: String(context.fundamentoLegalInciso ?? "").trim(),
+    inversaoFasesHabilitada: Boolean(context.inversaoFasesHabilitada),
   };
 }
 
@@ -571,7 +574,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     source: "MANUAL_LINK",
     completionStrategy: "SYSTEM_FIELD",
     appliesTo: (context) =>
-      hasLicitacaoDispute(context) || appliesToDispensa(context),
+      hasLicitacaoDispute(context),
   },
   {
     category: "LICITACAO_PUBLICACAO_TRANSPARENCIA",
@@ -586,6 +589,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   },
   {
     category: "LICITACAO_ATA_SESSAO_PROVISORIA",
+    appliesTo: hasLicitacaoDispute,
     phase: "DISPUTA",
     order: 400,
     label: "Ata da sessao provisoria",
@@ -597,6 +601,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   },
   {
     category: "LICITACAO_DOCUMENTOS_PLATAFORMA_DISPUTA",
+    appliesTo: hasLicitacaoDispute,
     phase: "DISPUTA",
     order: 410,
     label: "Documentos da plataforma de disputa",
@@ -649,6 +654,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   },
   {
     category: "LICITACAO_RECURSOS",
+    appliesTo: hasLicitacaoDispute,
     phase: "RECURSOS",
     order: 700,
     label: "Recursos",
@@ -680,6 +686,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   },
   {
     category: "LICITACAO_ATA_RELATORIO_LANCES",
+    appliesTo: hasLicitacaoDispute,
     phase: "HOMOLOGACAO",
     order: 910,
     label: "Ata relatorio de lances",
@@ -691,6 +698,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
   },
   {
     category: "LICITACAO_ATA_SESSAO_FINAL",
+    appliesTo: hasLicitacaoDispute,
     phase: "HOMOLOGACAO",
     order: 920,
     label: "Ata da sessao final",
@@ -739,10 +747,15 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
 export function getLicitacaoGuidedPhaseSequence(
   context: LicitacaoFlowContext = {},
 ) {
-  void normalizeContext(context);
-  return licitacaoGuidedPhaseOrder.map(
-    (key) => licitacaoGuidedPhaseCatalog[key],
+  const normalized = normalizeContext(context);
+  const phases: LicitacaoGuidedPhaseKey[] = licitacaoGuidedPhaseOrder.filter(
+    (key) => hasLicitacaoDispute(normalized) || !["DISPUTA", "RECURSOS"].includes(key),
   );
+  if (normalized.inversaoFasesHabilitada && hasLicitacaoDispute(normalized)) {
+    phases.splice(phases.indexOf("HABILITACAO"), 1);
+    phases.splice(phases.indexOf("DISPUTA"), 0, "HABILITACAO");
+  }
+  return phases.map((key) => licitacaoGuidedPhaseCatalog[key]);
 }
 
 export function getLicitacaoDocumentRequirements(

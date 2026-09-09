@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ListChecks } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ interface LicitacaoEvidenceQueueProps {
   onDescriptionChange: (category: string, value: string) => void;
   onFileSelect: (category: string, file: File | null, suggestedTitle: string) => void;
   onUpload: (item: LicitacaoEvidenceItem) => void;
+  renderDeclaration?: (item: LicitacaoEvidenceItem) => ReactNode;
 }
 
 function getLatestDocument(item: LicitacaoEvidenceItem) {
@@ -55,6 +56,7 @@ export function LicitacaoEvidenceQueue({
   onDescriptionChange,
   onFileSelect,
   onUpload,
+  renderDeclaration,
 }: LicitacaoEvidenceQueueProps) {
   const [filter, setFilter] = useState<EvidenceFilter>("pending");
   const orderedItems = useMemo(() => getVisibleItems(items, "all"), [items]);
@@ -165,6 +167,7 @@ export function LicitacaoEvidenceQueue({
                     }
                   />
                 ) : null}
+                {active ? renderDeclaration?.(item) : null}
               </div>
             );
           })

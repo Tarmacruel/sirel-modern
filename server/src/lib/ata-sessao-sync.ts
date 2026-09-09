@@ -1,3 +1,4 @@
+import { isLicitacaoFlowBlocking } from "./licitacao-flow-policy.js";
 import {
   copyFileSync,
   existsSync,
@@ -2243,7 +2244,7 @@ async function applyAtaAnalysis(params: {
   }
 
   const suggestedPhase = params.analysis.preview.phase.suggested;
-  if (suggestedPhase) {
+  if (suggestedPhase && !isLicitacaoFlowBlocking()) {
     await params.db
       .update(licitacoes)
       .set({

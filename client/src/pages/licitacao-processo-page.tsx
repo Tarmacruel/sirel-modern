@@ -1,3 +1,4 @@
+import { resolveAccessibleLicitacaoPhase } from "@/lib/licitacao-phase-access";
 import {
   Suspense,
   lazy,
@@ -1251,6 +1252,7 @@ export function LicitacaoProcessoPage({
     (detalhe?.flowEnforcement as LicitacaoFlowEnforcement | undefined) ??
     "ADVISORY";
   const isBlockingFlow = flowEnforcement === "BLOCKING";
+  const serverFlow = detalhe?.flow;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1290,7 +1292,7 @@ export function LicitacaoProcessoPage({
   const showRecursos = flowConfig.showRecursos;
   const flowStepKeys = flowConfig.stepKeys;
   const licitacaoLinearPhaseOrder = useMemo(
-    () =>
+    () => serverFlow?.phases.map((phase) => phase.key) ??
       getLicitacaoGuidedPhaseSequence({
         modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
         modoDisputa: detalhe?.processo.modoDisputa,
@@ -1301,6 +1303,7 @@ export function LicitacaoProcessoPage({
         fundamentoLegalInciso: configForm.fundamentoLegalInciso,
       }).map((phase) => phase.key),
     [
+      serverFlow,
       configForm.exigeDeclaracaoNaoFracionamento,
       configForm.fundamentoLegalInciso,
       configForm.publicarEmJornal,
@@ -1469,11 +1472,7 @@ export function LicitacaoProcessoPage({
       const statusFlexivel =
         serverItem?.statusFlexivel ??
         (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO");
-      const concluido =
-        (serverItem?.concluido ?? false) ||
-        documentosCategoria.length > 0 ||
-        statusFlexivel !== "PADRAO" ||
-        (catalogSelectedByCategory.get(item.category) ?? false);
+      const concluido = serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.concluido ?? false;
       return {
         ...item,
         concluido,
@@ -1490,6 +1489,7 @@ export function LicitacaoProcessoPage({
       };
     });
   }, [
+    serverFlow,
     detalhe?.checklistInterno.itens,
     detalhe?.licitacao.comissaoId,
     detalhe?.licitacao.equipeApoioId,
@@ -1680,19 +1680,16 @@ export function LicitacaoProcessoPage({
 
       const checklistItem = {
         ...item,
-        concluido: concluidoPorDocumento || concluidoPorSistema,
+        concluido: serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.concluido ?? false,
         documentos: documentosCategoria,
-        statusOrigem: concluidoPorDocumento
-          ? "Documento anexado"
-          : concluidoPorSistema
-            ? "Evidencia sistemica"
-            : "Pendente",
+        statusOrigem: serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.statusOrigem ?? "Pendente",
       };
       map.set(item.phase, [...(map.get(item.phase) ?? []), checklistItem]);
     });
 
     return map;
   }, [
+    serverFlow,
     configForm.fundamentoLegalInciso,
     designacoesQuery.data?.comissao?.id,
     designacoesQuery.data?.equipeApoio?.id,
@@ -2129,14 +2126,13 @@ export function LicitacaoProcessoPage({
   async function handleChecklistNaoAplicavel(
     item: Pick<ChecklistCardItem, "category" | "label">,
   ) {
-    if (!isForaDoFluxo) return;
     const state =
       checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
     const actionLabel =
       state.statusFlexivel === "PADRAO"
         ? "reativar o item no checklist"
         : `registrar ${licitacaoChecklistFlexStatusLabels[state.statusFlexivel].toLowerCase()}`;
-    if (!ensureAuditJustification(actionLabel)) return;
+
     if (state.statusFlexivel !== "PADRAO" && !state.justificativa.trim()) {
       setFeedback(null);
       setErrorMessage(
@@ -2154,7 +2150,7 @@ export function LicitacaoProcessoPage({
     }
     if (
       state.statusFlexivel === "CONCLUIDO_FISICO" &&
-      !state.localArquivamento.trim()
+      (!state.localArquivamento.trim() || !state.processoFisicoNumero.trim())
     ) {
       setFeedback(null);
       setErrorMessage("Informe o local de arquivamento do processo fisico.");
@@ -2190,7 +2186,7 @@ export function LicitacaoProcessoPage({
         state.statusFlexivel === "CONCLUIDO_FISICO"
           ? state.digitalizarDepois
           : undefined,
-      justificativaAuditoria: auditJustification.trim(),
+      justificativaAuditoria: auditJustification.trim() || state.justificativa.trim() || "Reativacao do requisito documental.",
     });
   }
 
@@ -2609,7 +2605,8 @@ export function LicitacaoProcessoPage({
       | "JULGAMENTO"
       | "HABILITACAO"
       | "RECURSOS"
-      | "CONTROLE_INTERNO",
+      | "CONTROLE_INTERNO"
+      | "HOMOLOGACAO",
     etapaAtual: string,
     observacao: string,
   ) {
@@ -2622,11 +2619,21 @@ export function LicitacaoProcessoPage({
       justificativaAuditoria: isForaDoFluxo
         ? auditJustification.trim()
         : undefined,
-    });
+    }).then(() => {
+      const phase = ["RECEBIMENTO_PROPOSTAS", "LANCES"].includes(statusLicitacao)
+        ? (serverFlow?.phases.some((item) => item.key === "DISPUTA") ? "DISPUTA" : "JULGAMENTO")
+        : statusLicitacao;
+      selectLegalPhase(phase as LicitacaoLinearPhaseKey);
+    }).catch(() => undefined); // A mensagem da API e apresentada pelo onError.
   }
 
   async function handleHomologar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isBlockingFlow && !serverFlow?.actions.homologar.allowed) {
+      setErrorMessage(serverFlow?.actions.homologar.blockers.map((item) => `${item.phase}: ${item.label}`).join("; ") ?? "Aguarde a validacao dos requisitos.");
+      return;
+    }
+
     if (!homologacaoForm.dataHomologacao) {
       setFeedback(null);
       setErrorMessage(
@@ -2676,14 +2683,14 @@ export function LicitacaoProcessoPage({
       makeNavItem("external", "Fase externa", externalRef),
       makeNavItem("docs", "Documentos do processo", docsRef),
       makeNavItem("publication", "Publicacao", publicationRef),
-      ...(showCompetitivoSteps
+      ...((showCompetitivoSteps || !showLances)
         ? [makeNavItem("licitantes", "Licitantes", licitantesRef)]
         : []),
-      ...(showCompetitivoSteps
+      ...((showCompetitivoSteps || !showLances)
         ? [makeNavItem("propostas", "Propostas", propostasRef)]
         : []),
       ...(showLances ? [makeNavItem("lances", "Lances", lancesRef)] : []),
-      ...(showCompetitivoSteps
+      ...((showCompetitivoSteps || !showLances)
         ? [makeNavItem("julgamento", "Julgamento", julgamentoRef)]
         : []),
       makeNavItem("habilitacao", "Habilitacao", habilitacaoRef),
@@ -2724,7 +2731,7 @@ export function LicitacaoProcessoPage({
     0,
     flowSteps.findIndex((item) => item.key === currentVisualStep),
   );
-  const currentProcessPhase = resolveLinearPhaseFromVisualStep(
+  const currentProcessPhase = serverFlow?.currentPhase ?? resolveLinearPhaseFromVisualStep(
     currentVisualStep,
     detalhe?.processo.homologado ?? false,
   );
@@ -2883,7 +2890,7 @@ export function LicitacaoProcessoPage({
     FECHAMENTO: Clock3,
   } satisfies Record<LicitacaoLinearPhaseKey, typeof ShieldCheck>;
   const phaseCatalog = Object.fromEntries(
-    licitacaoLinearPhaseOrder.map((phaseKey) => [
+    licitacaoGuidedPhaseOrder.map((phaseKey) => [
       phaseKey,
       {
         ...licitacaoGuidedPhaseCatalog[phaseKey],
@@ -2902,76 +2909,10 @@ export function LicitacaoProcessoPage({
       label: item.label,
       detalhe: item.completionHint ?? item.description ?? undefined,
     }));
-  const phasePendingItems = {
-    PREPARACAO: pendingRequired.map((item) => ({
-      category: item.category,
-      label: item.label,
-      detalhe: item.completionHint ?? item.description ?? undefined,
-    })),
-    PUBLICACAO: [
-      ...publicationSetupPendingItems,
-      ...evidencePendingView(publicationEvidencePendingRequired),
-      ...publicationSubmitPendingItems,
-    ],
-    DISPUTA: externalPendingRequired.map((item) => ({
-      category: item.category,
-      label: item.label,
-      detalhe: item.completionHint ?? item.description ?? undefined,
-    })),
-    JULGAMENTO: [
-      ...julgamentoHabilitacaoPendings.filter(
-        (item) => item.category === "judgment-ranking",
-      ),
-      ...evidencePendingView(julgamentoEvidencePendingRequired),
-    ],
-    HABILITACAO: [
-      ...julgamentoHabilitacaoPendings.filter(
-        (item) => item.category === "qualification-review",
-      ),
-      ...evidencePendingView(habilitacaoEvidencePendingRequired),
-    ],
-    RECURSOS: recursoHomologacaoPendings.filter(
-      (item) => item.category === "appeals",
-    ),
-    CONTROLE_INTERNO: evidencePendingView(
-      controleInternoEvidencePendingRequired,
-    ),
-    HOMOLOGACAO: [
-      ...recursoHomologacaoPendings.filter(
-        (item) => item.category === "homologation",
-      ),
-      ...evidencePendingView(homologacaoEvidencePendingRequired),
-    ],
-    FECHAMENTO: fechamentoPendings,
-  } as const satisfies Record<
-    LicitacaoLinearPhaseKey,
-    Array<{ category: string; label: string; detalhe?: string }>
-  >;
-  const phasePendingCounts = {
-    PREPARACAO: pendingRequired.length,
-    PUBLICACAO:
-      publicationSetupPendingItems.length +
-      publicationEvidencePendingRequired.length +
-      publicationSubmitPendingItems.length,
-    DISPUTA: externalPendingRequired.length,
-    JULGAMENTO:
-      julgamentoHabilitacaoPendings.filter(
-        (item) => item.category === "judgment-ranking",
-      ).length + julgamentoEvidencePendingRequired.length,
-    HABILITACAO:
-      julgamentoHabilitacaoPendings.filter(
-        (item) => item.category === "qualification-review",
-      ).length + habilitacaoEvidencePendingRequired.length,
-    RECURSOS: recursoHomologacaoPendings.filter(
-      (item) => item.category === "appeals",
-    ).length,
-    CONTROLE_INTERNO: controleInternoEvidencePendingRequired.length,
-    HOMOLOGACAO:
-      recursoHomologacaoPendings.filter(
-        (item) => item.category === "homologation",
-      ).length + homologacaoEvidencePendingRequired.length,
-    FECHAMENTO: fechamentoPendings.length,
-  } as const satisfies Record<LicitacaoLinearPhaseKey, number>;
+  const phasePendingItems = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [
+    phase, serverFlow?.phases.find((item) => item.key === phase)?.pending ?? [],
+  ])) as unknown as Record<LicitacaoLinearPhaseKey, Array<{ category: string; label: string; detalhe?: string }>>;
+  const phasePendingCounts = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [phase, phasePendingItems[phase].length])) as Record<LicitacaoLinearPhaseKey, number>;
   const currentProcessPhaseIndex =
     licitacaoLinearPhaseOrder.indexOf(currentProcessPhase);
   const maxAccessiblePhaseIndex =
@@ -2982,37 +2923,7 @@ export function LicitacaoProcessoPage({
           currentProcessPhaseIndex +
             (phasePendingCounts[currentProcessPhase] === 0 ? 1 : 0),
         );
-  const phaseCompletedBySystem = {
-    PREPARACAO: currentVisualStep !== "PREPARACAO_INTERNA",
-    PUBLICACAO:
-      Boolean(detalhe?.processo.publicado) &&
-      currentVisualStep !== "PUBLICACAO",
-    DISPUTA:
-      Boolean(detalhe?.processo.homologado) ||
-      (inversaoFasesAtiva
-        ? ["JULGAMENTO", "RECURSOS", "CONTROLE_INTERNO", "HOMOLOGACAO"].includes(currentVisualStep)
-        : ["JULGAMENTO", "HABILITACAO", "RECURSOS", "CONTROLE_INTERNO", "HOMOLOGACAO"].includes(
-            currentVisualStep,
-          )),
-    JULGAMENTO:
-      Boolean(detalhe?.processo.homologado) ||
-      ["HABILITACAO", "RECURSOS", "CONTROLE_INTERNO", "HOMOLOGACAO"].includes(
-        currentVisualStep,
-      ),
-    HABILITACAO:
-      Boolean(detalhe?.processo.homologado) ||
-      ["RECURSOS", "CONTROLE_INTERNO", "HOMOLOGACAO"].includes(
-        currentVisualStep,
-      ),
-    RECURSOS:
-      Boolean(detalhe?.processo.homologado) ||
-      ["CONTROLE_INTERNO", "HOMOLOGACAO"].includes(currentVisualStep),
-    CONTROLE_INTERNO:
-      Boolean(detalhe?.processo.homologado) ||
-      currentVisualStep === "HOMOLOGACAO",
-    HOMOLOGACAO: Boolean(detalhe?.processo.homologado),
-    FECHAMENTO: false,
-  } as const satisfies Record<LicitacaoLinearPhaseKey, boolean>;
+  const phaseCompletedBySystem = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [phase, serverFlow?.phases.find((item) => item.key === phase)?.complete ?? false])) as Record<LicitacaoLinearPhaseKey, boolean>;
   const sectionRefs: Record<SectionKey, RefObject<HTMLElement | null>> = {
     overview: overviewRef,
     internal: internalRef,
@@ -3126,7 +3037,7 @@ export function LicitacaoProcessoPage({
           ...(showLances ? (["lances"] as const) : []),
         ];
       case "JULGAMENTO":
-        return showCompetitivoSteps ? ["julgamento"] : ["habilitacao"];
+        return showCompetitivoSteps ? ["julgamento"] : ["licitantes", "propostas", "julgamento"];
       case "HABILITACAO":
         return ["habilitacao"];
       case "RECURSOS":
@@ -3142,7 +3053,7 @@ export function LicitacaoProcessoPage({
     }
   };
   const canAccessLegalPhase = (phase: LicitacaoLinearPhaseKey) =>
-    licitacaoLinearPhaseOrder.indexOf(phase) <= maxAccessiblePhaseIndex;
+    serverFlow?.phases.find((item) => item.key === phase)?.accessible ?? false;
   const selectLegalPhase = (phase: LicitacaoLinearPhaseKey) => {
     if (!canAccessLegalPhase(phase)) return;
     const targetSection = getDefaultSectionForPhase(phase);
@@ -3229,16 +3140,16 @@ export function LicitacaoProcessoPage({
     if (currentPhase === "PUBLICACAO") {
       return detalhe?.processo.publicado
         ? {
-            label: "Abrir disputa",
+            label: "Abrir proxima fase",
             helper:
               "A publicacao foi registrada. Siga para a operacao externa.",
-            disabled: !canAccessLegalPhase("DISPUTA"),
-            onClick: () => selectLegalPhase("DISPUTA"),
+            disabled: !canAccessLegalPhase(licitacaoLinearPhaseOrder[2]),
+            onClick: () => selectLegalPhase(licitacaoLinearPhaseOrder[2]),
           }
         : {
             label: publishMutation.isPending
               ? "Publicando..."
-              : "Publicar e liberar disputa",
+              : "Registrar publicacao",
             helper: inexigibilidadeFundamentoPendente
               ? "Selecione o inciso da inexigibilidade antes da publicacao."
               : "Submete o cronograma e libera a fase externa.",
@@ -3248,44 +3159,14 @@ export function LicitacaoProcessoPage({
           };
     }
 
-    if (currentPhase === "JULGAMENTO") {
+    if (["DISPUTA", "JULGAMENTO", "HABILITACAO", "RECURSOS", "CONTROLE_INTERNO"].includes(currentPhase)) {
+      const nextPhase = licitacaoLinearPhaseOrder[licitacaoLinearPhaseOrder.indexOf(currentPhase) + 1];
+      const nextStatus = nextPhase === "DISPUTA" ? "RECEBIMENTO_PROPOSTAS" : nextPhase;
       return {
-        label: "Abrir habilitacao",
-        helper: "Revise o julgamento e siga para a conferencia documental.",
-        disabled: phaseHasBlockingPendencies("JULGAMENTO"),
-        onClick: () => selectLegalPhase("HABILITACAO"),
-      };
-    }
-
-    if (currentPhase === "HABILITACAO") {
-      return {
-        label: "Abrir recursos",
-        helper: "Finalize ou revise a habilitacao antes da etapa recursal.",
-        disabled: phaseHasBlockingPendencies("HABILITACAO"),
-        onClick: () => selectLegalPhase("RECURSOS"),
-      };
-    }
-
-    if (currentPhase === "RECURSOS") {
-      return {
-        label: "Encaminhar ao Controle Interno",
-        helper: "Avanca para a validacao antes da homologacao.",
-        disabled: advanceStageMutation.isPending,
-        onClick: () =>
-          void handleAdvanceStage(
-            "CONTROLE_INTERNO",
-            "Licitacao / controle interno",
-            "Encaminhamento ao Controle Interno.",
-          ),
-      };
-    }
-
-    if (currentPhase === "CONTROLE_INTERNO") {
-      return {
-        label: "Abrir homologacao",
-        helper: "Conclua o encaminhamento ao Controle Interno e siga para homologacao.",
-        disabled: phaseHasBlockingPendencies("CONTROLE_INTERNO"),
-        onClick: () => selectLegalPhase("HOMOLOGACAO"),
+        label: `Avancar para ${nextPhase ? phaseCatalog[nextPhase].shortLabel : "proxima fase"}`,
+        helper: "Conclua os requisitos desta fase e confira os dados antes de avancar.",
+        disabled: !nextPhase || phaseHasBlockingPendencies(currentPhase) || advanceStageMutation.isPending,
+        onClick: () => nextStatus && void handleAdvanceStage(nextStatus as Parameters<typeof handleAdvanceStage>[0], `Licitacao / ${phaseCatalog[nextPhase].label}`, "Avanco acompanhado de fase."),
       };
     }
 
@@ -3440,9 +3321,7 @@ export function LicitacaoProcessoPage({
       : isLicitacaoLinearPhaseKey(storedPhase)
         ? normalizeLegacyPhaseKey(storedPhase)
         : currentProcessPhase;
-    const nextPhase = canAccessLegalPhase(preferredPhase)
-      ? preferredPhase
-      : currentProcessPhase;
+    const nextPhase = resolveAccessibleLicitacaoPhase(preferredPhase, serverFlow?.phases ?? []);
 
     setCurrentPhase(nextPhase);
     setSectionOpen((current) => ({
@@ -3525,6 +3404,33 @@ export function LicitacaoProcessoPage({
           }
           onFileSelect={handleEvidenceFileSelect}
           onUpload={(item) => void handleUploadChecklistDocumento(item)}
+          renderDeclaration={(item) => {
+            const requirement = serverFlow?.evidence.find((entry) => entry.category === item.category);
+            if (!requirement || ["CATALOG_SELECTION", "SYSTEM_FIELD"].includes(requirement.completionStrategy)) return null;
+            const state = checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
+            const change = (key: keyof ChecklistFlexFormState, value: string) => setChecklistNaoAplicavelState(item.category, (current) => ({ ...current, [key]: value }));
+            return <details className="px-4 pb-4 text-sm">
+              <summary className="cursor-pointer font-semibold">Declaracao auditada do documento</summary>
+              <div className="mt-3 grid gap-3">
+                <FormField label="Situacao do documento">
+                  <select className="rounded border p-2 bg-[var(--surface-card)]" value={state.statusFlexivel} onChange={(event) => change("statusFlexivel", event.target.value)}>
+                    <option value="PADRAO">Pendente / documento digital</option>
+                    <option value="CONCLUIDO_FISICO">Concluido em processo fisico</option>
+                    <option value="NAO_APLICAVEL">Nao aplicavel</option>
+                    <option value="OUTRO_SETOR">Em outro setor (permanece pendente)</option>
+                  </select>
+                </FormField>
+                <FormField label="Justificativa"><Input value={state.justificativa} onChange={(event) => change("justificativa", event.target.value)} /></FormField>
+                {state.statusFlexivel === "CONCLUIDO_FISICO" ? <>
+                  <FormField label="Numero do processo fisico"><Input value={state.processoFisicoNumero} onChange={(event) => change("processoFisicoNumero", event.target.value)} /></FormField>
+                  <FormField label="Local de arquivamento"><Input value={state.localArquivamento} onChange={(event) => change("localArquivamento", event.target.value)} /></FormField>
+                </> : null}
+                {state.statusFlexivel === "OUTRO_SETOR" ? <FormField label="Departamento responsavel"><Input value={state.departamentoResponsavel} onChange={(event) => change("departamentoResponsavel", event.target.value)} /></FormField> : null}
+                <p>O registro identifica o usuario e a data na auditoria.</p>
+                <Button type="button" disabled={setChecklistNaoAplicavelMutation.isPending} onClick={() => void handleChecklistNaoAplicavel(item)}>Salvar declaracao</Button>
+              </div>
+            </details>;
+          }}
         />
       </div>
     );
@@ -3954,7 +3860,7 @@ export function LicitacaoProcessoPage({
                 title="Fase interna documental"
                 description={
                   isForaDoFluxo
-                    ? "Checklist orientativo com auditoria reforcada para processos fora do fluxo."
+                    ? "Checklist de requisitos com declaracoes auditadas. A origem fora do fluxo nao dispensa a completude."
                     : "Todos os documentos obrigatorios antes da publicidade. O processo so pode ser publicado quando o checklist estiver completo."
                 }
                 open={sectionOpen.internal}
@@ -4487,7 +4393,7 @@ export function LicitacaoProcessoPage({
                     </label>
                   </div>
 
-                  {showCompetitivoSteps ? (
+                  {(showCompetitivoSteps || !showLances) ? (
                     <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
                       <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
                         Configuracao de fluxo
@@ -4571,7 +4477,7 @@ export function LicitacaoProcessoPage({
                           <h4 className="mt-2 text-lg font-semibold text-[var(--color-primary-950)]">
                             {pendingRequired.length
                               ? isForaDoFluxo
-                                ? "Atos com evidencia pendente, mas liberados por auditoria."
+                                ? "Ainda ha atos obrigatorios antes da publicacao."
                                 : "Ainda ha atos obrigatorios antes da publicacao."
                               : "Checklist interno pronto para seguir ao cronograma."}
                           </h4>
@@ -4927,8 +4833,7 @@ export function LicitacaoProcessoPage({
                         </div>
                         ) : null}
 
-                        {!selectedInternalUsesInstitutionalSelector &&
-                        isForaDoFluxo ? (
+                        {!selectedInternalUsesInstitutionalSelector ? (
                           <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
                             <FormField label="Tratamento fora do fluxo">
                               <Select
@@ -5339,7 +5244,7 @@ export function LicitacaoProcessoPage({
                           </div>
                         ) : null}
 
-                        {isForaDoFluxo ? (
+                        {item.completionStrategy !== "CATALOG_SELECTION" ? (
                           <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-3">
                             <div className="grid gap-3">
                               <FormField label="Tratamento do item fora do fluxo">
@@ -6155,7 +6060,8 @@ export function LicitacaoProcessoPage({
                     </summary>
                     <div className="mt-3 space-y-3">
                       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        <FormField label="Link publico da BLL">
+                        {serverFlow?.evidence.some((item) => item.category === "LICITACAO_PUBLIC_LINK_BLL") ? (
+<FormField label="Link publico da BLL">
                           <div className="space-y-2">
                             <Input
                               type="url"
@@ -6181,6 +6087,7 @@ export function LicitacaoProcessoPage({
                             ) : null}
                           </div>
                         </FormField>
+) : null}
                         <FormField label="Link publico do PNCP">
                           <div className="space-y-2">
                             <Input
@@ -6433,7 +6340,7 @@ export function LicitacaoProcessoPage({
             </section>
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
-            {showCompetitivoSteps ? (
+            {(showCompetitivoSteps || !showLances) ? (
               <section
                 ref={licitantesRef}
                 className={isLegalSectionVisible("licitantes") ? "" : "hidden"}
@@ -6600,7 +6507,7 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            {showCompetitivoSteps ? (
+            {(showCompetitivoSteps || !showLances) ? (
               <section
                 ref={propostasRef}
                 className={isLegalSectionVisible("propostas") ? "" : "hidden"}
@@ -6928,7 +6835,7 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            {showCompetitivoSteps ? (
+            {(showCompetitivoSteps || !showLances) ? (
               <section
                 ref={julgamentoRef}
                 className={isLegalSectionVisible("julgamento") ? "" : "hidden"}

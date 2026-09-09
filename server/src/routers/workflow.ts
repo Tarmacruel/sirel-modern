@@ -1,3 +1,5 @@
+import { assertLicitacaoFlow } from "../lib/licitacao-flow-guard.js";
+import { isLicitacaoFlowBlocking } from "../lib/licitacao-flow-policy.js";
 import { TRPCError } from "@trpc/server";
 import { and, count, desc, eq, gte, ilike, inArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -301,6 +303,16 @@ export const workflowRouter = router({
       });
     }
 
+    if (isLicitacaoFlowBlocking() && selectedCriticalStatusKind === "HOMOLOGACAO") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Registre a homologacao pela etapa Homologacao da Licitacao." });
+    }
+    if (currentState?.moduloAtual === "LICITACAO" && (input.moduloDestino !== "LICITACAO" || input.situacao === "CONCLUIDO")) {
+      await assertLicitacaoFlow(db, input.processoId, "close");
+    }
+    if (isLicitacaoFlowBlocking() && input.moduloDestino === "LICITACAO" && input.etapaAtual !== currentState?.etapaAtual) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Use o fluxo de fases da Licitacao para alterar a etapa." });
+    }
+
     const nextData = {
       moduloAtual: input.moduloDestino,
       situacao: input.situacao,
@@ -385,6 +397,7 @@ export const workflowRouter = router({
 
   publish: operadorProcedure.input(workflowPublishInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
+    const publicationFlow = await assertLicitacaoFlow(db, input.processoId, "publish", undefined, input);
     const [currentState] = await db.select().from(workflowProcesso).where(eq(workflowProcesso.processoId, input.processoId)).limit(1);
     const [currentProcess] = await db.select().from(processos).where(eq(processos.id, input.processoId)).limit(1);
 
@@ -416,6 +429,10 @@ export const workflowRouter = router({
       });
     }
     const selectedCriticalStatusKind = getCriticalStatusKind(selectedStatus);
+    if (isLicitacaoFlowBlocking() && selectedCriticalStatusKind === "HOMOLOGACAO") {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Registre a homologacao pela etapa Homologacao." });
+    }
+
     const dataStatusCritico = parseOptionalDate(input.dataStatus);
     if (statusChanged && selectedCriticalStatusKind && !dataStatusCritico) {
       throw new TRPCError({
@@ -458,14 +475,14 @@ export const workflowRouter = router({
     const [licitacaoAtual] = await db.select().from(licitacoes).where(eq(licitacoes.processoId, input.processoId)).limit(1);
     if (licitacaoAtual) {
       await db.update(licitacoes).set({
-        statusLicitacao: "RECEBIMENTO_PROPOSTAS",
+        statusLicitacao: publicationFlow?.phases[2]?.key === "HABILITACAO" ? "HABILITACAO" : publicationFlow?.phases[2]?.key === "JULGAMENTO" ? "JULGAMENTO" : "RECEBIMENTO_PROPOSTAS",
         dataPublicacaoEdital: licitacaoAtual.dataPublicacaoEdital ?? new Date(),
         atualizadoEm: new Date(),
       }).where(eq(licitacoes.id, licitacaoAtual.id));
     } else {
       await db.insert(licitacoes).values({
         processoId: input.processoId,
-        statusLicitacao: "RECEBIMENTO_PROPOSTAS",
+        statusLicitacao: publicationFlow?.phases[2]?.key === "HABILITACAO" ? "HABILITACAO" : publicationFlow?.phases[2]?.key === "JULGAMENTO" ? "JULGAMENTO" : "RECEBIMENTO_PROPOSTAS",
         dataPublicacaoEdital: new Date(),
         criadoEm: new Date(),
         atualizadoEm: new Date(),
