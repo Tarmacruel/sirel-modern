@@ -49,6 +49,7 @@ import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-audit-drawer";
 import { LicitacaoContextAssistant } from "@/components/licitacao/processo/licitacao-context-assistant";
+import { LicitacaoPreparationWorkspace } from "@/components/licitacao/processo/licitacao-preparation-workspace";
 import { LicitacaoEvidenceQueue } from "@/components/licitacao/processo/licitacao-evidence-queue";
 import type { LicitacaoEvidenceItem } from "@/components/licitacao/processo/licitacao-evidence-row";
 import {
@@ -288,8 +289,9 @@ type LicitacaoOperationModalKey =
   | "recurso"
   | "homologacao";
 
-const defaultLicitacaoLinearPhaseOrder =
-  [...licitacaoGuidedPhaseOrder] as LicitacaoLinearPhaseKey[];
+const defaultLicitacaoLinearPhaseOrder = [
+  ...licitacaoGuidedPhaseOrder,
+] as LicitacaoLinearPhaseKey[];
 
 const LICITACAO_TABLE_PAGE_SIZE = 8;
 
@@ -539,7 +541,9 @@ function isLicitacaoLinearPhaseKey(
   value: string | null | undefined,
 ): value is LegacyLicitacaoPhaseKey {
   return value
-    ? defaultLicitacaoLinearPhaseOrder.includes(value as LicitacaoLinearPhaseKey) ||
+    ? defaultLicitacaoLinearPhaseOrder.includes(
+        value as LicitacaoLinearPhaseKey,
+      ) ||
         value === "JULGAMENTO_HABILITACAO" ||
         value === "RECURSOS_HOMOLOGACAO"
     : false;
@@ -601,12 +605,23 @@ function paginateItems<T>(
   };
 }
 
+const preparationObjectLabels: Record<string, string> = {
+  LICITACAO_DECRETO_COMISSAO: "Comissão de contratação",
+  LICITACAO_DECRETO_EQUIPE_APOIO: "Equipe de apoio",
+  LICITACAO_DECRETO_ORDENADOR_DESPESAS: "Ordenador de despesas",
+  LICITACAO_COMUNICACAO_RESERVA_ORCAMENTARIA: "CI para reserva orçamentária",
+  LICITACAO_RESERVA_ORCAMENTARIA: "Reserva orçamentária",
+  LICITACAO_ATO_AUTORIZACAO_AUTORIDADE: "Autorização da autoridade competente",
+  LICITACAO_DECLARACAO_NAO_FRACIONAMENTO: "Declaração de não fracionamento",
+  LICITACAO_PESQUISA_PRECOS: "Pesquisa de preços",
+  LICITACAO_COMUNICACAO_PARECER_JURIDICO: "CI solicitando parecer jurídico",
+  LICITACAO_PARECER_JURIDICO: "Parecer jurídico",
+  LICITACAO_TERMO_AUTUACAO: "Termo de autuação",
+  LICITACAO_DECRETO_AGENTE_CONTRATACAO: "Decreto do agente de contratação",
+};
+
 function isChecklistItemAddressed(item: ChecklistCardItem) {
-  return (
-    item.concluido ||
-    item.naoAplicavel ||
-    (item.statusFlexivel != null && item.statusFlexivel !== "PADRAO")
-  );
+  return item.concluido;
 }
 
 function getChecklistItemStatusLabel(item: ChecklistCardItem) {
@@ -614,7 +629,11 @@ function getChecklistItemStatusLabel(item: ChecklistCardItem) {
     return licitacaoChecklistFlexStatusLabels[item.statusFlexivel];
   }
 
-  return item.concluido ? "Anexado" : "Pendente";
+  return item.concluido
+    ? item.completionStrategy === "CATALOG_SELECTION"
+      ? "Selecionado"
+      : "Anexado"
+    : "Pendente";
 }
 
 function getChecklistItemStatusClassName(item: ChecklistCardItem) {
@@ -664,6 +683,9 @@ export function LicitacaoProcessoPage({
 
   const [currentPhase, setCurrentPhase] =
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
+  const [uploadingChecklistCategory, setUploadingChecklistCategory] = useState<
+    string | null
+  >(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [ataSyncPreview, setAtaSyncPreview] = useState<AtaSessaoPreview | null>(
@@ -734,14 +756,9 @@ export function LicitacaoProcessoPage({
     selectedInternalChecklistCategory,
     setSelectedInternalChecklistCategory,
   ] = useState<string | null>(null);
-  const [internalChecklistRevealCount, setInternalChecklistRevealCount] =
-    useState(3);
-  const [showResolvedInternalChecklist, setShowResolvedInternalChecklist] =
-    useState(false);
   const [activeExternalEvidenceCategory, setActiveExternalEvidenceCategory] =
     useState<string | null>(null);
-  const [publicationChannelsOpen, setPublicationChannelsOpen] =
-    useState(false);
+  const [publicationChannelsOpen, setPublicationChannelsOpen] = useState(false);
   const [publicationScheduleOpen, setPublicationScheduleOpen] = useState(false);
   const [publishForm, setPublishForm] = useState({
     condutorProcessoId: "",
@@ -1292,7 +1309,8 @@ export function LicitacaoProcessoPage({
   const showRecursos = flowConfig.showRecursos;
   const flowStepKeys = flowConfig.stepKeys;
   const licitacaoLinearPhaseOrder = useMemo(
-    () => serverFlow?.phases.map((phase) => phase.key) ??
+    () =>
+      serverFlow?.phases.map((phase) => phase.key) ??
       getLicitacaoGuidedPhaseSequence({
         modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
         modoDisputa: detalhe?.processo.modoDisputa,
@@ -1377,15 +1395,17 @@ export function LicitacaoProcessoPage({
     ],
   );
   const requirementsByPhase = useMemo(() => {
-    const map = new Map<LicitacaoLinearPhaseKey, LicitacaoDocumentRequirement[]>();
+    const map = new Map<
+      LicitacaoLinearPhaseKey,
+      LicitacaoDocumentRequirement[]
+    >();
     licitacaoGuidedPhaseOrder.forEach((phase) => map.set(phase, []));
     documentRequirements.forEach((item) => {
       map.get(item.phase)?.push(item);
     });
     return map;
   }, [documentRequirements]);
-  const preparationRequirements =
-    requirementsByPhase.get("PREPARACAO") ?? [];
+  const preparationRequirements = requirementsByPhase.get("PREPARACAO") ?? [];
 
   const serverChecklistMap = useMemo(() => {
     const map = new Map<
@@ -1422,22 +1442,21 @@ export function LicitacaoProcessoPage({
     const serverOnlyItems = serverItems
       .filter((serverItem) => !internalBlueprintMap.has(serverItem.category))
       .map((serverItem, index) => {
-            const blueprintItem = internalBlueprintMap.get(serverItem.category);
-            return {
-              category: serverItem.category,
-              phase: blueprintItem?.phase ?? ("PREPARACAO" as const),
-              order: blueprintItem?.order ?? 1000 + index,
-              label: blueprintItem?.label ?? serverItem.label,
-              description: blueprintItem?.description ?? serverItem.description,
-              obrigatorio: blueprintItem?.obrigatorio ?? serverItem.obrigatorio,
-              source: blueprintItem?.source ?? ("DOCUMENT_UPLOAD" as const),
-              completionStrategy:
-                blueprintItem?.completionStrategy ??
-                ("DOCUMENT_PRESENT" as const),
-              baseLegal: blueprintItem?.baseLegal,
-              condicional: blueprintItem?.condicional,
-              completionHint: blueprintItem?.completionHint,
-            };
+        const blueprintItem = internalBlueprintMap.get(serverItem.category);
+        return {
+          category: serverItem.category,
+          phase: blueprintItem?.phase ?? ("PREPARACAO" as const),
+          order: blueprintItem?.order ?? 1000 + index,
+          label: blueprintItem?.label ?? serverItem.label,
+          description: blueprintItem?.description ?? serverItem.description,
+          obrigatorio: blueprintItem?.obrigatorio ?? serverItem.obrigatorio,
+          source: blueprintItem?.source ?? ("DOCUMENT_UPLOAD" as const),
+          completionStrategy:
+            blueprintItem?.completionStrategy ?? ("DOCUMENT_PRESENT" as const),
+          baseLegal: blueprintItem?.baseLegal,
+          condicional: blueprintItem?.condicional,
+          completionHint: blueprintItem?.completionHint,
+        };
       });
     const sourceItems = [...preparationRequirements, ...serverOnlyItems].sort(
       (left, right) => left.order - right.order,
@@ -1453,14 +1472,14 @@ export function LicitacaoProcessoPage({
         "LICITACAO_DECRETO_EQUIPE_APOIO",
         Boolean(
           designacoesQuery.data?.equipeApoio?.id ??
-            detalhe?.licitacao.equipeApoioId,
+          detalhe?.licitacao.equipeApoioId,
         ),
       ],
       [
         "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
         Boolean(
           designacoesQuery.data?.ordenadorDespesa?.id ??
-            detalhe?.licitacao.ordenadorDespesaId,
+          detalhe?.licitacao.ordenadorDespesaId,
         ),
       ],
     ]);
@@ -1472,9 +1491,13 @@ export function LicitacaoProcessoPage({
       const statusFlexivel =
         serverItem?.statusFlexivel ??
         (serverItem?.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO");
-      const concluido = serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.concluido ?? false;
+      const concluido =
+        serverFlow?.evidence.find(
+          (evidence) => evidence.category === item.category,
+        )?.concluido ?? false;
       return {
         ...item,
+        label: preparationObjectLabels[item.category] ?? item.label,
         concluido,
         naoAplicavel: serverItem?.naoAplicavel ?? false,
         statusFlexivel,
@@ -1507,44 +1530,16 @@ export function LicitacaoProcessoPage({
     (item) => item.obrigatorio && !isChecklistItemAddressed(item),
   );
   const progressCount = checklistItems.filter(isChecklistItemAddressed).length;
-  const addressedChecklistItems = checklistItems.filter(
-    isChecklistItemAddressed,
-  );
   const unresolvedChecklistItems = checklistItems.filter(
     (item) => !isChecklistItemAddressed(item),
   );
-  const internalChecklistLeadIndex = unresolvedChecklistItems.length
-    ? checklistItems.findIndex(
-        (item) => item.category === unresolvedChecklistItems[0]?.category,
-      )
-    : Math.max(0, checklistItems.length - internalChecklistRevealCount);
-  const visibleInternalChecklistItems = checklistItems.slice(
-    Math.max(0, internalChecklistLeadIndex),
-    Math.max(0, internalChecklistLeadIndex) + internalChecklistRevealCount,
-  );
-  const hiddenInternalChecklistCount = Math.max(
-    0,
-    checklistItems.length -
-      (Math.max(0, internalChecklistLeadIndex) + internalChecklistRevealCount),
-  );
-  const resolvedInternalChecklistPreview = showResolvedInternalChecklist
-    ? addressedChecklistItems
-    : addressedChecklistItems.slice(
-        Math.max(0, addressedChecklistItems.length - 3),
-      );
   const selectedInternalChecklistItem =
     checklistItems.find(
       (item) => item.category === selectedInternalChecklistCategory,
     ) ??
     unresolvedChecklistItems[0] ??
-    visibleInternalChecklistItems[0] ??
     checklistItems[0] ??
     null;
-  const selectedInternalChecklistIndex = selectedInternalChecklistItem
-    ? checklistItems.findIndex(
-        (item) => item.category === selectedInternalChecklistItem.category,
-      ) + 1
-    : 0;
   const selectedInternalLatestDocumento = selectedInternalChecklistItem
     ? (selectedInternalChecklistItem.documentos
         .slice()
@@ -1560,24 +1555,22 @@ export function LicitacaoProcessoPage({
   const selectedInternalChecklistUsesCIModal =
     selectedInternalChecklistItem?.category ===
     CI_RESERVA_ORCAMENTARIA_CATEGORY;
-  const selectedInternalInstitutionalKind:
-    | LicitacaoInstitutionalKind
-    | null = (() => {
-    switch (selectedInternalChecklistItem?.category) {
-      case "LICITACAO_DECRETO_COMISSAO":
-        return "comissao";
-      case "LICITACAO_DECRETO_EQUIPE_APOIO":
-        return "equipeApoio";
-      case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
-        return "ordenadorDespesa";
-      default:
-        return null;
-    }
-  })();
+  const selectedInternalInstitutionalKind: LicitacaoInstitutionalKind | null =
+    (() => {
+      switch (selectedInternalChecklistItem?.category) {
+        case "LICITACAO_DECRETO_COMISSAO":
+          return "comissao";
+        case "LICITACAO_DECRETO_EQUIPE_APOIO":
+          return "equipeApoio";
+        case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
+          return "ordenadorDespesa";
+        default:
+          return null;
+      }
+    })();
   const selectedInternalUsesInstitutionalSelector =
     selectedInternalChecklistItem?.editor === "INSTITUTIONAL_SELECTOR" ||
-    selectedInternalChecklistItem?.completionStrategy ===
-      "CATALOG_SELECTION" ||
+    selectedInternalChecklistItem?.completionStrategy === "CATALOG_SELECTION" ||
     Boolean(selectedInternalInstitutionalKind);
   const selectedInternalChecklistFlexState = selectedInternalChecklistItem
     ? (checklistNaoAplicavelForm[selectedInternalChecklistItem.category] ?? {
@@ -1623,17 +1616,17 @@ export function LicitacaoProcessoPage({
           case "LICITACAO_DECRETO_COMISSAO":
             return Boolean(
               designacoesQuery.data?.comissao?.id ??
-                detalhe?.licitacao.comissaoId,
+              detalhe?.licitacao.comissaoId,
             );
           case "LICITACAO_DECRETO_EQUIPE_APOIO":
             return Boolean(
               designacoesQuery.data?.equipeApoio?.id ??
-                detalhe?.licitacao.equipeApoioId,
+              detalhe?.licitacao.equipeApoioId,
             );
           case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
             return Boolean(
               designacoesQuery.data?.ordenadorDespesa?.id ??
-                detalhe?.licitacao.ordenadorDespesaId,
+              detalhe?.licitacao.ordenadorDespesaId,
             );
           case "LICITACAO_FUNDAMENTO_INEXIGIBILIDADE":
             return Boolean(configForm.fundamentoLegalInciso);
@@ -1680,9 +1673,15 @@ export function LicitacaoProcessoPage({
 
       const checklistItem = {
         ...item,
-        concluido: serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.concluido ?? false,
+        concluido:
+          serverFlow?.evidence.find(
+            (evidence) => evidence.category === item.category,
+          )?.concluido ?? false,
         documentos: documentosCategoria,
-        statusOrigem: serverFlow?.evidence.find((evidence) => evidence.category === item.category)?.statusOrigem ?? "Pendente",
+        statusOrigem:
+          serverFlow?.evidence.find(
+            (evidence) => evidence.category === item.category,
+          )?.statusOrigem ?? "Pendente",
       };
       map.set(item.phase, [...(map.get(item.phase) ?? []), checklistItem]);
     });
@@ -1844,8 +1843,6 @@ export function LicitacaoProcessoPage({
   );
 
   useEffect(() => {
-    setInternalChecklistRevealCount(3);
-    setShowResolvedInternalChecklist(false);
     setSelectedInternalChecklistCategory(null);
   }, [processoId]);
 
@@ -1945,9 +1942,9 @@ export function LicitacaoProcessoPage({
     if (kind === "equipeApoio") next.equipeApoioId = id;
     if (kind === "ordenadorDespesa") next.ordenadorDespesaId = id;
 
-    const selectedComissao = (availableDesignacoesQuery.data?.comissoes ?? []).find(
-      (item) => item.id === next.comissaoId,
-    );
+    const selectedComissao = (
+      availableDesignacoesQuery.data?.comissoes ?? []
+    ).find((item) => item.id === next.comissaoId);
     const suggestedConductor =
       kind === "comissao"
         ? resolveSuggestedConductorFromGroup(selectedComissao)
@@ -1962,9 +1959,7 @@ export function LicitacaoProcessoPage({
       processoId,
       ...next,
       aplicarCondutorSugerido: shouldApplyConductor,
-      condutorSugeridoId: shouldApplyConductor
-        ? suggestedConductor?.id
-        : null,
+      condutorSugeridoId: shouldApplyConductor ? suggestedConductor?.id : null,
     });
   }
 
@@ -2186,7 +2181,10 @@ export function LicitacaoProcessoPage({
         state.statusFlexivel === "CONCLUIDO_FISICO"
           ? state.digitalizarDepois
           : undefined,
-      justificativaAuditoria: auditJustification.trim() || state.justificativa.trim() || "Reativacao do requisito documental.",
+      justificativaAuditoria:
+        auditJustification.trim() ||
+        state.justificativa.trim() ||
+        "Reativacao do requisito documental.",
     });
   }
 
@@ -2195,6 +2193,7 @@ export function LicitacaoProcessoPage({
       tipo?: string;
     },
   ) {
+    if (uploadingChecklistCategory) return;
     const current = getUploadState(uploadForms, item.category);
     if (!current.arquivo) {
       setFeedback(null);
@@ -2204,6 +2203,7 @@ export function LicitacaoProcessoPage({
 
     const isAtaSyncCategory = ATA_SESSION_SYNC_CATEGORIES.has(item.category);
 
+    setUploadingChecklistCategory(item.category);
     try {
       setFeedback(null);
       setErrorMessage(null);
@@ -2252,6 +2252,7 @@ export function LicitacaoProcessoPage({
         error instanceof Error ? error.message : "Falha ao anexar o documento.",
       );
     } finally {
+      setUploadingChecklistCategory(null);
       if (isAtaSyncCategory) {
         setAtaSyncProcessingFileName(null);
       }
@@ -2611,26 +2612,37 @@ export function LicitacaoProcessoPage({
     observacao: string,
   ) {
     if (!ensureAuditJustification("alterar a etapa da licitacao")) return;
-    await advanceStageMutation.mutateAsync({
-      processoId,
-      statusLicitacao,
-      etapaAtual,
-      observacao,
-      justificativaAuditoria: isForaDoFluxo
-        ? auditJustification.trim()
-        : undefined,
-    }).then(() => {
-      const phase = ["RECEBIMENTO_PROPOSTAS", "LANCES"].includes(statusLicitacao)
-        ? (serverFlow?.phases.some((item) => item.key === "DISPUTA") ? "DISPUTA" : "JULGAMENTO")
-        : statusLicitacao;
-      selectLegalPhase(phase as LicitacaoLinearPhaseKey);
-    }).catch(() => undefined); // A mensagem da API e apresentada pelo onError.
+    await advanceStageMutation
+      .mutateAsync({
+        processoId,
+        statusLicitacao,
+        etapaAtual,
+        observacao,
+        justificativaAuditoria: isForaDoFluxo
+          ? auditJustification.trim()
+          : undefined,
+      })
+      .then(() => {
+        const phase = ["RECEBIMENTO_PROPOSTAS", "LANCES"].includes(
+          statusLicitacao,
+        )
+          ? serverFlow?.phases.some((item) => item.key === "DISPUTA")
+            ? "DISPUTA"
+            : "JULGAMENTO"
+          : statusLicitacao;
+        selectLegalPhase(phase as LicitacaoLinearPhaseKey);
+      })
+      .catch(() => undefined); // A mensagem da API e apresentada pelo onError.
   }
 
   async function handleHomologar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isBlockingFlow && !serverFlow?.actions.homologar.allowed) {
-      setErrorMessage(serverFlow?.actions.homologar.blockers.map((item) => `${item.phase}: ${item.label}`).join("; ") ?? "Aguarde a validacao dos requisitos.");
+      setErrorMessage(
+        serverFlow?.actions.homologar.blockers
+          .map((item) => `${item.phase}: ${item.label}`)
+          .join("; ") ?? "Aguarde a validacao dos requisitos.",
+      );
       return;
     }
 
@@ -2683,14 +2695,14 @@ export function LicitacaoProcessoPage({
       makeNavItem("external", "Fase externa", externalRef),
       makeNavItem("docs", "Documentos do processo", docsRef),
       makeNavItem("publication", "Publicacao", publicationRef),
-      ...((showCompetitivoSteps || !showLances)
+      ...(showCompetitivoSteps || !showLances
         ? [makeNavItem("licitantes", "Licitantes", licitantesRef)]
         : []),
-      ...((showCompetitivoSteps || !showLances)
+      ...(showCompetitivoSteps || !showLances
         ? [makeNavItem("propostas", "Propostas", propostasRef)]
         : []),
       ...(showLances ? [makeNavItem("lances", "Lances", lancesRef)] : []),
-      ...((showCompetitivoSteps || !showLances)
+      ...(showCompetitivoSteps || !showLances
         ? [makeNavItem("julgamento", "Julgamento", julgamentoRef)]
         : []),
       makeNavItem("habilitacao", "Habilitacao", habilitacaoRef),
@@ -2731,10 +2743,12 @@ export function LicitacaoProcessoPage({
     0,
     flowSteps.findIndex((item) => item.key === currentVisualStep),
   );
-  const currentProcessPhase = serverFlow?.currentPhase ?? resolveLinearPhaseFromVisualStep(
-    currentVisualStep,
-    detalhe?.processo.homologado ?? false,
-  );
+  const currentProcessPhase =
+    serverFlow?.currentPhase ??
+    resolveLinearPhaseFromVisualStep(
+      currentVisualStep,
+      detalhe?.processo.homologado ?? false,
+    );
   const contractGateQuery = trpc.processos.macroPhaseGate.useQuery(
     { processoId, moduloDestino: "CONTRATOS" },
     {
@@ -2909,10 +2923,21 @@ export function LicitacaoProcessoPage({
       label: item.label,
       detalhe: item.completionHint ?? item.description ?? undefined,
     }));
-  const phasePendingItems = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [
-    phase, serverFlow?.phases.find((item) => item.key === phase)?.pending ?? [],
-  ])) as unknown as Record<LicitacaoLinearPhaseKey, Array<{ category: string; label: string; detalhe?: string }>>;
-  const phasePendingCounts = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [phase, phasePendingItems[phase].length])) as Record<LicitacaoLinearPhaseKey, number>;
+  const phasePendingItems = Object.fromEntries(
+    licitacaoGuidedPhaseOrder.map((phase) => [
+      phase,
+      serverFlow?.phases.find((item) => item.key === phase)?.pending ?? [],
+    ]),
+  ) as unknown as Record<
+    LicitacaoLinearPhaseKey,
+    Array<{ category: string; label: string; detalhe?: string }>
+  >;
+  const phasePendingCounts = Object.fromEntries(
+    licitacaoGuidedPhaseOrder.map((phase) => [
+      phase,
+      phasePendingItems[phase].length,
+    ]),
+  ) as Record<LicitacaoLinearPhaseKey, number>;
   const currentProcessPhaseIndex =
     licitacaoLinearPhaseOrder.indexOf(currentProcessPhase);
   const maxAccessiblePhaseIndex =
@@ -2923,7 +2948,12 @@ export function LicitacaoProcessoPage({
           currentProcessPhaseIndex +
             (phasePendingCounts[currentProcessPhase] === 0 ? 1 : 0),
         );
-  const phaseCompletedBySystem = Object.fromEntries(licitacaoGuidedPhaseOrder.map((phase) => [phase, serverFlow?.phases.find((item) => item.key === phase)?.complete ?? false])) as Record<LicitacaoLinearPhaseKey, boolean>;
+  const phaseCompletedBySystem = Object.fromEntries(
+    licitacaoGuidedPhaseOrder.map((phase) => [
+      phase,
+      serverFlow?.phases.find((item) => item.key === phase)?.complete ?? false,
+    ]),
+  ) as Record<LicitacaoLinearPhaseKey, boolean>;
   const sectionRefs: Record<SectionKey, RefObject<HTMLElement | null>> = {
     overview: overviewRef,
     internal: internalRef,
@@ -3025,7 +3055,7 @@ export function LicitacaoProcessoPage({
   ): SectionKey[] => {
     switch (phase) {
       case "PREPARACAO":
-        return ["overview", "internal", "docs"];
+        return ["internal"];
       case "PUBLICACAO":
         return ["publication"];
       case "DISPUTA":
@@ -3037,7 +3067,9 @@ export function LicitacaoProcessoPage({
           ...(showLances ? (["lances"] as const) : []),
         ];
       case "JULGAMENTO":
-        return showCompetitivoSteps ? ["julgamento"] : ["licitantes", "propostas", "julgamento"];
+        return showCompetitivoSteps
+          ? ["julgamento"]
+          : ["licitantes", "propostas", "julgamento"];
       case "HABILITACAO":
         return ["habilitacao"];
       case "RECURSOS":
@@ -3159,14 +3191,36 @@ export function LicitacaoProcessoPage({
           };
     }
 
-    if (["DISPUTA", "JULGAMENTO", "HABILITACAO", "RECURSOS", "CONTROLE_INTERNO"].includes(currentPhase)) {
-      const nextPhase = licitacaoLinearPhaseOrder[licitacaoLinearPhaseOrder.indexOf(currentPhase) + 1];
-      const nextStatus = nextPhase === "DISPUTA" ? "RECEBIMENTO_PROPOSTAS" : nextPhase;
+    if (
+      [
+        "DISPUTA",
+        "JULGAMENTO",
+        "HABILITACAO",
+        "RECURSOS",
+        "CONTROLE_INTERNO",
+      ].includes(currentPhase)
+    ) {
+      const nextPhase =
+        licitacaoLinearPhaseOrder[
+          licitacaoLinearPhaseOrder.indexOf(currentPhase) + 1
+        ];
+      const nextStatus =
+        nextPhase === "DISPUTA" ? "RECEBIMENTO_PROPOSTAS" : nextPhase;
       return {
         label: `Avancar para ${nextPhase ? phaseCatalog[nextPhase].shortLabel : "proxima fase"}`,
-        helper: "Conclua os requisitos desta fase e confira os dados antes de avancar.",
-        disabled: !nextPhase || phaseHasBlockingPendencies(currentPhase) || advanceStageMutation.isPending,
-        onClick: () => nextStatus && void handleAdvanceStage(nextStatus as Parameters<typeof handleAdvanceStage>[0], `Licitacao / ${phaseCatalog[nextPhase].label}`, "Avanco acompanhado de fase."),
+        helper:
+          "Conclua os requisitos desta fase e confira os dados antes de avancar.",
+        disabled:
+          !nextPhase ||
+          phaseHasBlockingPendencies(currentPhase) ||
+          advanceStageMutation.isPending,
+        onClick: () =>
+          nextStatus &&
+          void handleAdvanceStage(
+            nextStatus as Parameters<typeof handleAdvanceStage>[0],
+            `Licitacao / ${phaseCatalog[nextPhase].label}`,
+            "Avanco acompanhado de fase.",
+          ),
       };
     }
 
@@ -3251,7 +3305,9 @@ export function LicitacaoProcessoPage({
   const handleGuidedPrimaryAction = () => {
     if (guidedProcessModel.nextAction.intent === "focus_pending") {
       if (currentPhase === "PREPARACAO" && selectedInternalChecklistItem) {
-        setSelectedInternalChecklistCategory(selectedInternalChecklistItem.category);
+        setSelectedInternalChecklistCategory(
+          selectedInternalChecklistItem.category,
+        );
         jumpToSection({ key: "internal", ref: internalRef });
         return;
       }
@@ -3321,7 +3377,10 @@ export function LicitacaoProcessoPage({
       : isLicitacaoLinearPhaseKey(storedPhase)
         ? normalizeLegacyPhaseKey(storedPhase)
         : currentProcessPhase;
-    const nextPhase = resolveAccessibleLicitacaoPhase(preferredPhase, serverFlow?.phases ?? []);
+    const nextPhase = resolveAccessibleLicitacaoPhase(
+      preferredPhase,
+      serverFlow?.phases ?? [],
+    );
 
     setCurrentPhase(nextPhase);
     setSectionOpen((current) => ({
@@ -3405,31 +3464,99 @@ export function LicitacaoProcessoPage({
           onFileSelect={handleEvidenceFileSelect}
           onUpload={(item) => void handleUploadChecklistDocumento(item)}
           renderDeclaration={(item) => {
-            const requirement = serverFlow?.evidence.find((entry) => entry.category === item.category);
-            if (!requirement || ["CATALOG_SELECTION", "SYSTEM_FIELD"].includes(requirement.completionStrategy)) return null;
-            const state = checklistNaoAplicavelForm[item.category] ?? initialChecklistFlexFormState;
-            const change = (key: keyof ChecklistFlexFormState, value: string) => setChecklistNaoAplicavelState(item.category, (current) => ({ ...current, [key]: value }));
-            return <details className="px-4 pb-4 text-sm">
-              <summary className="cursor-pointer font-semibold">Declaracao auditada do documento</summary>
-              <div className="mt-3 grid gap-3">
-                <FormField label="Situacao do documento">
-                  <select className="rounded border p-2 bg-[var(--surface-card)]" value={state.statusFlexivel} onChange={(event) => change("statusFlexivel", event.target.value)}>
-                    <option value="PADRAO">Pendente / documento digital</option>
-                    <option value="CONCLUIDO_FISICO">Concluido em processo fisico</option>
-                    <option value="NAO_APLICAVEL">Nao aplicavel</option>
-                    <option value="OUTRO_SETOR">Em outro setor (permanece pendente)</option>
-                  </select>
-                </FormField>
-                <FormField label="Justificativa"><Input value={state.justificativa} onChange={(event) => change("justificativa", event.target.value)} /></FormField>
-                {state.statusFlexivel === "CONCLUIDO_FISICO" ? <>
-                  <FormField label="Numero do processo fisico"><Input value={state.processoFisicoNumero} onChange={(event) => change("processoFisicoNumero", event.target.value)} /></FormField>
-                  <FormField label="Local de arquivamento"><Input value={state.localArquivamento} onChange={(event) => change("localArquivamento", event.target.value)} /></FormField>
-                </> : null}
-                {state.statusFlexivel === "OUTRO_SETOR" ? <FormField label="Departamento responsavel"><Input value={state.departamentoResponsavel} onChange={(event) => change("departamentoResponsavel", event.target.value)} /></FormField> : null}
-                <p>O registro identifica o usuario e a data na auditoria.</p>
-                <Button type="button" disabled={setChecklistNaoAplicavelMutation.isPending} onClick={() => void handleChecklistNaoAplicavel(item)}>Salvar declaracao</Button>
-              </div>
-            </details>;
+            const requirement = serverFlow?.evidence.find(
+              (entry) => entry.category === item.category,
+            );
+            if (
+              !requirement ||
+              ["CATALOG_SELECTION", "SYSTEM_FIELD"].includes(
+                requirement.completionStrategy,
+              )
+            )
+              return null;
+            const state =
+              checklistNaoAplicavelForm[item.category] ??
+              initialChecklistFlexFormState;
+            const change = (key: keyof ChecklistFlexFormState, value: string) =>
+              setChecklistNaoAplicavelState(item.category, (current) => ({
+                ...current,
+                [key]: value,
+              }));
+            return (
+              <details className="px-4 pb-4 text-sm">
+                <summary className="cursor-pointer font-semibold">
+                  Declaracao auditada do documento
+                </summary>
+                <div className="mt-3 grid gap-3">
+                  <FormField label="Situacao do documento">
+                    <select
+                      className="rounded border p-2 bg-[var(--surface-card)]"
+                      value={state.statusFlexivel}
+                      onChange={(event) =>
+                        change("statusFlexivel", event.target.value)
+                      }
+                    >
+                      <option value="PADRAO">
+                        Pendente / documento digital
+                      </option>
+                      <option value="CONCLUIDO_FISICO">
+                        Concluido em processo fisico
+                      </option>
+                      <option value="NAO_APLICAVEL">Nao aplicavel</option>
+                      <option value="OUTRO_SETOR">
+                        Em outro setor (permanece pendente)
+                      </option>
+                    </select>
+                  </FormField>
+                  <FormField label="Justificativa">
+                    <Input
+                      value={state.justificativa}
+                      onChange={(event) =>
+                        change("justificativa", event.target.value)
+                      }
+                    />
+                  </FormField>
+                  {state.statusFlexivel === "CONCLUIDO_FISICO" ? (
+                    <>
+                      <FormField label="Numero do processo fisico">
+                        <Input
+                          value={state.processoFisicoNumero}
+                          onChange={(event) =>
+                            change("processoFisicoNumero", event.target.value)
+                          }
+                        />
+                      </FormField>
+                      <FormField label="Local de arquivamento">
+                        <Input
+                          value={state.localArquivamento}
+                          onChange={(event) =>
+                            change("localArquivamento", event.target.value)
+                          }
+                        />
+                      </FormField>
+                    </>
+                  ) : null}
+                  {state.statusFlexivel === "OUTRO_SETOR" ? (
+                    <FormField label="Departamento responsavel">
+                      <Input
+                        value={state.departamentoResponsavel}
+                        onChange={(event) =>
+                          change("departamentoResponsavel", event.target.value)
+                        }
+                      />
+                    </FormField>
+                  ) : null}
+                  <p>O registro identifica o usuario e a data na auditoria.</p>
+                  <Button
+                    type="button"
+                    disabled={setChecklistNaoAplicavelMutation.isPending}
+                    onClick={() => void handleChecklistNaoAplicavel(item)}
+                  >
+                    Salvar declaracao
+                  </Button>
+                </div>
+              </details>
+            );
           }}
         />
       </div>
@@ -3582,20 +3709,939 @@ export function LicitacaoProcessoPage({
     );
   }
 
+  const preparationItemsContent = (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div>
+          <div className="text-sm font-semibold text-[var(--color-primary-600)]">
+            Itens do processo
+          </div>
+          <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+            Itens e valores que compõem esta contratação.
+          </div>
+        </div>
+        <div className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
+          {formatCurrencyBRL(
+            itensVinculadosValorTotal || detalhe.processo.valorEstimado,
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
+        <Table className="min-w-[920px]">
+          <TableHead>
+            <tr>
+              <TableHeaderCell>Item</TableHeaderCell>
+              <TableHeaderCell>Descrição</TableHeaderCell>
+              <TableHeaderCell>Quantidade</TableHeaderCell>
+              <TableHeaderCell>Valor unitário</TableHeaderCell>
+              <TableHeaderCell>Total</TableHeaderCell>
+            </tr>
+          </TableHead>
+          <TableBody>
+            {detalhe?.itens.length ? (
+              detalhe.itens.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="align-top font-semibold text-[var(--color-primary-900)]">
+                    {item.numeroItem}
+                  </TableCell>
+                  <TableCell className="align-top">{item.descricao}</TableCell>
+                  <TableCell className="align-top">
+                    {formatNumberBR(item.quantidade, 3)} {item.unidade}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {formatCurrencyBRL(item.valorUnitarioEstimado)}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    {formatCurrencyBRL(item.valorTotalEstimado)}
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className="py-8 text-center text-[var(--color-neutral-500)]"
+                >
+                  Este processo ainda não possui itens vinculados.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <details className="rounded-xl border border-[var(--border-subtle)] px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[var(--color-primary-700)] focus-visible:outline focus-visible:outline-2">
+          Importar itens da SD
+        </summary>
+        <p className="mt-3 text-sm text-[var(--text-secondary)]">
+          Escolha a Solicitação de Despesa em PDF e confira os itens antes de
+          vincular.
+        </p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <FormField label="Arquivo PDF da SD">
+            <Input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(event) => setSdFile(event.target.files?.[0] ?? null)}
+            />
+          </FormField>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              onClick={() => void handleProcessarSd()}
+              disabled={!sdFile || sdParsing}
+            >
+              {sdParsing ? "Lendo arquivo..." : "Conferir itens do PDF"}
+            </Button>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs text-[var(--text-muted)]">
+          Itens com o mesmo número serão atualizados. A importação fica
+          bloqueada se já houver propostas.
+        </p>
+
+        {sdError ? (
+          <Alert variant="error" className="mt-3">
+            {sdError}
+          </Alert>
+        ) : null}
+
+        {sdResult ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <article className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3">
+                <div className="text-sm font-semibold text-[var(--color-primary-600)]">
+                  Número da SD
+                </div>
+                <div className="mt-1 text-lg font-semibold text-[var(--color-primary-900)]">
+                  {sdResult.metadata.numero_sd ?? "-"}
+                </div>
+              </article>
+              <article className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3">
+                <div className="text-sm font-semibold text-[var(--color-primary-600)]">
+                  Itens na prévia
+                </div>
+                <div className="mt-1 text-lg font-semibold text-[var(--color-primary-900)]">
+                  {mergedSdItems.length}
+                </div>
+              </article>
+              <article className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3">
+                <div className="text-sm font-semibold text-[var(--color-primary-600)]">
+                  Valor total da SD
+                </div>
+                <div className="mt-1 text-lg font-semibold text-[var(--color-primary-900)]">
+                  {typeof sdResult.metadata.valor_total === "number"
+                    ? formatCurrencyBRL(sdResult.metadata.valor_total)
+                    : "-"}
+                </div>
+              </article>
+              <article className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3">
+                <div className="text-sm font-semibold text-[var(--color-primary-600)]">
+                  Itens manuais
+                </div>
+                <div className="mt-1 text-lg font-semibold text-[var(--color-primary-900)]">
+                  {manualSdItems.length}
+                </div>
+              </article>
+            </div>
+
+            <div className="rounded-xl border border-dashed border-[rgba(47,84,196,0.32)] bg-[var(--surface-soft)] px-4 py-4">
+              <p className="text-sm font-bold text-[var(--color-primary-900)]">
+                Complementar item manual
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <FormField label="Item">
+                  <Input
+                    value={sdItemDraft.numero}
+                    inputMode="numeric"
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        numero: event.target.value,
+                      }))
+                    }
+                    placeholder="Ex.: 22"
+                  />
+                </FormField>
+                <FormField label="Descrição *">
+                  <Input
+                    value={sdItemDraft.descricao}
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        descricao: event.target.value,
+                      }))
+                    }
+                    placeholder="Descrição do item"
+                  />
+                </FormField>
+                <FormField label="Unid">
+                  <Input
+                    value={sdItemDraft.unidade}
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        unidade: event.target.value,
+                      }))
+                    }
+                    placeholder="UND"
+                  />
+                </FormField>
+                <FormField label="Qtd">
+                  <Input
+                    value={sdItemDraft.quantidade}
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        quantidade: event.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Vlr. unit.">
+                  <Input
+                    value={sdItemDraft.preco_unitario}
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        preco_unitario: event.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                  />
+                </FormField>
+                <FormField label="Total">
+                  <Input
+                    value={sdItemDraft.preco_total}
+                    onChange={(event) =>
+                      setSdItemDraft((current) => ({
+                        ...current,
+                        preco_total: event.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                  />
+                </FormField>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAdicionarItemManualSd}
+                >
+                  Adicionar item manual
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleVincularSd()}
+                  disabled={!sdResult.artifact?.relativePath || sdVinculando}
+                >
+                  {sdVinculando
+                    ? "Vinculando..."
+                    : "Vincular itens ao processo"}
+                </Button>
+                {sdResult.artifact?.downloadUrl ? (
+                  <a
+                    href={sdResult.artifact.downloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-full border border-[var(--color-primary-300)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-700)] hover:bg-[var(--surface-soft)]"
+                  >
+                    <FileStack className="mr-2 h-4 w-4" />
+                    Baixar JSON da SD
+                  </a>
+                ) : null}
+              </div>
+
+              {manualSdItemError ? (
+                <Alert variant="error" className="mt-3">
+                  {manualSdItemError}
+                </Alert>
+              ) : null}
+              {sdVinculacaoError ? (
+                <Alert variant="error" className="mt-3">
+                  {sdVinculacaoError}
+                </Alert>
+              ) : null}
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+              <Table className="min-w-[920px]">
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>Item</TableHeaderCell>
+                    <TableHeaderCell>Descrição</TableHeaderCell>
+                    <TableHeaderCell>Unid</TableHeaderCell>
+                    <TableHeaderCell>Qtd</TableHeaderCell>
+                    <TableHeaderCell>Vlr. unit.</TableHeaderCell>
+                    <TableHeaderCell>Total</TableHeaderCell>
+                    <TableHeaderCell>Ações</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {mergedSdItems.length ? (
+                    mergedSdItems.slice(0, 30).map((item, index) => (
+                      <TableRow key={`${item.numero ?? "sd"}-${index}`}>
+                        <TableCell>{item.numero ?? "-"}</TableCell>
+                        <TableCell className="max-w-[520px] whitespace-normal">
+                          {item.descricao ?? "-"}
+                        </TableCell>
+                        <TableCell>{item.unidade ?? "-"}</TableCell>
+                        <TableCell>
+                          {formatNumberBR(item.quantidade, 3)}
+                        </TableCell>
+                        <TableCell>
+                          {formatCurrencyBRL(item.preco_unitario)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span>{formatCurrencyBRL(item.preco_total)}</span>
+                            {item.fonte === "manual" ? (
+                              <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
+                                Manual
+                              </span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {item.fonte === "manual" ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() =>
+                                handleRemoverItemManualSd(
+                                  item.manualIndex ?? -1,
+                                )
+                              }
+                              disabled={(item.manualIndex ?? -1) < 0}
+                            >
+                              Remover
+                            </Button>
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="py-8 text-center text-[var(--color-neutral-500)]"
+                      >
+                        Faça o processamento da SD para visualizar a prévia dos
+                        itens.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {mergedSdItems.length > 30 ? (
+              <p className="text-xs text-[var(--color-neutral-500)]">
+                Exibindo 30 de {mergedSdItems.length} itens da SD.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </details>
+    </div>
+  );
+  const preparationConfigurationContent = (
+    <form className="space-y-5" onSubmit={handleSalvarConfiguracao}>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <FormField label="Criterio de julgamento">
+          <Input
+            value={configForm.criterioJulgamento}
+            onChange={(event) =>
+              setConfigForm((current) => ({
+                ...current,
+                criterioJulgamento: event.target.value,
+              }))
+            }
+            placeholder="Ex.: Menor preco por lote"
+          />
+        </FormField>
+        <FormField label="Modo de disputa">
+          <Select
+            value={configForm.modoDisputa}
+            onChange={(event) =>
+              setConfigForm((current) => ({
+                ...current,
+                modoDisputa: event.target.value,
+              }))
+            }
+          >
+            {Object.entries(modoDisputaLabels).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <label className="inline-flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
+          <Checkbox
+            checked={configForm.exigeDeclaracaoNaoFracionamento}
+            onChange={(event) =>
+              setConfigForm((current) => ({
+                ...current,
+                exigeDeclaracaoNaoFracionamento: event.target.checked,
+              }))
+            }
+          />
+          Exigir declaração de não fracionamento
+        </label>
+        <label className="inline-flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
+          <Checkbox
+            checked={configForm.publicarNoDou}
+            onChange={(event) =>
+              setConfigForm((current) => ({
+                ...current,
+                publicarNoDou: event.target.checked,
+              }))
+            }
+          />
+          Publicar tambem no DOU
+        </label>
+        <label className="inline-flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
+          <Checkbox
+            checked={configForm.publicarEmJornal}
+            onChange={(event) =>
+              setConfigForm((current) => ({
+                ...current,
+                publicarEmJornal: event.target.checked,
+              }))
+            }
+          />
+          Publicar tambem em jornal
+        </label>
+      </div>
+
+      {showCompetitivoSteps || !showLances ? (
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-4">
+          <div className="text-xs font-semibold text-[var(--color-primary-600)]">
+            Configuracao de fluxo
+          </div>
+          <label className="mt-3 inline-flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
+            <Checkbox
+              checked={configForm.inversaoFasesHabilitada}
+              onChange={(event) =>
+                setConfigForm((current) => ({
+                  ...current,
+                  inversaoFasesHabilitada: event.target.checked,
+                }))
+              }
+            />
+            Inverter ordem das fases (habilitacao antes da disputa)
+          </label>
+          {configForm.inversaoFasesHabilitada ? (
+            <FormField label="Justificativa da inversao" className="mt-3">
+              <Textarea
+                rows={3}
+                value={configForm.inversaoFasesJustificativa}
+                onChange={(event) =>
+                  setConfigForm((current) => ({
+                    ...current,
+                    inversaoFasesJustificativa: event.target.value,
+                  }))
+                }
+                placeholder="Explique o motivo e o impacto esperado da inversao."
+              />
+            </FormField>
+          ) : null}
+          <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
+            Ao ativar a inversao, o sistema reordena a navegacao para iniciar a
+            habilitacao antes das fases competitivas.
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3">
+        <FormField label="Observacoes internas">
+          <Textarea
+            rows={3}
+            value={configForm.observacoes}
+            onChange={(event) => {
+              setConfigForm((current) => ({
+                ...current,
+                observacoes: event.target.value,
+              }));
+              setPublishForm((current) => ({
+                ...current,
+                observacao: event.target.value,
+              }));
+            }}
+          />
+        </FormField>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button type="submit" disabled={saveConfiguracaoMutation.isPending}>
+          {saveConfiguracaoMutation.isPending
+            ? "Salvando..."
+            : "Salvar configuracao interna"}
+        </Button>
+      </div>
+    </form>
+  );
+  const preparationEditor = (
+    <>
+      {selectedInternalChecklistItem &&
+      selectedInternalUploadState &&
+      selectedInternalChecklistFlexState ? (
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <h4 className="text-lg font-semibold text-[var(--color-primary-950)]">
+                  {selectedInternalChecklistItem.label}
+                </h4>
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(selectedInternalChecklistItem)}`}
+                >
+                  {getChecklistItemStatusLabel(selectedInternalChecklistItem)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                {selectedInternalChecklistItem.description}
+              </p>
+            </div>
+          </div>
+
+          {selectedInternalUsesInstitutionalSelector &&
+          selectedInternalInstitutionalKind ? (
+            <div className="mt-5">
+              <LicitacaoInstitutionalSelector
+                kind={selectedInternalInstitutionalKind}
+                title={selectedInternalChecklistItem.label}
+                selected={
+                  selectedInternalInstitutionalKind === "comissao"
+                    ? (designacoesQuery.data?.comissao ?? null)
+                    : selectedInternalInstitutionalKind === "equipeApoio"
+                      ? (designacoesQuery.data?.equipeApoio ?? null)
+                      : (designacoesQuery.data?.ordenadorDespesa ?? null)
+                }
+                options={
+                  selectedInternalInstitutionalKind === "comissao"
+                    ? (availableDesignacoesQuery.data?.comissoes ?? [])
+                    : selectedInternalInstitutionalKind === "equipeApoio"
+                      ? (availableDesignacoesQuery.data?.equipesApoio ?? [])
+                      : (availableDesignacoesQuery.data?.ordenadores ?? [])
+                }
+                isLoading={availableDesignacoesQuery.isLoading}
+                isSaving={selectDesignacoesMutation.isPending}
+                suggestedConductor={
+                  designacoesQuery.data?.condutorSugerido ?? null
+                }
+                onSelect={(id, applySuggestedConductor) =>
+                  void handleSelectInstitutionalDesignation(
+                    selectedInternalInstitutionalKind,
+                    id,
+                    applySuggestedConductor,
+                  )
+                }
+                onOpenCadastros={() =>
+                  setLocation("/cadastros?institucionais=1")
+                }
+              />
+            </div>
+          ) : null}
+
+          {!selectedInternalUsesInstitutionalSelector &&
+          selectedInternalLatestDocumento ? (
+            <div className="mt-5 rounded-xl border border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                Documento anexado
+              </div>
+              {selectedInternalLatestDocumento ? (
+                <>
+                  <div className="mt-2 text-sm font-semibold text-[var(--color-primary-950)]">
+                    {selectedInternalLatestDocumento.titulo}
+                  </div>
+                  <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                    Anexado em{" "}
+                    {formatShortDateTimeBR(
+                      selectedInternalLatestDocumento.criadoEm,
+                    )}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <a
+                      href={
+                        resolveServerAssetUrl(
+                          selectedInternalLatestDocumento.arquivoUrl,
+                        ) ?? undefined
+                      }
+                      aria-disabled={
+                        !selectedInternalLatestDocumento.arquivoUrl
+                      }
+                      className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--color-primary-700)] hover:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Abrir documento
+                    </a>
+                    <details className="text-xs text-[var(--text-secondary)]">
+                      <summary className="cursor-pointer px-2 py-2 focus-visible:outline focus-visible:outline-2">
+                        Gerenciar arquivo
+                      </summary>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={
+                          deletingDocumentoId ===
+                          selectedInternalLatestDocumento.id
+                        }
+                        onClick={() =>
+                          void handleDeleteDocumento(
+                            selectedInternalLatestDocumento.id,
+                          )
+                        }
+                      >
+                        {deletingDocumentoId ===
+                        selectedInternalLatestDocumento.id
+                          ? "Removendo..."
+                          : "Remover documento"}
+                      </Button>
+                    </details>
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                  Nenhum documento vinculado a este ato ainda.
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          {!selectedInternalUsesInstitutionalSelector ? (
+            <details
+              className="mt-5"
+              open={
+                !selectedInternalLatestDocumento &&
+                !selectedInternalChecklistItem.concluido
+              }
+            >
+              <summary className="cursor-pointer text-sm font-semibold text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2">
+                {selectedInternalLatestDocumento
+                  ? "Anexar outro documento"
+                  : "Anexar documento"}
+              </summary>
+              {selectedInternalChecklistUsesCIModal ? (
+                <div className="mt-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="max-w-2xl">
+                      <div className="text-sm font-semibold text-[var(--text-primary)]">
+                        Gere a CI pelo próprio processo
+                      </div>
+                      <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                        Monte a comunicação interna com os dados atuais do
+                        processo, revise no editor e salve direto neste ato do
+                        checklist.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setShowCIReservaModal(true)}
+                      icon={<FileStack className="h-4 w-4" />}
+                    >
+                      Gerar CI de reserva
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="mt-4 space-y-4">
+                <details>
+                  <summary className="cursor-pointer text-xs text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
+                    Personalizar título e descrição
+                  </summary>
+                  <div className="mt-3 grid gap-3">
+                    <FormField label="Título">
+                      <Input
+                        value={selectedInternalUploadState.titulo}
+                        onChange={(event) =>
+                          setUploadState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              titulo: event.target.value,
+                            }),
+                          )
+                        }
+                        placeholder={selectedInternalChecklistItem.label}
+                      />
+                    </FormField>
+                    <FormField label="Descrição">
+                      <Input
+                        value={selectedInternalUploadState.descricao}
+                        onChange={(event) =>
+                          setUploadState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              descricao: event.target.value,
+                            }),
+                          )
+                        }
+                        placeholder={selectedInternalChecklistItem.description}
+                      />
+                    </FormField>
+                  </div>
+                </details>
+                <label className="relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] px-5 py-7 text-center transition hover:bg-[var(--surface-selected)] focus-within:ring-2 focus-within:ring-[var(--color-primary-500)]">
+                  <Upload
+                    className="h-6 w-6 text-[var(--color-primary-600)]"
+                    aria-hidden="true"
+                  />
+                  <span className="max-w-full break-all text-sm font-semibold text-[var(--text-primary)]">
+                    {selectedInternalUploadState.arquivo?.name ??
+                      "Selecionar arquivo"}
+                  </span>
+                  <span className="text-xs text-[var(--text-secondary)]">
+                    {selectedInternalUploadState.arquivo
+                      ? "Clique para trocar o arquivo"
+                      : "Escolha o documento no seu computador"}
+                  </span>
+                  <input
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    type="file"
+                    key={selectedInternalChecklistItem.category}
+                    aria-label="Selecionar arquivo do documento"
+                    onChange={(event) =>
+                      handleFileChange(
+                        selectedInternalChecklistItem.category,
+                        event,
+                        selectedInternalChecklistItem.label,
+                      )
+                    }
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button
+                  type="button"
+                  disabled={
+                    !selectedInternalUploadState.arquivo ||
+                    uploadingChecklistCategory !== null
+                  }
+                  onClick={() =>
+                    void handleUploadChecklistDocumento(
+                      selectedInternalChecklistItem,
+                    )
+                  }
+                >
+                  <Upload className="h-4 w-4" />
+                  {uploadingChecklistCategory ===
+                  selectedInternalChecklistItem.category
+                    ? "Anexando..."
+                    : "Salvar documento"}
+                </Button>
+              </div>
+            </details>
+          ) : null}
+          {!selectedInternalUsesInstitutionalSelector ? (
+            <details className="mt-5 border-t border-[var(--border-subtle)] pt-4">
+              <summary className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
+                Registrar uma justificativa ou outro tratamento
+              </summary>
+              <div className="mt-4">
+                <FormField label="Como este requisito foi atendido?">
+                  <Select
+                    value={selectedInternalChecklistFlexState.statusFlexivel}
+                    onChange={(event) =>
+                      setChecklistNaoAplicavelState(
+                        selectedInternalChecklistItem.category,
+                        (current) => ({
+                          ...current,
+                          statusFlexivel: event.target
+                            .value as ChecklistFlexStatus,
+                        }),
+                      )
+                    }
+                  >
+                    {licitacaoChecklistFlexStatusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {licitacaoChecklistFlexStatusLabels[status]}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+
+                {selectedInternalChecklistFlexState.statusFlexivel ===
+                "OUTRO_SETOR" ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <FormField label="Departamento responsavel">
+                      <Input
+                        value={
+                          selectedInternalChecklistFlexState.departamentoResponsavel
+                        }
+                        onChange={(event) =>
+                          setChecklistNaoAplicavelState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              departamentoResponsavel: event.target.value,
+                            }),
+                          )
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Previsao de recebimento">
+                      <Input
+                        type="date"
+                        value={
+                          selectedInternalChecklistFlexState.previsaoRecebimento
+                        }
+                        onChange={(event) =>
+                          setChecklistNaoAplicavelState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              previsaoRecebimento: event.target.value,
+                            }),
+                          )
+                        }
+                      />
+                    </FormField>
+                  </div>
+                ) : null}
+
+                {selectedInternalChecklistFlexState.statusFlexivel ===
+                "CONCLUIDO_FISICO" ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <FormField label="Numero do processo fisico">
+                      <Input
+                        value={
+                          selectedInternalChecklistFlexState.processoFisicoNumero
+                        }
+                        onChange={(event) =>
+                          setChecklistNaoAplicavelState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              processoFisicoNumero: event.target.value,
+                            }),
+                          )
+                        }
+                      />
+                    </FormField>
+                    <FormField label="Local de arquivamento">
+                      <Input
+                        value={
+                          selectedInternalChecklistFlexState.localArquivamento
+                        }
+                        onChange={(event) =>
+                          setChecklistNaoAplicavelState(
+                            selectedInternalChecklistItem.category,
+                            (current) => ({
+                              ...current,
+                              localArquivamento: event.target.value,
+                            }),
+                          )
+                        }
+                      />
+                    </FormField>
+                    <div className="md:col-span-2">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3">
+                        <Checkbox
+                          checked={
+                            selectedInternalChecklistFlexState.digitalizarDepois
+                          }
+                          onCheckedChange={(checked) =>
+                            setChecklistNaoAplicavelState(
+                              selectedInternalChecklistItem.category,
+                              (current) => ({
+                                ...current,
+                                digitalizarDepois: Boolean(checked),
+                              }),
+                            )
+                          }
+                        />
+                        <span className="text-sm font-medium text-[var(--color-neutral-700)]">
+                          Documento fisico ainda sera digitalizado depois
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedInternalChecklistFlexState.statusFlexivel !==
+                "PADRAO" ? (
+                  <FormField label="Justificativa" className="mt-3">
+                    <Textarea
+                      rows={3}
+                      value={selectedInternalChecklistFlexState.justificativa}
+                      onChange={(event) =>
+                        setChecklistNaoAplicavelState(
+                          selectedInternalChecklistItem.category,
+                          (current) => ({
+                            ...current,
+                            justificativa: event.target.value,
+                          }),
+                        )
+                      }
+                    />
+                  </FormField>
+                ) : null}
+
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={setChecklistNaoAplicavelMutation.isPending}
+                    onClick={() =>
+                      void handleChecklistNaoAplicavel(
+                        selectedInternalChecklistItem,
+                      )
+                    }
+                  >
+                    {setChecklistNaoAplicavelMutation.isPending
+                      ? "Salvando..."
+                      : selectedInternalChecklistFlexState.statusFlexivel ===
+                          "PADRAO"
+                        ? "Voltar a exigir documento"
+                        : "Salvar tratamento"}
+                  </Button>
+                </div>
+              </div>
+            </details>
+          ) : null}
+        </>
+      ) : (
+        <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">
+          Nenhum ato interno disponivel para detalhamento.
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
 
-      <Breadcrumb
-        items={[
-          { label: "Licitacao", href: "/licitacao" },
-          { label: detalhe.processo.numeroSirel },
-        ]}
-      />
+      <div className={currentPhase === "PREPARACAO" ? "hidden sm:block" : ""}>
+        <Breadcrumb
+          items={[
+            { label: "Licitação", href: "/licitacao" },
+            { label: detalhe.processo.numeroSirel },
+          ]}
+        />
+      </div>
 
       <div className="space-y-4">
-        <div className="z-30 space-y-2 xl:sticky xl:top-3">
+        <div className="space-y-2">
           <LicitacaoProcessHeader
+            compact={currentPhase === "PREPARACAO"}
             model={guidedProcessModel.header}
             onOpenDossie={() => setLocation(`/dossie/${processoId}`)}
             onOpenDocumentos={() => setShowAllDocsModal(true)}
@@ -3613,13 +4659,26 @@ export function LicitacaoProcessoPage({
           />
 
           <LicitacaoPhaseStepper
+            compact={currentPhase === "PREPARACAO"}
             phases={guidedProcessModel.phases}
             onSelectPhase={selectLegalPhase}
           />
         </div>
 
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="2xl:sticky 2xl:top-[190px] 2xl:self-start 2xl:order-2">
+        <div
+          className={
+            currentPhase === "PREPARACAO"
+              ? "min-w-0"
+              : "grid gap-4 2xl:grid-cols-[minmax(0,1fr)_280px]"
+          }
+        >
+          <div
+            className={
+              currentPhase === "PREPARACAO"
+                ? "hidden"
+                : "2xl:self-start 2xl:order-2"
+            }
+          >
             <LicitacaoContextAssistant
               model={guidedProcessModel.assistant}
               navItems={selectedPhaseNavItems.map((item) => ({
@@ -3635,12 +4694,14 @@ export function LicitacaoProcessoPage({
           </div>
 
           <div className="space-y-4 2xl:order-1">
-            <LicitacaoNextActionCard
-              model={guidedProcessModel.nextAction}
-              preparation={guidedProcessModel.preparation}
-              onPrimaryAction={handleGuidedPrimaryAction}
-              onOpenLeadSection={openSelectedPhaseLeadSection}
-            />
+            {currentPhase !== "PREPARACAO" ? (
+              <LicitacaoNextActionCard
+                model={guidedProcessModel.nextAction}
+                preparation={guidedProcessModel.preparation}
+                onPrimaryAction={handleGuidedPrimaryAction}
+                onOpenLeadSection={openSelectedPhaseLeadSection}
+              />
+            ) : null}
             <section
               ref={overviewRef}
               className={isLegalSectionVisible("overview") ? "" : "hidden"}
@@ -3856,1671 +4917,41 @@ export function LicitacaoProcessoPage({
               ref={internalRef}
               className={isLegalSectionVisible("internal") ? "" : "hidden"}
             >
-              <CollapsibleSectionCard
-                title="Fase interna documental"
-                description={
-                  isForaDoFluxo
-                    ? "Checklist de requisitos com declaracoes auditadas. A origem fora do fluxo nao dispensa a completude."
-                    : "Todos os documentos obrigatorios antes da publicidade. O processo so pode ser publicado quando o checklist estiver completo."
+              <LicitacaoPreparationWorkspace
+                key={processoId}
+                objectDescription={detalhe.processo.objeto ?? undefined}
+                items={checklistItems.map((item) => ({
+                  category: item.category,
+                  label: item.label,
+                  description: item.description,
+                  concluido: item.concluido,
+                  statusLabel: getChecklistItemStatusLabel(item),
+                  institutional:
+                    item.editor === "INSTITUTIONAL_SELECTOR" ||
+                    item.completionStrategy === "CATALOG_SELECTION" ||
+                    [
+                      "LICITACAO_DECRETO_COMISSAO",
+                      "LICITACAO_DECRETO_EQUIPE_APOIO",
+                      "LICITACAO_DECRETO_ORDENADOR_DESPESAS",
+                    ].includes(item.category),
+                }))}
+                activeCategory={selectedInternalChecklistItem?.category ?? null}
+                onSelectCategory={setSelectedInternalChecklistCategory}
+                progressCount={
+                  checklistItems.filter((item) => item.concluido).length
                 }
-                open={sectionOpen.internal}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    internal: nextOpen,
-                  }))
+                totalCount={checklistItems.length}
+                canAdvance={canAccessLegalPhase("PUBLICACAO")}
+                advanceHint={
+                  phasePendingCounts.PREPARACAO
+                    ? `${phasePendingCounts.PREPARACAO} requisitos pendentes para liberar a próxima etapa.`
+                    : "Requisitos concluídos. A publicação pode ser preparada."
                 }
-                action={
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
-                    <ShieldCheck className="h-4 w-4" />
-                    {progressCount}/{checklistItems.length} concluidos
-                  </div>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Checklist: {progressCount}/{checklistItems.length}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Itens: {detalhe?.itens.length ?? 0}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Pendentes: {pendingRequired.length}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      DOU: {configForm.publicarNoDou ? "Sim" : "Nao"}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Jornal: {configForm.publicarEmJornal ? "Sim" : "Nao"}
-                    </span>
-                  </div>
-                }
-              >
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                          Parser da SD
-                        </div>
-                        <h4 className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          Vincular itens da Solicitação de Despesa ao processo
-                        </h4>
-                        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-neutral-600)]">
-                          Faça o upload do PDF da SD, revise os itens extraídos,
-                          complemente o que faltar e vincule o resultado aos
-                          itens do processo sem depender da tela de relatórios.
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-[var(--color-primary-50)] px-4 py-3 text-right">
-                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Processo
-                        </div>
-                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {detalhe?.itens.length ?? 0} item(ns)
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Itens atuais
-                        </div>
-                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {detalhe?.itens.length ?? 0}
-                        </div>
-                      </article>
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Valor estimado atual
-                        </div>
-                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {formatCurrencyBRL(
-                            itensVinculadosValorTotal ||
-                              detalhe?.processo.valorEstimado,
-                          )}
-                        </div>
-                      </article>
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Prévia da SD
-                        </div>
-                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {mergedSdItems.length}
-                        </div>
-                      </article>
-                      <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3">
-                        <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Warnings do parser
-                        </div>
-                        <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                          {sdResult?.summary.warnings ?? 0}
-                        </div>
-                      </article>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                      <FormField label="Arquivo PDF da SD">
-                        <Input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          onChange={(event) =>
-                            setSdFile(event.target.files?.[0] ?? null)
-                          }
-                        />
-                      </FormField>
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          onClick={() => void handleProcessarSd()}
-                          disabled={!sdFile || sdParsing}
-                        >
-                          {sdParsing ? "Processando SD..." : "Processar SD"}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <p className="mt-3 text-xs text-[var(--color-neutral-500)]">
-                      Itens com o mesmo número atualizam o processo; itens sem
-                      correspondência são adicionados. A vinculação é bloqueada
-                      quando já existem propostas cadastradas para evitar
-                      inconsistências na fase externa.
-                    </p>
-
-                    {sdError ? (
-                      <Alert variant="error" className="mt-3">
-                        {sdError}
-                      </Alert>
-                    ) : null}
-
-                    {sdResult ? (
-                      <div className="mt-4 space-y-4">
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Número da SD
-                            </div>
-                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                              {sdResult.metadata.numero_sd ?? "-"}
-                            </div>
-                          </article>
-                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Itens na prévia
-                            </div>
-                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                              {mergedSdItems.length}
-                            </div>
-                          </article>
-                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Valor total da SD
-                            </div>
-                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                              {typeof sdResult.metadata.valor_total === "number"
-                                ? formatCurrencyBRL(
-                                    sdResult.metadata.valor_total,
-                                  )
-                                : "-"}
-                            </div>
-                          </article>
-                          <article className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-3">
-                            <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                              Itens manuais
-                            </div>
-                            <div className="mt-1 text-lg font-black text-[var(--color-primary-900)]">
-                              {manualSdItems.length}
-                            </div>
-                          </article>
-                        </div>
-
-                        <div className="rounded-2xl border border-dashed border-[rgba(47,84,196,0.32)] bg-[var(--color-primary-50)] px-4 py-4">
-                          <p className="text-sm font-bold text-[var(--color-primary-900)]">
-                            Complementar item manual
-                          </p>
-                          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                            <FormField label="Item">
-                              <Input
-                                value={sdItemDraft.numero}
-                                inputMode="numeric"
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    numero: event.target.value,
-                                  }))
-                                }
-                                placeholder="Ex.: 22"
-                              />
-                            </FormField>
-                            <FormField label="Descrição *">
-                              <Input
-                                value={sdItemDraft.descricao}
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    descricao: event.target.value,
-                                  }))
-                                }
-                                placeholder="Descrição do item"
-                              />
-                            </FormField>
-                            <FormField label="Unid">
-                              <Input
-                                value={sdItemDraft.unidade}
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    unidade: event.target.value,
-                                  }))
-                                }
-                                placeholder="UND"
-                              />
-                            </FormField>
-                            <FormField label="Qtd">
-                              <Input
-                                value={sdItemDraft.quantidade}
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    quantidade: event.target.value,
-                                  }))
-                                }
-                                placeholder="0,00"
-                              />
-                            </FormField>
-                            <FormField label="Vlr. unit.">
-                              <Input
-                                value={sdItemDraft.preco_unitario}
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    preco_unitario: event.target.value,
-                                  }))
-                                }
-                                placeholder="0,00"
-                              />
-                            </FormField>
-                            <FormField label="Total">
-                              <Input
-                                value={sdItemDraft.preco_total}
-                                onChange={(event) =>
-                                  setSdItemDraft((current) => ({
-                                    ...current,
-                                    preco_total: event.target.value,
-                                  }))
-                                }
-                                placeholder="0,00"
-                              />
-                            </FormField>
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap items-center gap-3">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={handleAdicionarItemManualSd}
-                            >
-                              Adicionar item manual
-                            </Button>
-                            <Button
-                              type="button"
-                              onClick={() => void handleVincularSd()}
-                              disabled={
-                                !sdResult.artifact?.relativePath || sdVinculando
-                              }
-                            >
-                              {sdVinculando
-                                ? "Vinculando..."
-                                : "Vincular itens ao processo"}
-                            </Button>
-                            {sdResult.artifact?.downloadUrl ? (
-                              <a
-                                href={sdResult.artifact.downloadUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center rounded-full border border-[var(--color-primary-300)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-700)] hover:bg-[var(--color-primary-50)]"
-                              >
-                                <FileStack className="mr-2 h-4 w-4" />
-                                Baixar JSON da SD
-                              </a>
-                            ) : null}
-                          </div>
-
-                          {manualSdItemError ? (
-                            <Alert variant="error" className="mt-3">
-                              {manualSdItemError}
-                            </Alert>
-                          ) : null}
-                          {sdVinculacaoError ? (
-                            <Alert variant="error" className="mt-3">
-                              {sdVinculacaoError}
-                            </Alert>
-                          ) : null}
-                        </div>
-
-                        <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white">
-                          <Table className="min-w-[920px]">
-                            <TableHead>
-                              <tr>
-                                <TableHeaderCell>Item</TableHeaderCell>
-                                <TableHeaderCell>Descrição</TableHeaderCell>
-                                <TableHeaderCell>Unid</TableHeaderCell>
-                                <TableHeaderCell>Qtd</TableHeaderCell>
-                                <TableHeaderCell>Vlr. unit.</TableHeaderCell>
-                                <TableHeaderCell>Total</TableHeaderCell>
-                                <TableHeaderCell>Ações</TableHeaderCell>
-                              </tr>
-                            </TableHead>
-                            <TableBody>
-                              {mergedSdItems.length ? (
-                                mergedSdItems
-                                  .slice(0, 30)
-                                  .map((item, index) => (
-                                    <TableRow
-                                      key={`${item.numero ?? "sd"}-${index}`}
-                                    >
-                                      <TableCell>
-                                        {item.numero ?? "-"}
-                                      </TableCell>
-                                      <TableCell className="max-w-[520px] whitespace-normal">
-                                        {item.descricao ?? "-"}
-                                      </TableCell>
-                                      <TableCell>
-                                        {item.unidade ?? "-"}
-                                      </TableCell>
-                                      <TableCell>
-                                        {formatNumberBR(item.quantidade, 3)}
-                                      </TableCell>
-                                      <TableCell>
-                                        {formatCurrencyBRL(item.preco_unitario)}
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="flex items-center gap-2">
-                                          <span>
-                                            {formatCurrencyBRL(
-                                              item.preco_total,
-                                            )}
-                                          </span>
-                                          {item.fonte === "manual" ? (
-                                            <span className="rounded-full bg-[var(--color-warning-100)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-warning-700)]">
-                                              Manual
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        {item.fonte === "manual" ? (
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            onClick={() =>
-                                              handleRemoverItemManualSd(
-                                                item.manualIndex ?? -1,
-                                              )
-                                            }
-                                            disabled={
-                                              (item.manualIndex ?? -1) < 0
-                                            }
-                                          >
-                                            Remover
-                                          </Button>
-                                        ) : (
-                                          "-"
-                                        )}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))
-                              ) : (
-                                <TableRow>
-                                  <TableCell
-                                    colSpan={7}
-                                    className="py-8 text-center text-[var(--color-neutral-500)]"
-                                  >
-                                    Faça o processamento da SD para visualizar a
-                                    prévia dos itens.
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </TableBody>
-                          </Table>
-                        </div>
-
-                        {mergedSdItems.length > 30 ? (
-                          <p className="text-xs text-[var(--color-neutral-500)]">
-                            Exibindo 30 de {mergedSdItems.length} itens da SD.
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 px-1">
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                        Itens do processo
-                      </div>
-                      <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                        Conferência do que já está efetivamente vinculado após o
-                        import da SD.
-                      </div>
-                    </div>
-                    <div className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
-                      {detalhe?.itens.length ?? 0} item(ns)
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[920px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell>Item</TableHeaderCell>
-                          <TableHeaderCell>Descrição</TableHeaderCell>
-                          <TableHeaderCell>Quantidade</TableHeaderCell>
-                          <TableHeaderCell>Valor unitário</TableHeaderCell>
-                          <TableHeaderCell>Total</TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {detalhe?.itens.length ? (
-                          detalhe.itens.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className="align-top font-semibold text-[var(--color-primary-900)]">
-                                {item.numeroItem}
-                              </TableCell>
-                              <TableCell className="align-top">
-                                {item.descricao}
-                              </TableCell>
-                              <TableCell className="align-top">
-                                {formatNumberBR(item.quantidade, 3)}{" "}
-                                {item.unidade}
-                              </TableCell>
-                              <TableCell className="align-top">
-                                {formatCurrencyBRL(item.valorUnitarioEstimado)}
-                              </TableCell>
-                              <TableCell className="align-top">
-                                {formatCurrencyBRL(item.valorTotalEstimado)}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={5}
-                              className="py-8 text-center text-[var(--color-neutral-500)]"
-                            >
-                              Este processo ainda não possui itens vinculados.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-
-                <form className="space-y-5" onSubmit={handleSalvarConfiguracao}>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <FormField label="Criterio de julgamento">
-                      <Input
-                        value={configForm.criterioJulgamento}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            criterioJulgamento: event.target.value,
-                          }))
-                        }
-                        placeholder="Ex.: Menor preco por lote"
-                      />
-                    </FormField>
-                    <FormField label="Modo de disputa">
-                      <Select
-                        value={configForm.modoDisputa}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            modoDisputa: event.target.value,
-                          }))
-                        }
-                      >
-                        {Object.entries(modoDisputaLabels).map(
-                          ([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ),
-                        )}
-                      </Select>
-                    </FormField>
-                  </div>
-
-                  <div className="grid gap-3 lg:grid-cols-3">
-                    <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
-                      <Checkbox
-                        checked={configForm.exigeDeclaracaoNaoFracionamento}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            exigeDeclaracaoNaoFracionamento:
-                              event.target.checked,
-                          }))
-                        }
-                      />
-                      Exigir declaração de não fracionamento
-                    </label>
-                    <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
-                      <Checkbox
-                        checked={configForm.publicarNoDou}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            publicarNoDou: event.target.checked,
-                          }))
-                        }
-                      />
-                      Publicar tambem no DOU
-                    </label>
-                    <label className="inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
-                      <Checkbox
-                        checked={configForm.publicarEmJornal}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            publicarEmJornal: event.target.checked,
-                          }))
-                        }
-                      />
-                      Publicar tambem em jornal
-                    </label>
-                  </div>
-
-                  {(showCompetitivoSteps || !showLances) ? (
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-                        Configuracao de fluxo
-                      </div>
-                      <label className="mt-3 inline-flex items-center gap-3 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm font-semibold text-[var(--color-neutral-700)]">
-                        <Checkbox
-                          checked={configForm.inversaoFasesHabilitada}
-                          onChange={(event) =>
-                            setConfigForm((current) => ({
-                              ...current,
-                              inversaoFasesHabilitada: event.target.checked,
-                            }))
-                          }
-                        />
-                        Inverter ordem das fases (habilitacao antes da disputa)
-                      </label>
-                      {configForm.inversaoFasesHabilitada ? (
-                        <FormField
-                          label="Justificativa da inversao"
-                          className="mt-3"
-                        >
-                          <Textarea
-                            rows={3}
-                            value={configForm.inversaoFasesJustificativa}
-                            onChange={(event) =>
-                              setConfigForm((current) => ({
-                                ...current,
-                                inversaoFasesJustificativa: event.target.value,
-                              }))
-                            }
-                            placeholder="Explique o motivo e o impacto esperado da inversao."
-                          />
-                        </FormField>
-                      ) : null}
-                      <div className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                        Ao ativar a inversao, o sistema reordena a navegacao
-                        para iniciar a habilitacao antes das fases competitivas.
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="grid gap-3">
-                    <FormField label="Observacoes internas">
-                      <Textarea
-                        rows={3}
-                        value={configForm.observacoes}
-                        onChange={(event) => {
-                          setConfigForm((current) => ({
-                            ...current,
-                            observacoes: event.target.value,
-                          }));
-                          setPublishForm((current) => ({
-                            ...current,
-                            observacao: event.target.value,
-                          }));
-                        }}
-                      />
-                    </FormField>
-                  </div>
-
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      type="submit"
-                      disabled={saveConfiguracaoMutation.isPending}
-                    >
-                      {saveConfiguracaoMutation.isPending
-                        ? "Salvando..."
-                        : "Salvar configuracao interna"}
-                    </Button>
-                  </div>
-                </form>
-
-                <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,0.84fr)_minmax(0,1.16fr)]">
-                  <div className="space-y-4">
-                    <article className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-5 py-5 shadow-[0_12px_28px_-28px_rgba(15,26,109,0.38)]">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                            Acervo da fase interna
-                          </div>
-                          <h4 className="mt-2 text-lg font-semibold text-[var(--color-primary-950)]">
-                            {pendingRequired.length
-                              ? isForaDoFluxo
-                                ? "Ainda ha atos obrigatorios antes da publicacao."
-                                : "Ainda ha atos obrigatorios antes da publicacao."
-                              : "Checklist interno pronto para seguir ao cronograma."}
-                          </h4>
-                          <p className="mt-1 text-sm leading-6 text-[var(--color-neutral-600)]">
-                            A sequencia abaixo libera os atos de forma gradual e
-                            mantem aberto apenas o detalhe ativo.
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-right shadow-[0_10px_24px_-24px_rgba(15,26,109,0.28)]">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
-                            Progresso
-                          </div>
-                          <div className="mt-1 text-2xl font-semibold text-[var(--color-primary-950)]">
-                            {progressCount}/{checklistItems.length}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
-                            Pendentes
-                          </div>
-                          <div className="mt-1 text-xl font-semibold text-[var(--color-primary-950)]">
-                            {pendingRequired.length}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
-                            Tratados
-                          </div>
-                          <div className="mt-1 text-xl font-semibold text-[var(--color-primary-950)]">
-                            {addressedChecklistItems.length}
-                          </div>
-                        </div>
-                        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-neutral-500)]">
-                            Proximo ato
-                          </div>
-                          <div className="mt-1 text-sm font-semibold text-[var(--color-primary-950)]">
-                            {selectedInternalChecklistItem?.label ?? "Nenhum"}
-                          </div>
-                        </div>
-                      </div>
-
-                      {pendingRequired.length ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {pendingRequired.slice(0, 4).map((item) => (
-                            <button
-                              key={item.category}
-                              type="button"
-                              className="inline-flex items-center gap-2 rounded-full border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-3 py-1.5 text-xs font-medium text-[var(--notice-warning-text)] transition hover:border-[var(--border-strong)]"
-                              onClick={() =>
-                                setSelectedInternalChecklistCategory(
-                                  item.category,
-                                )
-                              }
-                            >
-                              <Clock3 className="h-3.5 w-3.5" />
-                              {item.label}
-                            </button>
-                          ))}
-                          {pendingRequired.length > 4 ? (
-                            <span className="inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-neutral-600)]">
-                              +{pendingRequired.length - 4} outros
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </article>
-
-                    <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4 shadow-[0_10px_24px_-28px_rgba(15,26,109,0.28)]">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                            Sequencia de atos
-                          </div>
-                          <p className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                            Fila enxuta com liberacao progressiva.
-                          </p>
-                        </div>
-                        <span className="inline-flex items-center rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
-                          {visibleInternalChecklistItems.length} de{" "}
-                          {checklistItems.length}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        {visibleInternalChecklistItems.map((item, index) => {
-                          const active =
-                            item.category ===
-                            selectedInternalChecklistItem?.category;
-
-                          return (
-                            <button
-                              key={item.category}
-                              type="button"
-                              className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                                active
-                                  ? "border-[var(--color-primary-500)] bg-[var(--color-primary-50)] shadow-[0_12px_24px_-28px_rgba(15,26,109,0.42)]"
-                                  : "border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-0)] hover:border-[var(--color-primary-300)] hover:bg-[var(--color-primary-50)]/60"
-                              }`}
-                              onClick={() =>
-                                setSelectedInternalChecklistCategory(
-                                  item.category,
-                                )
-                              }
-                            >
-                              <div className="flex items-start gap-3">
-                                <div
-                                  className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold ${
-                                    isChecklistItemAddressed(item)
-                                      ? "bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]"
-                                      : "bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]"
-                                  }`}
-                                >
-                                  {index + internalChecklistLeadIndex + 1}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-semibold text-[var(--color-primary-950)]">
-                                      {item.label}
-                                    </span>
-                                    <span
-                                      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(item)}`}
-                                    >
-                                      {getChecklistItemStatusLabel(item)}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 text-sm leading-6 text-[var(--color-neutral-600)]">
-                                    {item.description}
-                                  </p>
-                                </div>
-                                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[var(--color-neutral-400)]" />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {hiddenInternalChecklistCount > 0 ? (
-                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-3">
-                          <div className="text-sm text-[var(--color-neutral-600)]">
-                            Ainda restam {hiddenInternalChecklistCount} ato(s)
-                            fora da visualizacao principal.
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() =>
-                              setInternalChecklistRevealCount(
-                                (current) => current + 2,
-                              )
-                            }
-                          >
-                            Mostrar proximos atos
-                          </Button>
-                        </div>
-                      ) : null}
-
-                      {addressedChecklistItems.length ? (
-                        <div className="mt-4 flex flex-wrap gap-2 border-t border-[rgba(204,225,255,0.92)] pt-4">
-                          {resolvedInternalChecklistPreview.map((item) => (
-                            <button
-                              key={item.category}
-                              type="button"
-                              className="inline-flex items-center gap-2 rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-3 py-1.5 text-xs font-medium text-[var(--color-neutral-700)] transition hover:border-[var(--color-primary-300)] hover:bg-[var(--color-primary-50)] hover:text-[var(--color-primary-800)]"
-                              onClick={() =>
-                                setSelectedInternalChecklistCategory(
-                                  item.category,
-                                )
-                              }
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--notice-success-text)]" />
-                              {item.label}
-                            </button>
-                          ))}
-                          {addressedChecklistItems.length > 3 ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setShowResolvedInternalChecklist(
-                                  (current) => !current,
-                                )
-                              }
-                            >
-                              {showResolvedInternalChecklist
-                                ? "Mostrar menos"
-                                : "Ver todos"}
-                            </Button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </article>
-                  </div>
-
-                  <article className="rounded-3xl border border-[rgba(204,225,255,0.92)] bg-white px-5 py-5 shadow-[0_16px_34px_-30px_rgba(15,26,109,0.34)]">
-                    {selectedInternalChecklistItem &&
-                    selectedInternalUploadState &&
-                    selectedInternalChecklistFlexState ? (
-                      <>
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                              Ato {selectedInternalChecklistIndex} de{" "}
-                              {checklistItems.length}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <h4 className="text-lg font-semibold text-[var(--color-primary-950)]">
-                                {selectedInternalChecklistItem.label}
-                              </h4>
-                              <span
-                                className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(selectedInternalChecklistItem)}`}
-                              >
-                                {getChecklistItemStatusLabel(
-                                  selectedInternalChecklistItem,
-                                )}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
-                              {selectedInternalChecklistItem.description}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
-                            <FileCheck2 className="h-5 w-5" />
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <span className="inline-flex rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-3 py-1 text-xs font-semibold text-[var(--color-primary-700)]">
-                            {selectedInternalChecklistItem.obrigatorio
-                              ? "Obrigatorio"
-                              : "Condicional"}
-                          </span>
-                          {selectedInternalChecklistItem.completionHint ? (
-                            <span className="inline-flex rounded-full border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-3 py-1 text-xs font-medium text-[var(--color-neutral-600)]">
-                              {selectedInternalChecklistItem.completionHint}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {selectedInternalUsesInstitutionalSelector &&
-                        selectedInternalInstitutionalKind ? (
-                          <div className="mt-5">
-                            <LicitacaoInstitutionalSelector
-                              kind={selectedInternalInstitutionalKind}
-                              title={selectedInternalChecklistItem.label}
-                              selected={
-                                selectedInternalInstitutionalKind === "comissao"
-                                  ? (designacoesQuery.data?.comissao ?? null)
-                                  : selectedInternalInstitutionalKind ===
-                                      "equipeApoio"
-                                    ? (designacoesQuery.data?.equipeApoio ?? null)
-                                    : (designacoesQuery.data
-                                        ?.ordenadorDespesa ?? null)
-                              }
-                              options={
-                                selectedInternalInstitutionalKind === "comissao"
-                                  ? (availableDesignacoesQuery.data
-                                      ?.comissoes ?? [])
-                                  : selectedInternalInstitutionalKind ===
-                                      "equipeApoio"
-                                    ? (availableDesignacoesQuery.data
-                                        ?.equipesApoio ?? [])
-                                    : (availableDesignacoesQuery.data
-                                        ?.ordenadores ?? [])
-                              }
-                              isLoading={availableDesignacoesQuery.isLoading}
-                              isSaving={selectDesignacoesMutation.isPending}
-                              suggestedConductor={
-                                designacoesQuery.data?.condutorSugerido ?? null
-                              }
-                              onSelect={(id, applySuggestedConductor) =>
-                                void handleSelectInstitutionalDesignation(
-                                  selectedInternalInstitutionalKind,
-                                  id,
-                                  applySuggestedConductor,
-                                )
-                              }
-                              onOpenCadastros={() =>
-                                setLocation("/cadastros?institucionais=1")
-                              }
-                            />
-                          </div>
-                        ) : null}
-
-                        {!selectedInternalUsesInstitutionalSelector ? (
-                        <div className="mt-5 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                            Ultima evidencia
-                          </div>
-                          {selectedInternalLatestDocumento ? (
-                            <>
-                              <div className="mt-2 text-sm font-semibold text-[var(--color-primary-950)]">
-                                {selectedInternalLatestDocumento.titulo}
-                              </div>
-                              <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                                Anexado em{" "}
-                                {formatShortDateTimeBR(
-                                  selectedInternalLatestDocumento.criadoEm,
-                                )}
-                              </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <a
-                                  href={
-                                    resolveServerAssetUrl(
-                                      selectedInternalLatestDocumento.arquivoUrl,
-                                    ) ?? "#"
-                                  }
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={
-                                      !selectedInternalLatestDocumento.arquivoUrl
-                                    }
-                                  >
-                                    Abrir documento
-                                  </Button>
-                                </a>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="destructive"
-                                  disabled={
-                                    deletingDocumentoId ===
-                                    selectedInternalLatestDocumento.id
-                                  }
-                                  onClick={() =>
-                                    void handleDeleteDocumento(
-                                      selectedInternalLatestDocumento.id,
-                                    )
-                                  }
-                                >
-                                  {deletingDocumentoId ===
-                                  selectedInternalLatestDocumento.id
-                                    ? "Removendo..."
-                                    : "Remover"}
-                                </Button>
-                              </div>
-                            </>
-                          ) : (
-                            <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                              Nenhum documento vinculado a este ato ainda.
-                            </p>
-                          )}
-                        </div>
-                        ) : null}
-
-                        {!selectedInternalUsesInstitutionalSelector ? (
-                          <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-4">
-                            <FormField label="Tratamento fora do fluxo">
-                              <Select
-                                value={
-                                  selectedInternalChecklistFlexState.statusFlexivel
-                                }
-                                onChange={(event) =>
-                                  setChecklistNaoAplicavelState(
-                                    selectedInternalChecklistItem.category,
-                                    (current) => ({
-                                      ...current,
-                                      statusFlexivel: event.target
-                                        .value as ChecklistFlexStatus,
-                                    }),
-                                  )
-                                }
-                              >
-                                {licitacaoChecklistFlexStatusOptions.map(
-                                  (status) => (
-                                    <option key={status} value={status}>
-                                      {
-                                        licitacaoChecklistFlexStatusLabels[
-                                          status
-                                        ]
-                                      }
-                                    </option>
-                                  ),
-                                )}
-                              </Select>
-                            </FormField>
-
-                            {selectedInternalChecklistFlexState.statusFlexivel ===
-                            "OUTRO_SETOR" ? (
-                              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                <FormField label="Departamento responsavel">
-                                  <Input
-                                    value={
-                                      selectedInternalChecklistFlexState.departamentoResponsavel
-                                    }
-                                    onChange={(event) =>
-                                      setChecklistNaoAplicavelState(
-                                        selectedInternalChecklistItem.category,
-                                        (current) => ({
-                                          ...current,
-                                          departamentoResponsavel:
-                                            event.target.value,
-                                        }),
-                                      )
-                                    }
-                                  />
-                                </FormField>
-                                <FormField label="Previsao de recebimento">
-                                  <Input
-                                    type="date"
-                                    value={
-                                      selectedInternalChecklistFlexState.previsaoRecebimento
-                                    }
-                                    onChange={(event) =>
-                                      setChecklistNaoAplicavelState(
-                                        selectedInternalChecklistItem.category,
-                                        (current) => ({
-                                          ...current,
-                                          previsaoRecebimento:
-                                            event.target.value,
-                                        }),
-                                      )
-                                    }
-                                  />
-                                </FormField>
-                              </div>
-                            ) : null}
-
-                            {selectedInternalChecklistFlexState.statusFlexivel ===
-                            "CONCLUIDO_FISICO" ? (
-                              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                <FormField label="Numero do processo fisico">
-                                  <Input
-                                    value={
-                                      selectedInternalChecklistFlexState.processoFisicoNumero
-                                    }
-                                    onChange={(event) =>
-                                      setChecklistNaoAplicavelState(
-                                        selectedInternalChecklistItem.category,
-                                        (current) => ({
-                                          ...current,
-                                          processoFisicoNumero:
-                                            event.target.value,
-                                        }),
-                                      )
-                                    }
-                                  />
-                                </FormField>
-                                <FormField label="Local de arquivamento">
-                                  <Input
-                                    value={
-                                      selectedInternalChecklistFlexState.localArquivamento
-                                    }
-                                    onChange={(event) =>
-                                      setChecklistNaoAplicavelState(
-                                        selectedInternalChecklistItem.category,
-                                        (current) => ({
-                                          ...current,
-                                          localArquivamento: event.target.value,
-                                        }),
-                                      )
-                                    }
-                                  />
-                                </FormField>
-                                <div className="md:col-span-2">
-                                  <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-3 py-3">
-                                    <Checkbox
-                                      checked={
-                                        selectedInternalChecklistFlexState.digitalizarDepois
-                                      }
-                                      onCheckedChange={(checked) =>
-                                        setChecklistNaoAplicavelState(
-                                          selectedInternalChecklistItem.category,
-                                          (current) => ({
-                                            ...current,
-                                            digitalizarDepois: Boolean(checked),
-                                          }),
-                                        )
-                                      }
-                                    />
-                                    <span className="text-sm font-medium text-[var(--color-neutral-700)]">
-                                      Documento fisico ainda sera digitalizado
-                                      depois
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {selectedInternalChecklistFlexState.statusFlexivel !==
-                            "PADRAO" ? (
-                              <FormField label="Justificativa" className="mt-3">
-                                <Textarea
-                                  rows={3}
-                                  value={
-                                    selectedInternalChecklistFlexState.justificativa
-                                  }
-                                  onChange={(event) =>
-                                    setChecklistNaoAplicavelState(
-                                      selectedInternalChecklistItem.category,
-                                      (current) => ({
-                                        ...current,
-                                        justificativa: event.target.value,
-                                      }),
-                                    )
-                                  }
-                                />
-                              </FormField>
-                            ) : null}
-
-                            <div className="mt-4 flex justify-end">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={
-                                  setChecklistNaoAplicavelMutation.isPending
-                                }
-                                onClick={() =>
-                                  void handleChecklistNaoAplicavel(
-                                    selectedInternalChecklistItem,
-                                  )
-                                }
-                              >
-                                {setChecklistNaoAplicavelMutation.isPending
-                                  ? "Salvando..."
-                                  : selectedInternalChecklistFlexState.statusFlexivel ===
-                                      "PADRAO"
-                                    ? "Reativar ato"
-                                    : "Salvar tratamento"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {!selectedInternalUsesInstitutionalSelector ? (
-                        <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-white px-4 py-4">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                            Nova evidencia
-                          </div>
-                          {selectedInternalChecklistUsesCIModal ? (
-                            <div className="mt-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="max-w-2xl">
-                                  <div className="text-sm font-semibold text-[var(--text-primary)]">
-                                    Gere a CI pelo próprio processo
-                                  </div>
-                                  <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                                    Monte a comunicação interna com os dados
-                                    atuais do processo, revise no editor e salve
-                                    direto neste ato do checklist.
-                                  </p>
-                                </div>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  onClick={() => setShowCIReservaModal(true)}
-                                  icon={<FileStack className="h-4 w-4" />}
-                                >
-                                  Gerar CI de reserva
-                                </Button>
-                              </div>
-                            </div>
-                          ) : null}
-                          <div className="mt-3 grid gap-3 2xl:grid-cols-2">
-                            <FormField label="Titulo">
-                              <Input
-                                value={selectedInternalUploadState.titulo}
-                                onChange={(event) =>
-                                  setUploadState(
-                                    selectedInternalChecklistItem.category,
-                                    (current) => ({
-                                      ...current,
-                                      titulo: event.target.value,
-                                    }),
-                                  )
-                                }
-                                placeholder={
-                                  selectedInternalChecklistItem.label
-                                }
-                              />
-                            </FormField>
-                            <FormField label="Descricao">
-                              <Input
-                                value={selectedInternalUploadState.descricao}
-                                onChange={(event) =>
-                                  setUploadState(
-                                    selectedInternalChecklistItem.category,
-                                    (current) => ({
-                                      ...current,
-                                      descricao: event.target.value,
-                                    }),
-                                  )
-                                }
-                                placeholder={
-                                  selectedInternalChecklistItem.description
-                                }
-                              />
-                            </FormField>
-                            <FormField
-                              label="Arquivo"
-                              className="2xl:col-span-2"
-                            >
-                              <Input
-                                type="file"
-                                onChange={(event) =>
-                                  handleFileChange(
-                                    selectedInternalChecklistItem.category,
-                                    event,
-                                    selectedInternalChecklistItem.label,
-                                  )
-                                }
-                              />
-                            </FormField>
-                          </div>
-                          <div className="mt-4 flex justify-end">
-                            <Button
-                              type="button"
-                              onClick={() =>
-                                void handleUploadChecklistDocumento(
-                                  selectedInternalChecklistItem,
-                                )
-                              }
-                            >
-                              <Upload className="h-4 w-4" />
-                              Anexar documento
-                            </Button>
-                          </div>
-                        </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">
-                        Nenhum ato interno disponivel para detalhamento.
-                      </div>
-                    )}
-                  </article>
-                </div>
-
-                <div className="hidden">
-                  {checklistItems.map((item) => {
-                    const uploadState = getUploadState(
-                      uploadForms,
-                      item.category,
-                    );
-                    const latestDocumento = (
-                      docsByCategory.get(item.category) ?? []
-                    )
-                      .slice()
-                      .sort(
-                        (left, right) =>
-                          new Date(right.criadoEm).getTime() -
-                          new Date(left.criadoEm).getTime(),
-                      )[0];
-                    const naoAplicavelState = checklistNaoAplicavelForm[
-                      item.category
-                    ] ?? {
-                      statusFlexivel:
-                        item.statusFlexivel ??
-                        (item.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
-                      justificativa: item.justificativaNaoAplicavel ?? "",
-                      departamentoResponsavel:
-                        item.departamentoResponsavel ?? "",
-                      previsaoRecebimento: toDateInputValue(
-                        item.previsaoRecebimento,
-                      ),
-                      processoFisicoNumero: item.processoFisicoNumero ?? "",
-                      localArquivamento: item.localArquivamento ?? "",
-                      digitalizarDepois: item.digitalizarDepois ?? false,
-                    };
-                    const statusLabel =
-                      item.statusFlexivel && item.statusFlexivel !== "PADRAO"
-                        ? licitacaoChecklistFlexStatusLabels[
-                            item.statusFlexivel
-                          ]
-                        : item.concluido
-                          ? "Anexado"
-                          : "Pendente";
-                    const statusClass =
-                      item.statusFlexivel === "OUTRO_SETOR"
-                        ? "bg-[var(--phase-viewing-bg)] text-[var(--phase-viewing-text)]"
-                        : item.statusFlexivel === "CONCLUIDO_FISICO"
-                          ? "bg-[var(--phase-current-bg)] text-[var(--phase-current-text)]"
-                          : item.naoAplicavel
-                            ? "bg-[var(--phase-blocked-bg)] text-[var(--phase-blocked-text)]"
-                            : item.concluido
-                              ? "bg-[var(--notice-success-bg)] text-[var(--notice-success-text)]"
-                              : "bg-[var(--notice-warning-bg)] text-[var(--notice-warning-text)]";
-
-                    return (
-                      <article
-                        key={item.category}
-                        className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white p-4 shadow-[0_10px_24px_-24px_rgba(15,26,109,0.35)]"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="text-base font-black text-[var(--color-primary-900)]">
-                                {item.label}
-                              </h4>
-                              <span
-                                className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${statusClass}`}
-                              >
-                                {statusLabel}
-                              </span>
-                              {!item.obrigatorio ? (
-                                <span className="inline-flex rounded-full bg-[var(--color-neutral-100)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-neutral-700)]">
-                                  Condicional
-                                </span>
-                              ) : null}
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
-                              {item.description}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl bg-[var(--color-primary-900)] p-3 text-white">
-                            <FileCheck2 className="h-5 w-5" />
-                          </div>
-                        </div>
-                        {latestDocumento ? (
-                          <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] p-3 text-sm">
-                            <div className="font-semibold text-[var(--color-primary-900)]">
-                              {latestDocumento.titulo}
-                            </div>
-                            <div className="mt-1 text-[var(--color-neutral-600)]">
-                              Anexado em{" "}
-                              {formatShortDateTimeBR(latestDocumento.criadoEm)}
-                            </div>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <a
-                                href={
-                                  resolveServerAssetUrl(
-                                    latestDocumento.arquivoUrl,
-                                  ) ?? "#"
-                                }
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={!latestDocumento.arquivoUrl}
-                                >
-                                  Abrir documento
-                                </Button>
-                              </a>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="destructive"
-                                disabled={
-                                  deletingDocumentoId === latestDocumento.id
-                                }
-                                onClick={() =>
-                                  void handleDeleteDocumento(latestDocumento.id)
-                                }
-                              >
-                                {deletingDocumentoId === latestDocumento.id
-                                  ? "Removendo..."
-                                  : "Remover"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {item.completionStrategy !== "CATALOG_SELECTION" ? (
-                          <div className="mt-4 rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-neutral-50)] p-3">
-                            <div className="grid gap-3">
-                              <FormField label="Tratamento do item fora do fluxo">
-                                <Select
-                                  value={naoAplicavelState.statusFlexivel}
-                                  onChange={(event) =>
-                                    setChecklistNaoAplicavelState(
-                                      item.category,
-                                      (current) => ({
-                                        ...current,
-                                        statusFlexivel: event.target
-                                          .value as ChecklistFlexStatus,
-                                      }),
-                                    )
-                                  }
-                                >
-                                  {licitacaoChecklistFlexStatusOptions.map(
-                                    (status) => (
-                                      <option key={status} value={status}>
-                                        {
-                                          licitacaoChecklistFlexStatusLabels[
-                                            status
-                                          ]
-                                        }
-                                      </option>
-                                    ),
-                                  )}
-                                </Select>
-                              </FormField>
-
-                              {naoAplicavelState.statusFlexivel ===
-                              "OUTRO_SETOR" ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <FormField label="Departamento responsavel">
-                                    <Input
-                                      value={
-                                        naoAplicavelState.departamentoResponsavel
-                                      }
-                                      onChange={(event) =>
-                                        setChecklistNaoAplicavelState(
-                                          item.category,
-                                          (current) => ({
-                                            ...current,
-                                            departamentoResponsavel:
-                                              event.target.value,
-                                          }),
-                                        )
-                                      }
-                                      placeholder="Ex.: Orcamento, PGM, Controladoria"
-                                    />
-                                  </FormField>
-                                  <FormField label="Previsao de recebimento">
-                                    <Input
-                                      type="date"
-                                      value={
-                                        naoAplicavelState.previsaoRecebimento
-                                      }
-                                      onChange={(event) =>
-                                        setChecklistNaoAplicavelState(
-                                          item.category,
-                                          (current) => ({
-                                            ...current,
-                                            previsaoRecebimento:
-                                              event.target.value,
-                                          }),
-                                        )
-                                      }
-                                    />
-                                  </FormField>
-                                </div>
-                              ) : null}
-
-                              {naoAplicavelState.statusFlexivel ===
-                              "CONCLUIDO_FISICO" ? (
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <FormField label="Numero do processo fisico">
-                                    <Input
-                                      value={
-                                        naoAplicavelState.processoFisicoNumero
-                                      }
-                                      onChange={(event) =>
-                                        setChecklistNaoAplicavelState(
-                                          item.category,
-                                          (current) => ({
-                                            ...current,
-                                            processoFisicoNumero:
-                                              event.target.value,
-                                          }),
-                                        )
-                                      }
-                                      placeholder="Ex.: 0045/2026-FISICO"
-                                    />
-                                  </FormField>
-                                  <FormField label="Local de arquivamento">
-                                    <Input
-                                      value={
-                                        naoAplicavelState.localArquivamento
-                                      }
-                                      onChange={(event) =>
-                                        setChecklistNaoAplicavelState(
-                                          item.category,
-                                          (current) => ({
-                                            ...current,
-                                            localArquivamento:
-                                              event.target.value,
-                                          }),
-                                        )
-                                      }
-                                      placeholder="Informe o setor, armario ou caixa"
-                                    />
-                                  </FormField>
-                                  <div className="md:col-span-2">
-                                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3">
-                                      <Checkbox
-                                        checked={
-                                          naoAplicavelState.digitalizarDepois
-                                        }
-                                        onCheckedChange={(checked) =>
-                                          setChecklistNaoAplicavelState(
-                                            item.category,
-                                            (current) => ({
-                                              ...current,
-                                              digitalizarDepois:
-                                                Boolean(checked),
-                                            }),
-                                          )
-                                        }
-                                      />
-                                      <span className="text-sm font-semibold text-[var(--color-neutral-800)]">
-                                        Documento fisico ainda sera digitalizado
-                                        depois
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {naoAplicavelState.statusFlexivel !== "PADRAO" ? (
-                                <FormField
-                                  label={
-                                    naoAplicavelState.statusFlexivel ===
-                                    "NAO_APLICAVEL"
-                                      ? "Justificativa (obrigatoria)"
-                                      : "Contexto operacional e justificativa"
-                                  }
-                                >
-                                  <Textarea
-                                    rows={3}
-                                    value={naoAplicavelState.justificativa}
-                                    onChange={(event) =>
-                                      setChecklistNaoAplicavelState(
-                                        item.category,
-                                        (current) => ({
-                                          ...current,
-                                          justificativa: event.target.value,
-                                        }),
-                                      )
-                                    }
-                                    placeholder={
-                                      naoAplicavelState.statusFlexivel ===
-                                      "NAO_APLICAVEL"
-                                        ? "Explique por que este item nao se aplica ao processo."
-                                        : naoAplicavelState.statusFlexivel ===
-                                            "OUTRO_SETOR"
-                                          ? "Informe o setor que esta com o documento e a previsao de retorno."
-                                          : "Descreva a referencia do processo fisico e qualquer pendencia de digitalizacao."
-                                    }
-                                  />
-                                </FormField>
-                              ) : null}
-                            </div>
-                            {item.statusFlexivel &&
-                            item.statusFlexivel !== "PADRAO" &&
-                            item.justificativaNaoAplicavel ? (
-                              <div className="mt-3 rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                                Registro atual:{" "}
-                                {
-                                  licitacaoChecklistFlexStatusLabels[
-                                    item.statusFlexivel
-                                  ]
-                                }
-                                {item.departamentoResponsavel
-                                  ? ` | setor: ${item.departamentoResponsavel}`
-                                  : ""}
-                                {item.previsaoRecebimento
-                                  ? ` | previsao: ${formatShortDateBR(item.previsaoRecebimento)}`
-                                  : ""}
-                                {item.localArquivamento
-                                  ? ` | arquivo fisico: ${item.localArquivamento}`
-                                  : ""}
-                                {item.digitalizarDepois
-                                  ? " | digitalizacao pendente"
-                                  : ""}
-                                <div className="mt-1">
-                                  Justificativa:{" "}
-                                  {item.justificativaNaoAplicavel}
-                                </div>
-                              </div>
-                            ) : null}
-                            <div className="mt-3 flex justify-end">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={
-                                  setChecklistNaoAplicavelMutation.isPending
-                                }
-                                onClick={() =>
-                                  void handleChecklistNaoAplicavel(item)
-                                }
-                              >
-                                {setChecklistNaoAplicavelMutation.isPending
-                                  ? "Salvando..."
-                                  : naoAplicavelState.statusFlexivel ===
-                                      "PADRAO"
-                                    ? "Reativar item"
-                                    : "Salvar status especial"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        <div className="mt-4 grid gap-3 2xl:grid-cols-2">
-                          <FormField label="Titulo">
-                            <Input
-                              value={uploadState.titulo}
-                              onChange={(event) =>
-                                setUploadState(item.category, (current) => ({
-                                  ...current,
-                                  titulo: event.target.value,
-                                }))
-                              }
-                              placeholder={item.label}
-                            />
-                          </FormField>
-                          <FormField label="Descricao">
-                            <Input
-                              value={uploadState.descricao}
-                              onChange={(event) =>
-                                setUploadState(item.category, (current) => ({
-                                  ...current,
-                                  descricao: event.target.value,
-                                }))
-                              }
-                              placeholder={item.description}
-                            />
-                          </FormField>
-                          <FormField label="Arquivo" className="2xl:col-span-2">
-                            <Input
-                              type="file"
-                              onChange={(event) =>
-                                handleFileChange(
-                                  item.category,
-                                  event,
-                                  item.label,
-                                )
-                              }
-                            />
-                          </FormField>
-                        </div>
-
-                        <div className="mt-3 flex justify-end">
-                          <Button
-                            type="button"
-                            onClick={() =>
-                              void handleUploadChecklistDocumento(item)
-                            }
-                          >
-                            <Upload className="h-4 w-4" />
-                            Anexar documento
-                          </Button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </CollapsibleSectionCard>
+                onAdvance={() => selectLegalPhase("PUBLICACAO")}
+                itemsContent={preparationItemsContent}
+                configurationContent={preparationConfigurationContent}
+                editor={preparationEditor}
+              />
             </section>
 
             <section
@@ -5583,7 +5014,9 @@ export function LicitacaoProcessoPage({
                     ],
                     [
                       "Fechamento",
-                      detalhe.processo.homologado ? "Homologado" : "Em andamento",
+                      detalhe.processo.homologado
+                        ? "Homologado"
+                        : "Em andamento",
                     ],
                   ].map(([label, value]) => (
                     <div
@@ -5770,7 +5203,9 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-[var(--notice-warning-text)]">Recebimento final</div>
+                        <div className="text-[var(--notice-warning-text)]">
+                          Recebimento final
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
                         <span className="font-semibold text-[var(--notice-warning-text)]">
@@ -5782,7 +5217,9 @@ export function LicitacaoProcessoPage({
                               )
                             : "Sem data"}
                         </span>
-                        <div className="text-[var(--notice-warning-text)]">Disputa</div>
+                        <div className="text-[var(--notice-warning-text)]">
+                          Disputa
+                        </div>
                       </div>
                     </div>
                   ) : schedulePreview ? (
@@ -5967,9 +5404,7 @@ export function LicitacaoProcessoPage({
                           setCondutorProcessoOption(option);
                           setPublishForm((current) => ({
                             ...current,
-                            condutorProcessoId: option
-                              ? String(option.id)
-                              : "",
+                            condutorProcessoId: option ? String(option.id) : "",
                           }));
                         }}
                         placeholder="Selecione o condutor"
@@ -6060,34 +5495,37 @@ export function LicitacaoProcessoPage({
                     </summary>
                     <div className="mt-3 space-y-3">
                       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        {serverFlow?.evidence.some((item) => item.category === "LICITACAO_PUBLIC_LINK_BLL") ? (
-<FormField label="Link publico da BLL">
-                          <div className="space-y-2">
-                            <Input
-                              type="url"
-                              placeholder="https://bllcompras.com/Process/..."
-                              value={publishForm.linkBllPublico}
-                              onChange={(event) =>
-                                setPublishForm((current) => ({
-                                  ...current,
-                                  linkBllPublico: event.target.value,
-                                }))
-                              }
-                            />
-                            {publishForm.linkBllPublico ? (
-                              <a
-                                href={publishForm.linkBllPublico}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                Abrir pagina publica da BLL
-                              </a>
-                            ) : null}
-                          </div>
-                        </FormField>
-) : null}
+                        {serverFlow?.evidence.some(
+                          (item) =>
+                            item.category === "LICITACAO_PUBLIC_LINK_BLL",
+                        ) ? (
+                          <FormField label="Link publico da BLL">
+                            <div className="space-y-2">
+                              <Input
+                                type="url"
+                                placeholder="https://bllcompras.com/Process/..."
+                                value={publishForm.linkBllPublico}
+                                onChange={(event) =>
+                                  setPublishForm((current) => ({
+                                    ...current,
+                                    linkBllPublico: event.target.value,
+                                  }))
+                                }
+                              />
+                              {publishForm.linkBllPublico ? (
+                                <a
+                                  href={publishForm.linkBllPublico}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Abrir pagina publica da BLL
+                                </a>
+                              ) : null}
+                            </div>
+                          </FormField>
+                        ) : null}
                         <FormField label="Link publico do PNCP">
                           <div className="space-y-2">
                             <Input
@@ -6334,13 +5772,12 @@ export function LicitacaoProcessoPage({
                       )}
                     </div>
                   </details>
-
                 </form>
               </CollapsibleSectionCard>
             </section>
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
-            {(showCompetitivoSteps || !showLances) ? (
+            {showCompetitivoSteps || !showLances ? (
               <section
                 ref={licitantesRef}
                 className={isLegalSectionVisible("licitantes") ? "" : "hidden"}
@@ -6507,7 +5944,7 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            {(showCompetitivoSteps || !showLances) ? (
+            {showCompetitivoSteps || !showLances ? (
               <section
                 ref={propostasRef}
                 className={isLegalSectionVisible("propostas") ? "" : "hidden"}
@@ -6835,7 +6272,7 @@ export function LicitacaoProcessoPage({
               </section>
             ) : null}
 
-            {(showCompetitivoSteps || !showLances) ? (
+            {showCompetitivoSteps || !showLances ? (
               <section
                 ref={julgamentoRef}
                 className={isLegalSectionVisible("julgamento") ? "" : "hidden"}

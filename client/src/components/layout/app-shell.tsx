@@ -417,7 +417,8 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [userMenuOpen]);
 
-  const headerActions = userCanAccessSubsystem
+  const isLicitacaoWorkspace = /^\/licitacao\/\d+(?:$|[/?])/.test(location);
+  const headerActions = userCanAccessSubsystem && !isLicitacaoWorkspace
     ? subsystem.recommendedActions.slice(0, 2)
     : [];
   const guidedTourSteps = buildGuidedTourSteps(location, resolveGuidedTourRoleTemplate(user.role));
@@ -468,8 +469,8 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
         ) : null}
 
         <main className="relative z-0 flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="relative z-[90] shrink-0 border-b border-[var(--header-border)] bg-[color:var(--header-bg)]/96 px-4 py-3 backdrop-blur lg:min-h-[90px] lg:px-6 lg:py-4">
-            <div className="flex flex-wrap items-start justify-between gap-4 lg:h-full lg:items-center">
+          <header className={`relative z-[90] shrink-0 border-b border-[var(--header-border)] bg-[color:var(--header-bg)]/96 px-4 py-3 backdrop-blur lg:px-6 ${isLicitacaoWorkspace ? "" : "lg:min-h-[90px] lg:py-4"}`}>
+            <div className={`flex items-start justify-between gap-4 lg:h-full lg:items-center ${isLicitacaoWorkspace ? "items-center" : "flex-wrap"}`}>
               <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
@@ -479,15 +480,15 @@ export function AppShell({ children, user, onLogout }: AppShellProps) {
                 >
                   <Menu className="h-4 w-4" />
                 </button>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                <div className={isLicitacaoWorkspace ? "hidden min-w-0 sm:block" : "min-w-0"}>
+                  <p className={isLicitacaoWorkspace ? "hidden" : "text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]"}>
                     {branding.systemName}
                   </p>
                   <div className="mt-1 flex min-w-0 items-center gap-2">
                     <SubsystemIcon className="h-5 w-5 shrink-0 text-[var(--accent-color)]" />
-                    <h1 className="truncate text-xl font-black tracking-[-0.03em] text-[var(--text-primary)]">{subsystem.shortTitle}</h1>
+                    {isLicitacaoWorkspace ? <p className="text-sm font-semibold text-[var(--text-primary)]">Licitação</p> : <h1 className="truncate text-xl font-black tracking-[-0.03em] text-[var(--text-primary)]">{subsystem.shortTitle}</h1>}
                   </div>
-                  <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{subsystem.description}</p>
+                  {!isLicitacaoWorkspace ? <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{subsystem.description}</p> : null}
                 </div>
               </div>
 

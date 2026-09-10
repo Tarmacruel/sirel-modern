@@ -1,6 +1,8 @@
+import { useId, useRef, useState } from "react";
 import {
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Clock3,
   Eye,
@@ -19,6 +21,7 @@ import type {
 interface LicitacaoPhaseStepperProps {
   phases: LicitacaoGuidedPhaseView[];
   onSelectPhase: (phase: LicitacaoProcessoPhaseKey) => void;
+  compact?: boolean;
 }
 
 const phaseIcons = {
@@ -51,9 +54,136 @@ const statusClassName = {
 export function LicitacaoPhaseStepper({
   phases,
   onSelectPhase,
+  compact = false,
 }: LicitacaoPhaseStepperProps) {
+  const [expanded, setExpanded] = useState(false);
+  const phaseListId = useId();
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const viewingPhase = phases.find((phase) => phase.status === "viewing");
   const currentPhase = phases.find((phase) => phase.status === "current");
+  const selectedPhase =
+    phases.find((phase) => phase.isSelected) ?? currentPhase ?? phases[0];
+
+  if (compact) {
+    return (
+      <nav
+        aria-label="Fases da licitação"
+        className="border-t border-[var(--border-subtle)] bg-[var(--surface-panel)]"
+      >
+        <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2 sm:px-5">
+          <div className="flex items-center gap-2.5 text-sm">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary-500)]"
+              aria-hidden="true"
+            />
+            <span className="text-[var(--text-muted)]">
+              Etapa {selectedPhase ? phases.indexOf(selectedPhase) + 1 : 0} de{" "}
+              {phases.length}
+            </span>
+            <span className="font-semibold text-[var(--text-primary)]">
+              {selectedPhase?.shortLabel}
+            </span>
+          </div>
+          <button
+            ref={toggleRef}
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={phaseListId}
+            onClick={() => setExpanded((open) => !open)}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]"
+          >
+            {expanded ? "Ocultar etapas" : "Ver etapas"}
+            <ChevronDown
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`}
+            />
+          </button>
+        </div>
+        <div
+          id={phaseListId}
+          hidden={!expanded}
+          className="border-t border-[var(--border-subtle)] px-3 py-2 sm:px-4"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setExpanded(false);
+              toggleRef.current?.focus();
+            }
+          }}
+        >
+          <ol className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">
+            {phases.map((phase, index) => {
+              const blocked = !phase.accessible || phase.status === "blocked";
+              const StatusIcon = phase.completed
+                ? CheckCircle2
+                : blocked
+                  ? Lock
+                  : phase.isSelected
+                    ? Eye
+                    : Circle;
+              return (
+                <li key={phase.key}>
+                  <button
+                    type="button"
+                    disabled={blocked}
+                    aria-current={phase.isSelected ? "step" : undefined}
+                    onClick={() => {
+                      setExpanded(false);
+                      toggleRef.current?.focus();
+                      onSelectPhase(phase.key);
+                    }}
+                    className={[
+                      "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]",
+                      phase.isSelected
+                        ? "bg-[var(--surface-soft)] text-[var(--color-primary-700)]"
+                        : "text-[var(--text-secondary)]",
+                      blocked
+                        ? "cursor-not-allowed text-[var(--text-muted)]"
+                        : "hover:bg-[var(--surface-soft)]",
+                    ].join(" ")}
+                  >
+                    <span
+                      className="w-4 shrink-0 text-right text-xs tabular-nums"
+                      aria-hidden="true"
+                    >
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm font-medium">
+                      {phase.shortLabel}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px]">
+                      <StatusIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                      {blocked
+                        ? "Bloqueada"
+                        : phase.status === "current"
+                          ? "Atual"
+                          : phase.isSelected
+                            ? "Em exibição"
+                            : phase.completed
+                              ? "Concluída"
+                              : "Disponível"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+        {viewingPhase && currentPhase ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] px-4 py-2 text-xs text-[var(--text-secondary)] sm:px-5">
+            <span>Etapa atual do processo: {currentPhase.shortLabel}</span>
+            <button
+              type="button"
+              onClick={() => onSelectPhase(currentPhase.key)}
+              className="rounded px-1 py-1 font-semibold text-[var(--color-primary-700)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]"
+            >
+              Voltar à etapa atual
+            </button>
+          </div>
+        ) : null}
+      </nav>
+    );
+  }
 
   return (
     <div className="space-y-2">
