@@ -16,13 +16,19 @@ mkdirSync(output, { recursive: true });
 const server = published ? null : await createServer({ root: resolve("client"), configFile: resolve("client/vite.config.ts"), server: { port, strictPort: true, host: "127.0.0.1", proxy: { "/api": { target: "http://127.0.0.1:1" } } } });
 await server?.listen();
 let browser, page;
-const errors = [], unexpectedRequests = [], calls = [];
+const errors = [], unexpectedRequests = [], blockedAnalytics = [], calls = [];
 try {
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const browserContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });
   const fixture = createPreparationFixture();
   await browserContext.route("**/*", async (route) => {
     const request = route.request(), url = new URL(request.url());
+    // Cloudflare injects analytics into the published HTML. Block it as well;
+    // the UI validation must neither send telemetry nor depend on that script.
+    if (published && url.origin === "https://static.cloudflareinsights.com" && url.pathname.startsWith("/beacon.min.js")) {
+      blockedAnalytics.push(request.url());
+      return route.abort();
+    }
     if (url.origin !== origin) { unexpectedRequests.push(request.url()); return route.abort(); }
     if (url.pathname.startsWith("/api/trpc/")) {
       const names = decodeURIComponent(url.pathname.slice("/api/trpc/".length)).split(",");
@@ -142,7 +148,7 @@ try {
   assert.match(page.url(), /fase=PREPARACAO/);
   assert.deepEqual(errors, [], "No browser runtime errors");
   assert.deepEqual(unexpectedRequests, [], "All API data must remain isolated");
-  writeFileSync(resolve(output, "result.json"), JSON.stringify({ errors, unexpectedRequests, calls, mobileHorizontalOverflow: horizontalOverflow, objectFilters: true, completedDocumentDisclosure: true, tabKeyboardNavigation: true, fileDraftPreserved: true, mobileListDetailNavigation: true, fixtureUploadCompleted: true, blockedPhaseRedirect: true }, null, 2));
+  writeFileSync(resolve(output, "result.json"), JSON.stringify({ errors, unexpectedRequests, blockedAnalytics, calls, mobileHorizontalOverflow: horizontalOverflow, objectFilters: true, completedDocumentDisclosure: true, tabKeyboardNavigation: true, fileDraftPreserved: true, mobileListDetailNavigation: true, fixtureUploadCompleted: true, blockedPhaseRedirect: true }, null, 2));
   console.log(`Preparation UI smoke passed. Artifacts: ${output}`);
 } catch (error) {
   if (page) {
