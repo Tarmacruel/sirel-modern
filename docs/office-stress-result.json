@@ -1,0 +1,26 @@
+{
+  "count": 50,
+  "durationMs": 188800,
+  "before": {
+    "officeDirectories": 0,
+    "officeBytes": 0,
+    "tempBytes": 881096997,
+    "unreadable": 2
+  },
+  "after": {
+    "officeDirectories": 0,
+    "officeBytes": 0,
+    "tempBytes": 881125666,
+    "unreadable": 2
+  },
+  "sofficeRemaining": false,
+  "metrics": {
+    "officeActiveJobs": 0,
+    "officeQueuedJobs": 0,
+    "officeConversionsTotal": 68,
+    "officeConversionsFailed": 1,
+    "officeConversionTimeouts": 2,
+    "officeCleanupFailures": 0,
+    "officeTempBytesRemoved": 48366435
+  }
+}

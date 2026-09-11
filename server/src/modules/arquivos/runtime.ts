@@ -5,6 +5,8 @@ import { arquivosConfig } from "./config.js";
 import { reindexArquivos } from "./indexer.js";
 import { cleanupPreviewCache, resolveLibreOffice } from "./preview.js";
 
+import { startOfficeCollector } from "./office-temp.js";
+
 let watcherStarted = false;
 let reindexTimer: NodeJS.Timeout | null = null;
 
@@ -18,6 +20,7 @@ function scheduleReindex() {
 }
 
 export async function startArquivosRuntime() {
+  startOfficeCollector();
   if (!arquivosConfig.enabled) {
     console.info("[SIREL Arquivos] Desabilitado por configuração.");
     return;

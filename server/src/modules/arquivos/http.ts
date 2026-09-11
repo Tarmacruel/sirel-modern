@@ -318,6 +318,9 @@ function pipeFile(
   absolutePath: string,
   range?: { start: number; end: number },
 ) {
+  // The response can close while streamFile awaits stat(). Do not miss that
+  // close event and leave a newly opened read stream without a consumer.
+  if (res.destroyed || res.writableEnded) return Promise.resolve();
   return new Promise<void>((resolvePromise, reject) => {
     const stream = createReadStream(absolutePath, range);
     let settled = false;
@@ -441,6 +444,9 @@ async function handleTicket(req: Request, res: Response, mode: "download" | "pre
       });
     }
 
+    // Shared previews finish/cache even if one consumer disconnects.
+    // Never open a read stream for a response that has already closed.
+    if (req.aborted || res.destroyed) return;
     await streamFile(
       req,
       res,
@@ -452,6 +458,7 @@ async function handleTicket(req: Request, res: Response, mode: "download" | "pre
         : undefined,
     );
   } catch (error: any) {
+    if (req.aborted || res.destroyed) return;
     commonHeaders(res);
     const status = error?.code === "UNAUTHORIZED" ? 401 : error?.code === "FORBIDDEN" ? 403 : error?.code === "NOT_FOUND" ? 404 : 400;
     await logArquivoAudit({

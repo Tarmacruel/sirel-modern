@@ -53,6 +53,8 @@ export const arquivosConfig = {
   contentIndexMaxChars: envNumber("ARQUIVOS_CONTENT_INDEX_MAX_CHARS", 1_000_000, 10_000, 5_000_000),
   contentIndexTimeoutMs: envNumber("ARQUIVOS_CONTENT_INDEX_TIMEOUT_SECONDS", 90, 10, 600) * 1000,
   contentIndexConcurrency: envNumber("ARQUIVOS_CONTENT_INDEX_CONCURRENCY", 2, 1, 8),
+  officeConcurrency: Math.floor(envNumber("ARQUIVOS_OFFICE_CONCURRENCY", 2, 1, 8)),
+  officePreviewTimeoutMs: envNumber("ARQUIVOS_OFFICE_PREVIEW_TIMEOUT_SECONDS", 90, 10, 600) * 1000,
   pdftotextPath: String(process.env.PDFTOTEXT_PATH ?? "pdftotext").trim(),
   autoIndex: envBoolean("ARQUIVOS_AUTO_INDEX", true),
   watch: envBoolean("ARQUIVOS_WATCH", true),

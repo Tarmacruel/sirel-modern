@@ -75,6 +75,7 @@ import {
 } from "./lib/document-lineage.js";
 import { verifyPublicDocumentLink } from "./lib/public-document-link.js";
 import { registerArquivosHttp } from "./modules/arquivos/http.js";
+import { stopOfficeJobs } from "./modules/arquivos/office.js";
 import { startArquivosRuntime } from "./modules/arquivos/runtime.js";
 import {
   isTransparencyPortalPathAllowed,
@@ -2373,8 +2374,9 @@ const server = app.listen(port, host, () => {
 
 function shutdown() {
   stopBllLocalScheduler();
+  const officeStopped = stopOfficeJobs();
   server.close(() => {
-    process.exit(0);
+    void officeStopped.then(() => process.exit(0));
   });
 }
 

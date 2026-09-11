@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "office:cleanup": "tsx src/scripts/cleanup-office-temp.ts",
     "ata-sessao:process": "tsx src/scripts/generate-ata-sessao-reports.ts",
     "backfill:fornecedor-vencedor": "tsx src/scripts/backfill-fornecedor-vencedor-ids.ts",
     "import:legacy": "tsx src/scripts/import-legacy-snapshot.ts",
@@ -28,9 +29,9 @@
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
-    "multer": "^2.2.0",
+    "multer": "^2.3.0",
     "node-cron": "^4.2.1",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^9.1.1",
     "pdfkit": "^0.18.0",
     "pg": "^8.13.1",
     "playwright": "^1.53.2",
@@ -45,6 +46,6 @@
     "@types/pg": "^8.15.0",
     "@types/web-push": "^3.6.4",
     "tsx": "^4.23.13",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }

@@ -1,99 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
-import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
 
 import { arquivosConfig } from "./config.js";
 import { kindFor } from "./mime.js";
+import { withOfficeConversion } from "./office.js";
 
 const previewJobs = new Map<string, Promise<string>>();
 
-function windowsCandidates() {
-  return [
-    arquivosConfig.libreOfficePath,
-    "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
-    "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
-  ].filter(Boolean);
-}
-
-export function resolveLibreOffice() {
-  for (const candidate of windowsCandidates()) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-async function runLibreOffice(inputPath: string, outDir: string) {
-  const executable = resolveLibreOffice();
-  if (!executable) throw new Error("LibreOffice não encontrado.");
-
-  await mkdir(outDir, { recursive: true });
-  // O perfil precisa ficar fora do cache: em Windows, o LibreOffice pode
-  // falhar quando os subdiretórios internos do perfil são criados dentro de
-  // um caminho de cache longo (especialmente com nomes acentuados).
-  const profileDir = await mkdtemp(join(tmpdir(), "sirel-office-profile-"));
-  const profileUrl = pathToFileURL(profileDir).href;
-
-  try {
-    await new Promise<void>((resolvePromise, reject) => {
-      const child = spawn(
-        executable,
-        [
-          `-env:UserInstallation=${profileUrl}`,
-          "--headless",
-          "--norestore",
-          "--nodefault",
-          "--nolockcheck",
-          "--convert-to",
-          "pdf",
-          "--outdir",
-          outDir,
-          inputPath,
-        ],
-        {
-          windowsHide: true,
-          shell: false,
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-
-      let stderr = "";
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (error) reject(error);
-        else resolvePromise();
-      };
-
-      const timeout = setTimeout(() => {
-        child.kill();
-        finish(new Error("Tempo limite excedido ao gerar preview."));
-      }, 90_000);
-
-      child.stderr.on("data", (chunk) => {
-        stderr += String(chunk).slice(0, 4000);
-      });
-
-      child.on("error", (error) => finish(error));
-      child.on("close", (code) => {
-        if (code === 0) finish();
-        else
-          finish(
-            new Error(`LibreOffice retornou código ${code}. ${stderr}`.trim()),
-          );
-      });
-    });
-  } finally {
-    await rm(profileDir, { recursive: true, force: true }).catch(
-      () => undefined,
-    );
-  }
-}
+export { resolveLibreOffice } from "./office.js";
 
 export async function officePreviewPath(
   inputPath: string,
@@ -122,13 +38,28 @@ export async function officePreviewPath(
   if (existingJob) return existingJob;
 
   const job = (async () => {
-    await rm(cacheDir, { recursive: true, force: true });
     await mkdir(cacheDir, { recursive: true });
-    await runLibreOffice(inputPath, cacheDir);
-
-    if (!existsSync(outputPath)) {
-      throw new Error("LibreOffice não gerou o PDF esperado.");
-    }
+    await withOfficeConversion(
+      {
+        inputPath,
+        format: "pdf",
+        timeoutMs: arquivosConfig.officePreviewTimeoutMs,
+      },
+      async (outputDir) => {
+        const converted = join(outputDir, outputName);
+        const outputInfo = await stat(converted).catch(() => null);
+        if (!outputInfo?.size)
+          throw new Error("LibreOffice não gerou o PDF esperado.");
+        // Publish only a complete PDF; another caller must never see a partial cache file.
+        const pending = join(cacheDir, `${randomUUID()}.pending`);
+        try {
+          await copyFile(converted, pending);
+          await rename(pending, outputPath);
+        } finally {
+          await rm(pending, { force: true, maxRetries: 3, retryDelay: 200 });
+        }
+      },
+    );
 
     return outputPath;
   })().finally(() => {
@@ -158,7 +89,7 @@ export async function cleanupPreviewCache() {
     const entries = await readdir(prefixPath, { withFileTypes: true });
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory() || previewJobs.has(entry.name)) continue;
       const entryPath = join(prefixPath, entry.name);
       try {
         const info = await stat(entryPath);

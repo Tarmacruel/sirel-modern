@@ -1,12 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { arquivosConfig } from "./config.js";
-import { resolveLibreOffice } from "./preview.js";
+import { resolveLibreOffice, withOfficeConversion } from "./office.js";
 
 const execFileAsync = promisify(execFile);
 const contentKinds = new Set(["text", "pdf", "office"]);
@@ -46,58 +44,29 @@ async function extractOfficeText(filePath: string) {
   const executable = resolveLibreOffice();
   if (!executable) return null;
 
-  const outputDir = await mkdtemp(join(tmpdir(), "sirel-office-text-"));
-  const profileDir = await mkdtemp(join(tmpdir(), "sirel-office-profile-"));
-  const profileUrl = pathToFileURL(profileDir).href;
-
-  try {
-    await execFileAsync(
-      executable,
-      [
-        `-env:UserInstallation=${profileUrl}`,
-        "--headless",
-        "--norestore",
-        "--nodefault",
-        "--nolockcheck",
-        "--convert-to",
-        "txt:Text",
-        "--outdir",
-        outputDir,
-        filePath,
-      ],
-      {
-        windowsHide: true,
-        timeout: arquivosConfig.contentIndexTimeoutMs,
-        maxBuffer: 16_384,
-      },
-    );
-
-    const outputEntries = await readdir(outputDir, { withFileTypes: true });
-    const output = outputEntries.find(
-      (entry) => entry.isFile() && extname(entry.name).toLowerCase() === ".txt",
-    );
-    if (!output) return null;
-    // Aguarde a leitura antes de remover o diretório temporário. Sem o
-    // `await`, o `finally` pode apagar o arquivo enquanto `readTextFile`
-    // ainda está abrindo-o, causando ENOENT durante a indexação em segundo
-    // plano.
-    return await readTextFile(join(outputDir, output.name));
-  } finally {
-    await Promise.all([
-      rm(outputDir, { recursive: true, force: true }),
-      rm(profileDir, { recursive: true, force: true }),
-    ]);
-  }
+  return withOfficeConversion(
+    {
+      inputPath: filePath,
+      format: "txt:Text",
+      timeoutMs: arquivosConfig.contentIndexTimeoutMs,
+    },
+    async (outputDir) => {
+      const outputEntries = await readdir(outputDir, { withFileTypes: true });
+      const output = outputEntries.find(
+        (entry) =>
+          entry.isFile() && extname(entry.name).toLowerCase() === ".txt",
+      );
+      if (!output) return null;
+      return await readTextFile(join(outputDir, output.name));
+    },
+  );
 }
 
 export function canIndexContent(kind: string) {
   return contentKinds.has(kind);
 }
 
-export async function extractIndexedContent(
-  filePath: string,
-  kind: string,
-) {
+export async function extractIndexedContent(filePath: string, kind: string) {
   if (!canIndexContent(kind)) return null;
 
   try {

@@ -381,6 +381,8 @@ Observacoes:
 
 A busca textual do acervo e preenchida durante a indexacao: PDF usa `pdftotext` e Office usa LibreOffice. Os limites podem ser ajustados por `ARQUIVOS_CONTENT_INDEX_MAX_MB`, `ARQUIVOS_CONTENT_INDEX_MAX_CHARS` e `ARQUIVOS_CONTENT_INDEX_TIMEOUT_SECONDS`.
 
+Conversoes Office compartilham uma fila limitada e removem perfil/saida temporarios ao terminar. Consulte [ciclo de vida Office, recuperacao de residuos e testes](docs/office-temp-lifecycle.md) para configurar concorrencia/timeout e executar a limpeza administrativa em modo de simulacao.
+
 ## Scripts principais
 
 - `npm run dev`
