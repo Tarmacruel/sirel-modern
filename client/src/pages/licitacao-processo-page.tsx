@@ -1,3 +1,4 @@
+import { reconcileFormDraft } from "@/lib/reconcile-form-draft";
 import { resolveAccessibleLicitacaoPhase } from "@/lib/licitacao-phase-access";
 import {
   Suspense,
@@ -11,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -49,6 +51,10 @@ import { AtaSessaoSyncModal } from "@/components/licitacao/ata-sessao-sync-modal
 import { DatePickerLegal } from "@/components/licitacao/date-picker-legal";
 import { LicitacaoAuditDrawer } from "@/components/licitacao/processo/licitacao-audit-drawer";
 import { LicitacaoContextAssistant } from "@/components/licitacao/processo/licitacao-context-assistant";
+import {
+  LicitacaoPhaseWorkspace,
+  type WorkspaceTab,
+} from "@/components/licitacao/processo/licitacao-phase-workspace";
 import { LicitacaoPreparationWorkspace } from "@/components/licitacao/processo/licitacao-preparation-workspace";
 import { LicitacaoEvidenceQueue } from "@/components/licitacao/processo/licitacao-evidence-queue";
 import type { LicitacaoEvidenceItem } from "@/components/licitacao/processo/licitacao-evidence-row";
@@ -683,6 +689,8 @@ export function LicitacaoProcessoPage({
 
   const [currentPhase, setCurrentPhase] =
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
+  const [publicationTab, setPublicationTab] =
+    useState<WorkspaceTab>("documents");
   const [uploadingChecklistCategory, setUploadingChecklistCategory] = useState<
     string | null
   >(null);
@@ -758,8 +766,6 @@ export function LicitacaoProcessoPage({
   ] = useState<string | null>(null);
   const [activeExternalEvidenceCategory, setActiveExternalEvidenceCategory] =
     useState<string | null>(null);
-  const [publicationChannelsOpen, setPublicationChannelsOpen] = useState(false);
-  const [publicationScheduleOpen, setPublicationScheduleOpen] = useState(false);
   const [publishForm, setPublishForm] = useState({
     condutorProcessoId: "",
     statusId: "",
@@ -888,11 +894,18 @@ export function LicitacaoProcessoPage({
     [],
   );
 
+  const publicationSnapshotRef = useRef<{
+    processoId: number;
+    config: typeof configForm;
+    schedule: typeof manualScheduleForm;
+    publication: typeof publishForm;
+  } | null>(null);
+
   useEffect(() => {
     const detail = detailQuery.data;
     if (!detail) return;
 
-    setConfigForm({
+    const nextConfig: typeof configForm = {
       criterioJulgamento: detail.processo.criterioJulgamento ?? "",
       modoDisputa: detail.processo.modoDisputa ?? "NAO_SE_APLICA",
       exigeDeclaracaoNaoFracionamento:
@@ -905,9 +918,9 @@ export function LicitacaoProcessoPage({
       inversaoFasesJustificativa:
         detail.licitacao.inversaoFasesJustificativa ?? "",
       observacoes: detail.licitacao.observacoes ?? "",
-    });
+    };
 
-    setManualScheduleForm({
+    const nextSchedule = {
       dataRecebimentoPropostasInicio: toDateTimeLocalValue(
         detail.licitacao.dataRecebimentoPropostasInicio,
       ),
@@ -920,9 +933,9 @@ export function LicitacaoProcessoPage({
       dataInicioLances: toDateTimeLocalValue(detail.licitacao.dataInicioLances),
       dataFimLances: toDateTimeLocalValue(detail.licitacao.dataFimLances),
       dataJulgamento: toDateTimeLocalValue(detail.licitacao.dataJulgamento),
-    });
+    };
 
-    setPublishForm({
+    const nextPublication = {
       condutorProcessoId: detail.processo.condutorProcesso?.id
         ? String(detail.processo.condutorProcesso.id)
         : "",
@@ -940,19 +953,43 @@ export function LicitacaoProcessoPage({
         ? `Publicacao do edital ${detail.processo.numeroEdital}`
         : `Publicacao do processo ${detail.processo.numeroSirel}`,
       observacao: detail.licitacao.observacoes ?? "",
-    });
-    setCondutorProcessoOption(
-      detail.processo.condutorProcesso
-        ? {
-            id: detail.processo.condutorProcesso.id,
-            label: detail.processo.condutorProcesso.nome,
-            subtitle: detail.processo.condutorProcesso.cargo ?? undefined,
-            metadata: {
-              cargoNome: detail.processo.condutorProcesso.cargo ?? null,
-            },
-          }
-        : null,
+    };
+    const previous =
+      publicationSnapshotRef.current?.processoId === detail.processo.id
+        ? publicationSnapshotRef.current
+        : null;
+    setConfigForm((current) =>
+      reconcileFormDraft(current, nextConfig, previous?.config),
     );
+    setManualScheduleForm((current) =>
+      reconcileFormDraft(current, nextSchedule, previous?.schedule),
+    );
+    setPublishForm((current) =>
+      reconcileFormDraft(current, nextPublication, previous?.publication),
+    );
+    if (
+      !previous ||
+      publishForm.condutorProcessoId === previous.publication.condutorProcessoId
+    ) {
+      setCondutorProcessoOption(
+        detail.processo.condutorProcesso
+          ? {
+              id: detail.processo.condutorProcesso.id,
+              label: detail.processo.condutorProcesso.nome,
+              subtitle: detail.processo.condutorProcesso.cargo ?? undefined,
+              metadata: {
+                cargoNome: detail.processo.condutorProcesso.cargo ?? null,
+              },
+            }
+          : null,
+      );
+    }
+    publicationSnapshotRef.current = {
+      processoId: detail.processo.id,
+      config: nextConfig,
+      schedule: nextSchedule,
+      publication: nextPublication,
+    };
     setPropostaForm((current) => ({
       ...current,
       licitanteId:
@@ -1540,60 +1577,6 @@ export function LicitacaoProcessoPage({
     unresolvedChecklistItems[0] ??
     checklistItems[0] ??
     null;
-  const selectedInternalLatestDocumento = selectedInternalChecklistItem
-    ? (selectedInternalChecklistItem.documentos
-        .slice()
-        .sort(
-          (left, right) =>
-            new Date(right.criadoEm).getTime() -
-            new Date(left.criadoEm).getTime(),
-        )[0] ?? null)
-    : null;
-  const selectedInternalUploadState = selectedInternalChecklistItem
-    ? getUploadState(uploadForms, selectedInternalChecklistItem.category)
-    : null;
-  const selectedInternalChecklistUsesCIModal =
-    selectedInternalChecklistItem?.category ===
-    CI_RESERVA_ORCAMENTARIA_CATEGORY;
-  const selectedInternalInstitutionalKind: LicitacaoInstitutionalKind | null =
-    (() => {
-      switch (selectedInternalChecklistItem?.category) {
-        case "LICITACAO_DECRETO_COMISSAO":
-          return "comissao";
-        case "LICITACAO_DECRETO_EQUIPE_APOIO":
-          return "equipeApoio";
-        case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
-          return "ordenadorDespesa";
-        default:
-          return null;
-      }
-    })();
-  const selectedInternalUsesInstitutionalSelector =
-    selectedInternalChecklistItem?.editor === "INSTITUTIONAL_SELECTOR" ||
-    selectedInternalChecklistItem?.completionStrategy === "CATALOG_SELECTION" ||
-    Boolean(selectedInternalInstitutionalKind);
-  const selectedInternalChecklistFlexState = selectedInternalChecklistItem
-    ? (checklistNaoAplicavelForm[selectedInternalChecklistItem.category] ?? {
-        statusFlexivel:
-          selectedInternalChecklistItem.statusFlexivel ??
-          (selectedInternalChecklistItem.naoAplicavel
-            ? "NAO_APLICAVEL"
-            : "PADRAO"),
-        justificativa:
-          selectedInternalChecklistItem.justificativaNaoAplicavel ?? "",
-        departamentoResponsavel:
-          selectedInternalChecklistItem.departamentoResponsavel ?? "",
-        previsaoRecebimento: toDateInputValue(
-          selectedInternalChecklistItem.previsaoRecebimento,
-        ),
-        processoFisicoNumero:
-          selectedInternalChecklistItem.processoFisicoNumero ?? "",
-        localArquivamento:
-          selectedInternalChecklistItem.localArquivamento ?? "",
-        digitalizarDepois:
-          selectedInternalChecklistItem.digitalizarDepois ?? false,
-      })
-    : null;
 
   const requirementChecklistItemsByPhase = useMemo(() => {
     const statusAtual = detalhe?.licitacao.statusLicitacao;
@@ -1711,6 +1694,16 @@ export function LicitacaoProcessoPage({
   ]);
   const publicationChecklistItems =
     requirementChecklistItemsByPhase.get("PUBLICACAO") ?? [];
+  const publicationDocumentItems = publicationChecklistItems.filter(
+    (item) => item.source === "DOCUMENT_UPLOAD",
+  );
+  const selectedPublicationDocument =
+    publicationDocumentItems.find(
+      (item) => item.category === activeExternalEvidenceCategory,
+    ) ??
+    publicationDocumentItems.find((item) => !item.concluido) ??
+    publicationDocumentItems[0] ??
+    null;
   const externalChecklistItems =
     requirementChecklistItemsByPhase.get("DISPUTA") ?? [];
   const julgamentoChecklistItems =
@@ -2392,11 +2385,13 @@ export function LicitacaoProcessoPage({
       setErrorMessage(
         "Selecione o fundamento legal da inexigibilidade antes de publicar.",
       );
+      setPublicationTab("channels");
       return;
     }
     if (!publishForm.condutorProcessoId) {
       setFeedback(null);
       setErrorMessage("Selecione o condutor do processo antes de publicar.");
+      setPublicationTab("channels");
       return;
     }
     if (publishCriticalStatusDateRequired && !publishForm.dataStatus) {
@@ -2404,6 +2399,7 @@ export function LicitacaoProcessoPage({
       setErrorMessage(
         `Informe a data do status critico (${getCriticalStatusKindLabel(selectedPublishCriticalStatusKind!)}).`,
       );
+      setPublicationTab("channels");
       return;
     }
     if (!ensureAuditJustification("publicar o processo")) return;
@@ -2417,6 +2413,7 @@ export function LicitacaoProcessoPage({
       setErrorMessage(
         "Informe as datas manuais de publicacao, recebimento final e abertura para publicar o processo fora do fluxo.",
       );
+      setPublicationTab("schedule");
       return;
     }
     if (
@@ -2427,6 +2424,7 @@ export function LicitacaoProcessoPage({
       setErrorMessage(
         "Informe a justificativa do prazo extemporaneo antes de publicar com data inferior ao minimo legal.",
       );
+      setPublicationTab("schedule");
       return;
     }
 
@@ -3104,6 +3102,8 @@ export function LicitacaoProcessoPage({
   const selectedPhaseNavItems = navItems.filter((item) =>
     getSectionsForPhase(currentPhase).includes(item.key),
   );
+  const usesCompactWorkspace =
+    currentPhase === "PREPARACAO" || currentPhase === "PUBLICACAO";
   const selectedPhaseInfo = phaseCatalog[currentPhase];
   const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
@@ -4192,444 +4192,487 @@ export function LicitacaoProcessoPage({
       </div>
     </form>
   );
-  const preparationEditor = (
-    <>
-      {selectedInternalChecklistItem &&
-      selectedInternalUploadState &&
-      selectedInternalChecklistFlexState ? (
-        <>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <h4 className="text-lg font-semibold text-[var(--color-primary-950)]">
-                  {selectedInternalChecklistItem.label}
-                </h4>
-                <span
-                  className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(selectedInternalChecklistItem)}`}
-                >
-                  {getChecklistItemStatusLabel(selectedInternalChecklistItem)}
-                </span>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
-                {selectedInternalChecklistItem.description}
-              </p>
-            </div>
-          </div>
+  function renderChecklistEditor(selectedItem: ChecklistCardItem | null) {
+    const selectedInternalLatestDocumento = selectedItem
+      ? (selectedItem.documentos
+          .slice()
+          .sort(
+            (left, right) =>
+              new Date(right.criadoEm).getTime() -
+              new Date(left.criadoEm).getTime(),
+          )[0] ?? null)
+      : null;
+    const selectedInternalUploadState = selectedItem
+      ? getUploadState(uploadForms, selectedItem.category)
+      : null;
+    const selectedInternalChecklistUsesCIModal =
+      selectedItem?.category === CI_RESERVA_ORCAMENTARIA_CATEGORY;
+    const selectedInternalInstitutionalKind: LicitacaoInstitutionalKind | null =
+      (() => {
+        switch (selectedItem?.category) {
+          case "LICITACAO_DECRETO_COMISSAO":
+            return "comissao";
+          case "LICITACAO_DECRETO_EQUIPE_APOIO":
+            return "equipeApoio";
+          case "LICITACAO_DECRETO_ORDENADOR_DESPESAS":
+            return "ordenadorDespesa";
+          default:
+            return null;
+        }
+      })();
+    const selectedInternalUsesInstitutionalSelector =
+      selectedItem?.editor === "INSTITUTIONAL_SELECTOR" ||
+      selectedItem?.completionStrategy === "CATALOG_SELECTION" ||
+      Boolean(selectedInternalInstitutionalKind);
+    const selectedInternalChecklistFlexState = selectedItem
+      ? (checklistNaoAplicavelForm[selectedItem.category] ?? {
+          statusFlexivel:
+            selectedItem.statusFlexivel ??
+            (selectedItem.naoAplicavel ? "NAO_APLICAVEL" : "PADRAO"),
+          justificativa: selectedItem.justificativaNaoAplicavel ?? "",
+          departamentoResponsavel: selectedItem.departamentoResponsavel ?? "",
+          previsaoRecebimento: toDateInputValue(
+            selectedItem.previsaoRecebimento,
+          ),
+          processoFisicoNumero: selectedItem.processoFisicoNumero ?? "",
+          localArquivamento: selectedItem.localArquivamento ?? "",
+          digitalizarDepois: selectedItem.digitalizarDepois ?? false,
+        })
+      : null;
 
-          {selectedInternalUsesInstitutionalSelector &&
-          selectedInternalInstitutionalKind ? (
-            <div className="mt-5">
-              <LicitacaoInstitutionalSelector
-                kind={selectedInternalInstitutionalKind}
-                title={selectedInternalChecklistItem.label}
-                selected={
-                  selectedInternalInstitutionalKind === "comissao"
-                    ? (designacoesQuery.data?.comissao ?? null)
-                    : selectedInternalInstitutionalKind === "equipeApoio"
-                      ? (designacoesQuery.data?.equipeApoio ?? null)
-                      : (designacoesQuery.data?.ordenadorDespesa ?? null)
-                }
-                options={
-                  selectedInternalInstitutionalKind === "comissao"
-                    ? (availableDesignacoesQuery.data?.comissoes ?? [])
-                    : selectedInternalInstitutionalKind === "equipeApoio"
-                      ? (availableDesignacoesQuery.data?.equipesApoio ?? [])
-                      : (availableDesignacoesQuery.data?.ordenadores ?? [])
-                }
-                isLoading={availableDesignacoesQuery.isLoading}
-                isSaving={selectDesignacoesMutation.isPending}
-                suggestedConductor={
-                  designacoesQuery.data?.condutorSugerido ?? null
-                }
-                onSelect={(id, applySuggestedConductor) =>
-                  void handleSelectInstitutionalDesignation(
-                    selectedInternalInstitutionalKind,
-                    id,
-                    applySuggestedConductor,
-                  )
-                }
-                onOpenCadastros={() =>
-                  setLocation("/cadastros?institucionais=1")
-                }
-              />
-            </div>
-          ) : null}
-
-          {!selectedInternalUsesInstitutionalSelector &&
-          selectedInternalLatestDocumento ? (
-            <div className="mt-5 rounded-xl border border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
-                Documento anexado
-              </div>
-              {selectedInternalLatestDocumento ? (
-                <>
-                  <div className="mt-2 text-sm font-semibold text-[var(--color-primary-950)]">
-                    {selectedInternalLatestDocumento.titulo}
-                  </div>
-                  <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
-                    Anexado em{" "}
-                    {formatShortDateTimeBR(
-                      selectedInternalLatestDocumento.criadoEm,
-                    )}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <a
-                      href={
-                        resolveServerAssetUrl(
-                          selectedInternalLatestDocumento.arquivoUrl,
-                        ) ?? undefined
-                      }
-                      aria-disabled={
-                        !selectedInternalLatestDocumento.arquivoUrl
-                      }
-                      className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--color-primary-700)] hover:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Abrir documento
-                    </a>
-                    <details className="text-xs text-[var(--text-secondary)]">
-                      <summary className="cursor-pointer px-2 py-2 focus-visible:outline focus-visible:outline-2">
-                        Gerenciar arquivo
-                      </summary>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={
-                          deletingDocumentoId ===
-                          selectedInternalLatestDocumento.id
-                        }
-                        onClick={() =>
-                          void handleDeleteDocumento(
-                            selectedInternalLatestDocumento.id,
-                          )
-                        }
-                      >
-                        {deletingDocumentoId ===
-                        selectedInternalLatestDocumento.id
-                          ? "Removendo..."
-                          : "Remover documento"}
-                      </Button>
-                    </details>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
-                  Nenhum documento vinculado a este ato ainda.
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          {!selectedInternalUsesInstitutionalSelector ? (
-            <details
-              className="mt-5"
-              open={
-                !selectedInternalLatestDocumento &&
-                !selectedInternalChecklistItem.concluido
-              }
-            >
-              <summary className="cursor-pointer text-sm font-semibold text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2">
-                {selectedInternalLatestDocumento
-                  ? "Anexar outro documento"
-                  : "Anexar documento"}
-              </summary>
-              {selectedInternalChecklistUsesCIModal ? (
-                <div className="mt-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="max-w-2xl">
-                      <div className="text-sm font-semibold text-[var(--text-primary)]">
-                        Gere a CI pelo próprio processo
-                      </div>
-                      <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                        Monte a comunicação interna com os dados atuais do
-                        processo, revise no editor e salve direto neste ato do
-                        checklist.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setShowCIReservaModal(true)}
-                      icon={<FileStack className="h-4 w-4" />}
-                    >
-                      Gerar CI de reserva
-                    </Button>
-                  </div>
+    return (
+      <>
+        {selectedItem &&
+        selectedInternalUploadState &&
+        selectedInternalChecklistFlexState ? (
+          <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <h4 className="text-lg font-semibold text-[var(--color-primary-950)]">
+                    {selectedItem.label}
+                  </h4>
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getChecklistItemStatusClassName(selectedItem)}`}
+                  >
+                    {getChecklistItemStatusLabel(selectedItem)}
+                  </span>
                 </div>
-              ) : null}
-              <div className="mt-4 space-y-4">
-                <details>
-                  <summary className="cursor-pointer text-xs text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
-                    Personalizar título e descrição
-                  </summary>
-                  <div className="mt-3 grid gap-3">
-                    <FormField label="Título">
-                      <Input
-                        value={selectedInternalUploadState.titulo}
-                        onChange={(event) =>
-                          setUploadState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              titulo: event.target.value,
-                            }),
-                          )
-                        }
-                        placeholder={selectedInternalChecklistItem.label}
-                      />
-                    </FormField>
-                    <FormField label="Descrição">
-                      <Input
-                        value={selectedInternalUploadState.descricao}
-                        onChange={(event) =>
-                          setUploadState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              descricao: event.target.value,
-                            }),
-                          )
-                        }
-                        placeholder={selectedInternalChecklistItem.description}
-                      />
-                    </FormField>
-                  </div>
-                </details>
-                <label className="relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] px-5 py-7 text-center transition hover:bg-[var(--surface-selected)] focus-within:ring-2 focus-within:ring-[var(--color-primary-500)]">
-                  <Upload
-                    className="h-6 w-6 text-[var(--color-primary-600)]"
-                    aria-hidden="true"
-                  />
-                  <span className="max-w-full break-all text-sm font-semibold text-[var(--text-primary)]">
-                    {selectedInternalUploadState.arquivo?.name ??
-                      "Selecionar arquivo"}
-                  </span>
-                  <span className="text-xs text-[var(--text-secondary)]">
-                    {selectedInternalUploadState.arquivo
-                      ? "Clique para trocar o arquivo"
-                      : "Escolha o documento no seu computador"}
-                  </span>
-                  <input
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    type="file"
-                    key={selectedInternalChecklistItem.category}
-                    aria-label="Selecionar arquivo do documento"
-                    onChange={(event) =>
-                      handleFileChange(
-                        selectedInternalChecklistItem.category,
-                        event,
-                        selectedInternalChecklistItem.label,
-                      )
-                    }
-                  />
-                </label>
+                <p className="mt-2 text-sm leading-6 text-[var(--color-neutral-600)]">
+                  {selectedItem.description}
+                </p>
               </div>
-              <div className="mt-4 flex justify-end">
-                <Button
-                  type="button"
-                  disabled={
-                    !selectedInternalUploadState.arquivo ||
-                    uploadingChecklistCategory !== null
+            </div>
+
+            {selectedInternalUsesInstitutionalSelector &&
+            selectedInternalInstitutionalKind ? (
+              <div className="mt-5">
+                <LicitacaoInstitutionalSelector
+                  kind={selectedInternalInstitutionalKind}
+                  title={selectedItem.label}
+                  selected={
+                    selectedInternalInstitutionalKind === "comissao"
+                      ? (designacoesQuery.data?.comissao ?? null)
+                      : selectedInternalInstitutionalKind === "equipeApoio"
+                        ? (designacoesQuery.data?.equipeApoio ?? null)
+                        : (designacoesQuery.data?.ordenadorDespesa ?? null)
                   }
-                  onClick={() =>
-                    void handleUploadChecklistDocumento(
-                      selectedInternalChecklistItem,
+                  options={
+                    selectedInternalInstitutionalKind === "comissao"
+                      ? (availableDesignacoesQuery.data?.comissoes ?? [])
+                      : selectedInternalInstitutionalKind === "equipeApoio"
+                        ? (availableDesignacoesQuery.data?.equipesApoio ?? [])
+                        : (availableDesignacoesQuery.data?.ordenadores ?? [])
+                  }
+                  isLoading={availableDesignacoesQuery.isLoading}
+                  isSaving={selectDesignacoesMutation.isPending}
+                  suggestedConductor={
+                    designacoesQuery.data?.condutorSugerido ?? null
+                  }
+                  onSelect={(id, applySuggestedConductor) =>
+                    void handleSelectInstitutionalDesignation(
+                      selectedInternalInstitutionalKind,
+                      id,
+                      applySuggestedConductor,
                     )
                   }
-                >
-                  <Upload className="h-4 w-4" />
-                  {uploadingChecklistCategory ===
-                  selectedInternalChecklistItem.category
-                    ? "Anexando..."
-                    : "Salvar documento"}
-                </Button>
+                  onOpenCadastros={() =>
+                    setLocation("/cadastros?institucionais=1")
+                  }
+                />
               </div>
-            </details>
-          ) : null}
-          {!selectedInternalUsesInstitutionalSelector ? (
-            <details className="mt-5 border-t border-[var(--border-subtle)] pt-4">
-              <summary className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
-                Registrar uma justificativa ou outro tratamento
-              </summary>
-              <div className="mt-4">
-                <FormField label="Como este requisito foi atendido?">
-                  <Select
-                    value={selectedInternalChecklistFlexState.statusFlexivel}
-                    onChange={(event) =>
-                      setChecklistNaoAplicavelState(
-                        selectedInternalChecklistItem.category,
-                        (current) => ({
-                          ...current,
-                          statusFlexivel: event.target
-                            .value as ChecklistFlexStatus,
-                        }),
-                      )
-                    }
-                  >
-                    {licitacaoChecklistFlexStatusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {licitacaoChecklistFlexStatusLabels[status]}
-                      </option>
-                    ))}
-                  </Select>
-                </FormField>
+            ) : null}
 
-                {selectedInternalChecklistFlexState.statusFlexivel ===
-                "OUTRO_SETOR" ? (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <FormField label="Departamento responsavel">
-                      <Input
-                        value={
-                          selectedInternalChecklistFlexState.departamentoResponsavel
+            {!selectedInternalUsesInstitutionalSelector &&
+            selectedInternalLatestDocumento ? (
+              <div className="mt-5 rounded-xl border border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">
+                  Documento anexado
+                </div>
+                {selectedInternalLatestDocumento ? (
+                  <>
+                    <div className="mt-2 text-sm font-semibold text-[var(--color-primary-950)]">
+                      {selectedInternalLatestDocumento.titulo}
+                    </div>
+                    <div className="mt-1 text-sm text-[var(--color-neutral-600)]">
+                      Anexado em{" "}
+                      {formatShortDateTimeBR(
+                        selectedInternalLatestDocumento.criadoEm,
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a
+                        href={
+                          resolveServerAssetUrl(
+                            selectedInternalLatestDocumento.arquivoUrl,
+                          ) ?? undefined
                         }
-                        onChange={(event) =>
-                          setChecklistNaoAplicavelState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              departamentoResponsavel: event.target.value,
-                            }),
-                          )
+                        aria-disabled={
+                          !selectedInternalLatestDocumento.arquivoUrl
                         }
-                      />
-                    </FormField>
-                    <FormField label="Previsao de recebimento">
-                      <Input
-                        type="date"
-                        value={
-                          selectedInternalChecklistFlexState.previsaoRecebimento
-                        }
-                        onChange={(event) =>
-                          setChecklistNaoAplicavelState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              previsaoRecebimento: event.target.value,
-                            }),
-                          )
-                        }
-                      />
-                    </FormField>
+                        className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--color-primary-700)] hover:bg-[var(--surface-soft)] focus-visible:outline focus-visible:outline-2"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir documento
+                      </a>
+                      <details className="text-xs text-[var(--text-secondary)]">
+                        <summary className="cursor-pointer px-2 py-2 focus-visible:outline focus-visible:outline-2">
+                          Gerenciar arquivo
+                        </summary>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={
+                            deletingDocumentoId ===
+                            selectedInternalLatestDocumento.id
+                          }
+                          onClick={() =>
+                            void handleDeleteDocumento(
+                              selectedInternalLatestDocumento.id,
+                            )
+                          }
+                        >
+                          {deletingDocumentoId ===
+                          selectedInternalLatestDocumento.id
+                            ? "Removendo..."
+                            : "Remover documento"}
+                        </Button>
+                      </details>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-[var(--color-neutral-600)]">
+                    Nenhum documento vinculado a este ato ainda.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {!selectedInternalUsesInstitutionalSelector ? (
+              <details
+                className="mt-5"
+                open={
+                  !selectedInternalLatestDocumento && !selectedItem.concluido
+                }
+              >
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2">
+                  {selectedInternalLatestDocumento
+                    ? "Anexar outro documento"
+                    : "Anexar documento"}
+                </summary>
+                {selectedInternalChecklistUsesCIModal ? (
+                  <div className="mt-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="max-w-2xl">
+                        <div className="text-sm font-semibold text-[var(--text-primary)]">
+                          Gere a CI pelo próprio processo
+                        </div>
+                        <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                          Monte a comunicação interna com os dados atuais do
+                          processo, revise no editor e salve direto neste ato do
+                          checklist.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => setShowCIReservaModal(true)}
+                        icon={<FileStack className="h-4 w-4" />}
+                      >
+                        Gerar CI de reserva
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
-
-                {selectedInternalChecklistFlexState.statusFlexivel ===
-                "CONCLUIDO_FISICO" ? (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <FormField label="Numero do processo fisico">
-                      <Input
-                        value={
-                          selectedInternalChecklistFlexState.processoFisicoNumero
-                        }
-                        onChange={(event) =>
-                          setChecklistNaoAplicavelState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              processoFisicoNumero: event.target.value,
-                            }),
-                          )
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Local de arquivamento">
-                      <Input
-                        value={
-                          selectedInternalChecklistFlexState.localArquivamento
-                        }
-                        onChange={(event) =>
-                          setChecklistNaoAplicavelState(
-                            selectedInternalChecklistItem.category,
-                            (current) => ({
-                              ...current,
-                              localArquivamento: event.target.value,
-                            }),
-                          )
-                        }
-                      />
-                    </FormField>
-                    <div className="md:col-span-2">
-                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3">
-                        <Checkbox
-                          checked={
-                            selectedInternalChecklistFlexState.digitalizarDepois
-                          }
-                          onCheckedChange={(checked) =>
-                            setChecklistNaoAplicavelState(
-                              selectedInternalChecklistItem.category,
+                <div className="mt-4 space-y-4">
+                  <details>
+                    <summary className="cursor-pointer text-xs text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
+                      Personalizar título e descrição
+                    </summary>
+                    <div className="mt-3 grid gap-3">
+                      <FormField label="Título">
+                        <Input
+                          value={selectedInternalUploadState.titulo}
+                          onChange={(event) =>
+                            setUploadState(
+                              selectedItem.category,
                               (current) => ({
                                 ...current,
-                                digitalizarDepois: Boolean(checked),
+                                titulo: event.target.value,
+                              }),
+                            )
+                          }
+                          placeholder={selectedItem.label}
+                        />
+                      </FormField>
+                      <FormField label="Descrição">
+                        <Input
+                          value={selectedInternalUploadState.descricao}
+                          onChange={(event) =>
+                            setUploadState(
+                              selectedItem.category,
+                              (current) => ({
+                                ...current,
+                                descricao: event.target.value,
+                              }),
+                            )
+                          }
+                          placeholder={selectedItem.description}
+                        />
+                      </FormField>
+                    </div>
+                  </details>
+                  <label className="relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] px-5 py-7 text-center transition hover:bg-[var(--surface-selected)] focus-within:ring-2 focus-within:ring-[var(--color-primary-500)]">
+                    <Upload
+                      className="h-6 w-6 text-[var(--color-primary-600)]"
+                      aria-hidden="true"
+                    />
+                    <span className="max-w-full break-all text-sm font-semibold text-[var(--text-primary)]">
+                      {selectedInternalUploadState.arquivo?.name ??
+                        "Selecionar arquivo"}
+                    </span>
+                    <span className="text-xs text-[var(--text-secondary)]">
+                      {selectedInternalUploadState.arquivo
+                        ? "Clique para trocar o arquivo"
+                        : "Escolha o documento no seu computador"}
+                    </span>
+                    <input
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      type="file"
+                      key={selectedItem.category}
+                      aria-label="Selecionar arquivo do documento"
+                      onChange={(event) =>
+                        handleFileChange(
+                          selectedItem.category,
+                          event,
+                          selectedItem.label,
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    type="button"
+                    disabled={
+                      !selectedInternalUploadState.arquivo ||
+                      uploadingChecklistCategory !== null
+                    }
+                    onClick={() =>
+                      void handleUploadChecklistDocumento(selectedItem)
+                    }
+                  >
+                    <Upload className="h-4 w-4" />
+                    {uploadingChecklistCategory === selectedItem.category
+                      ? "Anexando..."
+                      : "Salvar documento"}
+                  </Button>
+                </div>
+              </details>
+            ) : null}
+            {!selectedInternalUsesInstitutionalSelector ? (
+              <details className="mt-5 border-t border-[var(--border-subtle)] pt-4">
+                <summary className="cursor-pointer text-sm font-medium text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
+                  Registrar uma justificativa ou outro tratamento
+                </summary>
+                <div className="mt-4">
+                  <FormField label="Como este requisito foi atendido?">
+                    <Select
+                      value={selectedInternalChecklistFlexState.statusFlexivel}
+                      onChange={(event) =>
+                        setChecklistNaoAplicavelState(
+                          selectedItem.category,
+                          (current) => ({
+                            ...current,
+                            statusFlexivel: event.target
+                              .value as ChecklistFlexStatus,
+                          }),
+                        )
+                      }
+                    >
+                      {licitacaoChecklistFlexStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {licitacaoChecklistFlexStatusLabels[status]}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+
+                  {selectedInternalChecklistFlexState.statusFlexivel ===
+                  "OUTRO_SETOR" ? (
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <FormField label="Departamento responsavel">
+                        <Input
+                          value={
+                            selectedInternalChecklistFlexState.departamentoResponsavel
+                          }
+                          onChange={(event) =>
+                            setChecklistNaoAplicavelState(
+                              selectedItem.category,
+                              (current) => ({
+                                ...current,
+                                departamentoResponsavel: event.target.value,
                               }),
                             )
                           }
                         />
-                        <span className="text-sm font-medium text-[var(--color-neutral-700)]">
-                          Documento fisico ainda sera digitalizado depois
-                        </span>
+                      </FormField>
+                      <FormField label="Previsao de recebimento">
+                        <Input
+                          type="date"
+                          value={
+                            selectedInternalChecklistFlexState.previsaoRecebimento
+                          }
+                          onChange={(event) =>
+                            setChecklistNaoAplicavelState(
+                              selectedItem.category,
+                              (current) => ({
+                                ...current,
+                                previsaoRecebimento: event.target.value,
+                              }),
+                            )
+                          }
+                        />
+                      </FormField>
+                    </div>
+                  ) : null}
+
+                  {selectedInternalChecklistFlexState.statusFlexivel ===
+                  "CONCLUIDO_FISICO" ? (
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <FormField label="Numero do processo fisico">
+                        <Input
+                          value={
+                            selectedInternalChecklistFlexState.processoFisicoNumero
+                          }
+                          onChange={(event) =>
+                            setChecklistNaoAplicavelState(
+                              selectedItem.category,
+                              (current) => ({
+                                ...current,
+                                processoFisicoNumero: event.target.value,
+                              }),
+                            )
+                          }
+                        />
+                      </FormField>
+                      <FormField label="Local de arquivamento">
+                        <Input
+                          value={
+                            selectedInternalChecklistFlexState.localArquivamento
+                          }
+                          onChange={(event) =>
+                            setChecklistNaoAplicavelState(
+                              selectedItem.category,
+                              (current) => ({
+                                ...current,
+                                localArquivamento: event.target.value,
+                              }),
+                            )
+                          }
+                        />
+                      </FormField>
+                      <div className="md:col-span-2">
+                        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-3">
+                          <Checkbox
+                            checked={
+                              selectedInternalChecklistFlexState.digitalizarDepois
+                            }
+                            onCheckedChange={(checked) =>
+                              setChecklistNaoAplicavelState(
+                                selectedItem.category,
+                                (current) => ({
+                                  ...current,
+                                  digitalizarDepois: Boolean(checked),
+                                }),
+                              )
+                            }
+                          />
+                          <span className="text-sm font-medium text-[var(--color-neutral-700)]">
+                            Documento fisico ainda sera digitalizado depois
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {selectedInternalChecklistFlexState.statusFlexivel !==
-                "PADRAO" ? (
-                  <FormField label="Justificativa" className="mt-3">
-                    <Textarea
-                      rows={3}
-                      value={selectedInternalChecklistFlexState.justificativa}
-                      onChange={(event) =>
-                        setChecklistNaoAplicavelState(
-                          selectedInternalChecklistItem.category,
-                          (current) => ({
-                            ...current,
-                            justificativa: event.target.value,
-                          }),
-                        )
+                  {selectedInternalChecklistFlexState.statusFlexivel !==
+                  "PADRAO" ? (
+                    <FormField label="Justificativa" className="mt-3">
+                      <Textarea
+                        rows={3}
+                        value={selectedInternalChecklistFlexState.justificativa}
+                        onChange={(event) =>
+                          setChecklistNaoAplicavelState(
+                            selectedItem.category,
+                            (current) => ({
+                              ...current,
+                              justificativa: event.target.value,
+                            }),
+                          )
+                        }
+                      />
+                    </FormField>
+                  ) : null}
+
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={setChecklistNaoAplicavelMutation.isPending}
+                      onClick={() =>
+                        void handleChecklistNaoAplicavel(selectedItem)
                       }
-                    />
-                  </FormField>
-                ) : null}
-
-                <div className="mt-4 flex justify-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={setChecklistNaoAplicavelMutation.isPending}
-                    onClick={() =>
-                      void handleChecklistNaoAplicavel(
-                        selectedInternalChecklistItem,
-                      )
-                    }
-                  >
-                    {setChecklistNaoAplicavelMutation.isPending
-                      ? "Salvando..."
-                      : selectedInternalChecklistFlexState.statusFlexivel ===
-                          "PADRAO"
-                        ? "Voltar a exigir documento"
-                        : "Salvar tratamento"}
-                  </Button>
+                    >
+                      {setChecklistNaoAplicavelMutation.isPending
+                        ? "Salvando..."
+                        : selectedInternalChecklistFlexState.statusFlexivel ===
+                            "PADRAO"
+                          ? "Voltar a exigir documento"
+                          : "Salvar tratamento"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </details>
-          ) : null}
-        </>
-      ) : (
-        <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">
-          Nenhum ato interno disponivel para detalhamento.
-        </div>
-      )}
-    </>
-  );
+              </details>
+            ) : null}
+          </>
+        ) : (
+          <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-6 text-sm text-[var(--color-neutral-600)]">
+            Nenhum documento disponível para detalhamento.
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
 
-      <div className={currentPhase === "PREPARACAO" ? "hidden sm:block" : ""}>
+      <div className={usesCompactWorkspace ? "hidden sm:block" : ""}>
         <Breadcrumb
           items={[
             { label: "Licitação", href: "/licitacao" },
@@ -4641,7 +4684,7 @@ export function LicitacaoProcessoPage({
       <div className="space-y-4">
         <div className="space-y-2">
           <LicitacaoProcessHeader
-            compact={currentPhase === "PREPARACAO"}
+            compact={usesCompactWorkspace}
             model={guidedProcessModel.header}
             onOpenDossie={() => setLocation(`/dossie/${processoId}`)}
             onOpenDocumentos={() => setShowAllDocsModal(true)}
@@ -4659,7 +4702,7 @@ export function LicitacaoProcessoPage({
           />
 
           <LicitacaoPhaseStepper
-            compact={currentPhase === "PREPARACAO"}
+            compact={usesCompactWorkspace}
             phases={guidedProcessModel.phases}
             onSelectPhase={selectLegalPhase}
           />
@@ -4667,16 +4710,14 @@ export function LicitacaoProcessoPage({
 
         <div
           className={
-            currentPhase === "PREPARACAO"
+            usesCompactWorkspace
               ? "min-w-0"
               : "grid gap-4 2xl:grid-cols-[minmax(0,1fr)_280px]"
           }
         >
           <div
             className={
-              currentPhase === "PREPARACAO"
-                ? "hidden"
-                : "2xl:self-start 2xl:order-2"
+              usesCompactWorkspace ? "hidden" : "2xl:self-start 2xl:order-2"
             }
           >
             <LicitacaoContextAssistant
@@ -4694,7 +4735,7 @@ export function LicitacaoProcessoPage({
           </div>
 
           <div className="space-y-4 2xl:order-1">
-            {currentPhase !== "PREPARACAO" ? (
+            {!usesCompactWorkspace ? (
               <LicitacaoNextActionCard
                 model={guidedProcessModel.nextAction}
                 preparation={guidedProcessModel.preparation}
@@ -4950,7 +4991,7 @@ export function LicitacaoProcessoPage({
                 onAdvance={() => selectLegalPhase("PUBLICACAO")}
                 itemsContent={preparationItemsContent}
                 configurationContent={preparationConfigurationContent}
-                editor={preparationEditor}
+                editor={renderChecklistEditor(selectedInternalChecklistItem)}
               />
             </section>
 
@@ -5138,480 +5179,109 @@ export function LicitacaoProcessoPage({
               ref={publicationRef}
               className={isLegalSectionVisible("publication") ? "" : "hidden"}
             >
-              <CollapsibleSectionCard
-                title={
-                  isForaDoFluxo
-                    ? "Cronograma manual (processo fora do fluxo)"
-                    : "Publicacao e cronograma automatico"
-                }
-                description={
-                  isForaDoFluxo
-                    ? "Edite manualmente todas as datas criticas e registre a justificativa no modo fora do fluxo."
-                    : "Depois de concluir a fase interna, o sistema calcula automaticamente o cronograma de publicacao e prazos com o acrescimo municipal adotado em Teixeira de Freitas."
-                }
-                open={sectionOpen.publication}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    publication: nextOpen,
-                  }))
-                }
-                action={
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-100)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[var(--color-primary-800)]">
-                    <CalendarClock className="h-4 w-4" />
-                    {isForaDoFluxo ? "Modo manual" : "Contador automatico"}
-                  </div>
-                }
-                collapsedSummary={
-                  isForaDoFluxo ? (
-                    <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--notice-warning-text)]">
-                          {publishForm.dataPublicacaoEdital
-                            ? formatShortDateBR(
-                                new Date(
-                                  `${publishForm.dataPublicacaoEdital}T12:00:00`,
-                                ),
-                              )
-                            : "Sem data"}
-                        </span>
-                        <div className="text-[var(--notice-warning-text)]">
-                          Publicacao (manual)
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--notice-warning-text)]">
-                          {manualScheduleForm.dataRecebimentoPropostasInicio
-                            ? formatShortDateTimeBR(
-                                new Date(
-                                  manualScheduleForm.dataRecebimentoPropostasInicio,
-                                ),
-                              )
-                            : "Sem data"}
-                        </span>
-                        <div className="text-[var(--notice-warning-text)]">
-                          Recebimento inicial
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--notice-warning-text)]">
-                          {manualScheduleForm.dataRecebimentoPropostasFim
-                            ? formatShortDateTimeBR(
-                                new Date(
-                                  manualScheduleForm.dataRecebimentoPropostasFim,
-                                ),
-                              )
-                            : "Sem data"}
-                        </span>
-                        <div className="text-[var(--notice-warning-text)]">
-                          Recebimento final
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--notice-warning-text)]">
-                          {manualScheduleForm.dataAberturaPropostas
-                            ? formatShortDateTimeBR(
-                                new Date(
-                                  manualScheduleForm.dataAberturaPropostas,
-                                ),
-                              )
-                            : "Sem data"}
-                        </span>
-                        <div className="text-[var(--notice-warning-text)]">
-                          Disputa
-                        </div>
-                      </div>
-                    </div>
-                  ) : schedulePreview ? (
-                    <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">
-                          {formatShortDateBR(
-                            schedulePreview.dataPublicacaoEdital,
-                          )}
-                        </span>
-                        <div className="text-[var(--color-neutral-500)]">
-                          Publicacao
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataRecebimentoPropostasInicio,
-                          )}
-                        </span>
-                        <div className="text-[var(--color-neutral-500)]">
-                          Recebimento inicial
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataRecebimentoPropostasFim,
-                          )}
-                        </span>
-                        <div className="text-[var(--color-neutral-500)]">
-                          Recebimento final
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">
-                          {formatShortDateTimeBR(
-                            schedulePreview.dataAberturaPropostas,
-                          )}
-                        </span>
-                        <div className="text-[var(--color-neutral-500)]">
-                          Disputa
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <Alert variant="info">
-                      Informe a data de publicacao e a hora da disputa para
-                      gerar o cronograma automatico.
-                    </Alert>
-                  )
-                }
+              <form
+                id="licitacao-publicacao-form"
+                onSubmit={handlePublish}
+                onInvalidCapture={(event) => {
+                  const input = event.target as HTMLInputElement;
+                  setPublicationTab("channels");
+                  requestAnimationFrame(() => input.focus());
+                }}
               >
-                <form
-                  id="licitacao-publicacao-form"
-                  className="space-y-5"
-                  onSubmit={handlePublish}
-                >
-                  {isInexigibilidadeModalidade(
-                    detalhe?.processo.modalidadeCodigo,
-                  ) ? (
-                    <FormField label="Fundamento legal da inexigibilidade">
-                      <Select
-                        value={configForm.fundamentoLegalInciso}
-                        onChange={(event) =>
-                          setConfigForm((current) => ({
-                            ...current,
-                            fundamentoLegalInciso: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Selecione o inciso do art. 74</option>
-                        {inexigibilidadeFundamentoOptions.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                  ) : null}
-
-                  <DatePickerLegal
-                    value={publishForm.dataPublicacaoEdital}
-                    onChange={(nextValue) =>
-                      setPublishForm((current) => ({
-                        ...current,
-                        dataPublicacaoEdital: nextValue,
-                      }))
-                    }
-                    modalidadeCodigo={detalhe?.processo.modalidadeCodigo}
-                    tipoObjeto={detalhe?.processo.tipoObjeto}
-                    criterioJulgamento={
-                      configForm.criterioJulgamento ||
-                      detalhe?.processo.criterioJulgamento
-                    }
-                    publicarNoDou={configForm.publicarNoDou}
-                    publicarEmJornal={configForm.publicarEmJornal}
-                    foraDoFluxo={isForaDoFluxo}
-                    acrescimoMunicipal={acrescimoMunicipal}
-                    feriadosLocais={feriadosLocais}
-                    comparisonDate={
-                      isForaDoFluxo
-                        ? manualScheduleForm.dataAberturaPropostas
-                        : schedulePreview?.dataAberturaPropostas
-                    }
-                    comparisonLabel="Sessao / disputa"
-                    justificationValue={legalDateOverrideJustification}
-                    onJustificationChange={setLegalDateOverrideJustification}
-                    label="Data de publicacao no PNCP"
-                  />
-
-                  {renderEvidenceQueue(publicationChecklistItems)}
-
-                  <div className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-3 py-3">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <LicitacaoPhaseWorkspace
+                  key={`publication-${processoId}`}
+                  phase="publication"
+                  activeTab={publicationTab}
+                  onTabChange={setPublicationTab}
+                  objectDescription={detalhe.processo.objeto ?? undefined}
+                  items={publicationDocumentItems.map((item) => ({
+                    category: item.category,
+                    label: item.label,
+                    concluido: item.concluido,
+                    statusLabel: getChecklistItemStatusLabel(item),
+                  }))}
+                  activeCategory={selectedPublicationDocument?.category ?? null}
+                  onSelectCategory={setActiveExternalEvidenceCategory}
+                  progressCount={
+                    publicationChecklistItems.filter((item) => item.concluido)
+                      .length
+                  }
+                  totalCount={publicationChecklistItems.length}
+                  editor={renderChecklistEditor(selectedPublicationDocument)}
+                  scheduleContent={
+                    <div className="space-y-5">
                       <div>
-                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Portal da Transparencia
-                        </div>
+                        <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                          Datas da publicação
+                        </h3>
                         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                          {detalhe.transparencia?.message ??
-                            "Integracao nao configurada."}
+                          {isForaDoFluxo
+                            ? "Defina as datas do cronograma manual. A justificativa fica em Mais ações."
+                            : "Informe a data de publicação e o horário para calcular o cronograma."}
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={
-                          detalhe.transparencia?.status !== "READY" &&
-                          detalhe.transparencia?.status !== "FAILED"
+                      <DatePickerLegal
+                        value={publishForm.dataPublicacaoEdital}
+                        onChange={(nextValue) =>
+                          setPublishForm((current) => ({
+                            ...current,
+                            dataPublicacaoEdital: nextValue,
+                          }))
                         }
-                      >
-                        {detalhe.transparencia?.status === "READY"
-                          ? "Publicar no Portal da Transparencia"
-                          : "Integracao nao configurada"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-                    <FormField label="Hora da disputa">
-                      <div className="relative">
-                        <Input
-                          type="time"
-                          value={publishForm.horaDisputa}
-                          onChange={(event) =>
-                            setPublishForm((current) => ({
-                              ...current,
-                              horaDisputa: event.target.value,
-                            }))
-                          }
-                        />
-                        <Clock3 className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[var(--color-neutral-400)]" />
-                      </div>
-                    </FormField>
-                    <FormField label="Condutor do processo">
-                      <AsyncCombobox<CadastroLookupOption>
-                        value={
-                          publishForm.condutorProcessoId
-                            ? Number(publishForm.condutorProcessoId)
-                            : null
+                        modalidadeCodigo={detalhe?.processo.modalidadeCodigo}
+                        tipoObjeto={detalhe?.processo.tipoObjeto}
+                        criterioJulgamento={
+                          configForm.criterioJulgamento ||
+                          detalhe?.processo.criterioJulgamento
                         }
-                        initialOption={condutorProcessoOption}
-                        query={(search, limit) =>
-                          queryCadastroLookup("pessoas", search, limit)
+                        publicarNoDou={configForm.publicarNoDou}
+                        publicarEmJornal={configForm.publicarEmJornal}
+                        foraDoFluxo={isForaDoFluxo}
+                        acrescimoMunicipal={acrescimoMunicipal}
+                        feriadosLocais={feriadosLocais}
+                        comparisonDate={
+                          isForaDoFluxo
+                            ? manualScheduleForm.dataAberturaPropostas
+                            : schedulePreview?.dataAberturaPropostas
                         }
-                        getOptionValue={(option) => option.id}
-                        getOptionLabel={(option) => option.label}
-                        renderOption={(option) => (
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold">
-                              {option.label}
-                            </div>
-                            {option.subtitle ? (
-                              <div className="truncate text-xs text-[var(--text-secondary)]">
-                                {option.subtitle}
+                        comparisonLabel="Sessão / disputa"
+                        justificationValue={legalDateOverrideJustification}
+                        onJustificationChange={
+                          setLegalDateOverrideJustification
+                        }
+                        label="Data de publicação no PNCP"
+                      />
+                      <div className="max-w-xs">
+                        {!isForaDoFluxo ? (
+                          <>
+                            {" "}
+                            <FormField label="Hora da disputa">
+                              <div className="relative">
+                                <Input
+                                  type="time"
+                                  value={publishForm.horaDisputa}
+                                  onChange={(event) =>
+                                    setPublishForm((current) => ({
+                                      ...current,
+                                      horaDisputa: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Clock3 className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-[var(--color-neutral-400)]" />
                               </div>
-                            ) : null}
-                          </div>
-                        )}
-                        onChange={(option) => {
-                          setCondutorProcessoOption(option);
-                          setPublishForm((current) => ({
-                            ...current,
-                            condutorProcessoId: option ? String(option.id) : "",
-                          }));
-                        }}
-                        placeholder="Selecione o condutor"
-                        searchPlaceholder="Busque por nome, CPF ou matricula"
-                        minSearchLength={0}
-                        allowClear
-                        ariaLabel="Condutor do processo"
-                      />
-                    </FormField>
-                    <FormField label="Status do processo">
-                      <Select
-                        value={publishForm.statusId}
-                        onChange={(event) =>
-                          setPublishForm((current) => ({
-                            ...current,
-                            statusId: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Manter atual</option>
-                        {catalogsQuery.data?.statusProcesso.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.nome}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormField>
-                    <FormField label="Numero do edital">
-                      <Input
-                        value={
-                          detalhe.processo.numeroEdital ??
-                          "Gerado automaticamente no ato da publicacao"
-                        }
-                        disabled
-                      />
-                    </FormField>
-                  </div>
-
-                  {publishCriticalStatusDateRequired ? (
-                    <FormField
-                      label={`Data do status critico (${selectedPublishStatus!.nome ?? selectedPublishStatus!.codigo})`}
-                    >
-                      <Input
-                        type="date"
-                        value={publishForm.dataStatus}
-                        required={publishCriticalStatusDateRequired}
-                        onChange={(event) =>
-                          setPublishForm((current) => ({
-                            ...current,
-                            dataStatus: event.target.value,
-                          }))
-                        }
-                      />
-                    </FormField>
-                  ) : null}
-
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void persistConfiguracao()}
-                      disabled={saveConfiguracaoMutation.isPending}
-                    >
-                      Salvar cronograma
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={
-                        publishMutation.isPending ||
-                        inexigibilidadeFundamentoPendente
-                      }
-                    >
-                      {publishMutation.isPending
-                        ? "Publicando..."
-                        : "Publicar processo"}
-                    </Button>
-                  </div>
-
-                  <details
-                    open={publicationChannelsOpen}
-                    onToggle={(event) =>
-                      setPublicationChannelsOpen(event.currentTarget.open)
-                    }
-                    className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-3 py-3"
-                  >
-                    <summary className="cursor-pointer text-sm font-bold text-[var(--text-primary)]">
-                      Canais, links e observacoes
-                    </summary>
-                    <div className="mt-3 space-y-3">
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        {serverFlow?.evidence.some(
-                          (item) =>
-                            item.category === "LICITACAO_PUBLIC_LINK_BLL",
-                        ) ? (
-                          <FormField label="Link publico da BLL">
-                            <div className="space-y-2">
-                              <Input
-                                type="url"
-                                placeholder="https://bllcompras.com/Process/..."
-                                value={publishForm.linkBllPublico}
-                                onChange={(event) =>
-                                  setPublishForm((current) => ({
-                                    ...current,
-                                    linkBllPublico: event.target.value,
-                                  }))
-                                }
-                              />
-                              {publishForm.linkBllPublico ? (
-                                <a
-                                  href={publishForm.linkBllPublico}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                  Abrir pagina publica da BLL
-                                </a>
-                              ) : null}
-                            </div>
-                          </FormField>
+                            </FormField>
+                          </>
                         ) : null}
-                        <FormField label="Link publico do PNCP">
-                          <div className="space-y-2">
-                            <Input
-                              type="url"
-                              placeholder="https://pncp.gov.br/..."
-                              value={publishForm.linkPncpPublico}
-                              onChange={(event) =>
-                                setPublishForm((current) => ({
-                                  ...current,
-                                  linkPncpPublico: event.target.value,
-                                }))
-                              }
-                            />
-                            {publishForm.linkPncpPublico ? (
-                              <a
-                                href={publishForm.linkPncpPublico}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                Abrir publicacao do PNCP
-                              </a>
-                            ) : null}
-                          </div>
-                        </FormField>
-                      </div>
-
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                        <FormField label="Descricao da movimentacao">
-                          <Input
-                            value={publishForm.descricao}
-                            onChange={(event) =>
-                              setPublishForm((current) => ({
-                                ...current,
-                                descricao: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                        <FormField label="Observacao operacional">
-                          <Textarea
-                            rows={3}
-                            value={publishForm.observacao}
-                            onChange={(event) =>
-                              setPublishForm((current) => ({
-                                ...current,
-                                observacao: event.target.value,
-                              }))
-                            }
-                          />
-                        </FormField>
-                      </div>
-                    </div>
-                  </details>
-
-                  <details
-                    open={publicationScheduleOpen}
-                    onToggle={(event) =>
-                      setPublicationScheduleOpen(event.currentTarget.open)
-                    }
-                    className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-3 py-3"
-                  >
-                    <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 text-sm font-bold text-[var(--text-primary)]">
-                      <span>Cronograma avancado e excecoes</span>
-                      {isForaDoFluxo || manualScheduleViolatesLegalMinimum ? (
-                        <span className="rounded-full border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-2.5 py-1 text-xs font-bold text-[var(--notice-warning-text)]">
-                          Revisao necessaria
-                        </span>
-                      ) : (
-                        <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)]">
-                          Fechado por padrao
-                        </span>
-                      )}
-                    </summary>
-                    <div className="mt-3 space-y-3">
+                      </div>{" "}
                       {inversaoFasesAtiva ? (
                         <Alert variant="info">
                           Inversao de fases ativa: a habilitacao e priorizada
                           antes das etapas competitivas.
                         </Alert>
                       ) : null}
-
                       {isForaDoFluxo ? (
-                        <div className="rounded-[14px] border border-[var(--notice-warning-border)] bg-[var(--notice-warning-bg)] px-3 py-3">
-                          <div className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--notice-warning-text)]">
+                        <div className="border-t border-[var(--border-subtle)] pt-5">
+                          <div className="text-sm font-semibold text-[var(--text-primary)]">
                             Cronograma manual
                           </div>
                           <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -5657,7 +5327,7 @@ export function LicitacaoProcessoPage({
                                 }
                               />
                             </FormField>
-                            <FormField label="Inicio dos lances">
+                            <FormField label="Início dos lances">
                               <Input
                                 type="datetime-local"
                                 value={manualScheduleForm.dataInicioLances}
@@ -5696,30 +5366,11 @@ export function LicitacaoProcessoPage({
                           </div>
                         </div>
                       ) : null}
-
-                      {isForaDoFluxo ? (
-                        <div className="space-y-3">
-                          <Alert variant="warning">
-                            Cronograma manual ativo. As datas acima serao usadas
-                            para auditoria e publicacao.
-                          </Alert>
-                          {manualScheduleViolatesLegalMinimum &&
-                          legalScheduleWindow ? (
-                            <Alert variant="warning">
-                              A sessao manual esta anterior ao minimo legal
-                              calculado para{" "}
-                              {formatShortDateBR(
-                                legalScheduleWindow.dataMinimaLegal,
-                              )}
-                              .
-                            </Alert>
-                          ) : null}
-                        </div>
-                      ) : schedulePreview ? (
-                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+                      {!isForaDoFluxo && schedulePreview ? (
+                        <div className="grid gap-x-6 gap-y-4 border-t border-[var(--border-subtle)] pt-5 sm:grid-cols-2 xl:grid-cols-3">
                           {[
                             [
-                              "Publicacao",
+                              "Publicação",
                               formatShortDateBR(
                                 schedulePreview.dataPublicacaoEdital,
                               ),
@@ -5737,13 +5388,13 @@ export function LicitacaoProcessoPage({
                               ),
                             ],
                             [
-                              "Sessao / disputa",
+                              "Sessão / disputa",
                               formatShortDateTimeBR(
                                 schedulePreview.dataAberturaPropostas,
                               ),
                             ],
                             [
-                              "Acrescimos",
+                              "Acréscimos",
                               `+${schedulePreview.municipioExtra}${
                                 schedulePreview.canaisExtra
                                   ? ` / +${schedulePreview.canaisExtra}`
@@ -5751,29 +5402,311 @@ export function LicitacaoProcessoPage({
                               }`,
                             ],
                           ].map(([label, value]) => (
-                            <div
-                              key={label}
-                              className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2"
-                            >
+                            <div key={label} className="py-1">
                               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">
                                 {label}
                               </div>
-                              <div className="mt-0.5 text-sm font-black text-[var(--text-primary)]">
+                              <div className="mt-0.5 text-sm font-semibold text-[var(--text-primary)]">
                                 {value}
                               </div>
                             </div>
                           ))}
                         </div>
-                      ) : (
-                        <Alert variant="info">
-                          Defina a data prevista de publicacao e a hora da
-                          disputa para calcular automaticamente o cronograma.
-                        </Alert>
-                      )}
+                      ) : null}
                     </div>
-                  </details>
-                </form>
-              </CollapsibleSectionCard>
+                  }
+                  channelsContent={
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-base font-semibold text-[var(--text-primary)]">
+                          Canais de publicação
+                        </h3>
+                        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                          Informe os endereços públicos para consulta do
+                          processo.
+                        </p>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        {serverFlow?.evidence.some(
+                          (item) =>
+                            item.category === "LICITACAO_PUBLIC_LINK_BLL",
+                        ) ? (
+                          <FormField label="Link público da BLL">
+                            <div className="space-y-2">
+                              <Input
+                                type="url"
+                                placeholder="https://bllcompras.com/Process/..."
+                                value={publishForm.linkBllPublico}
+                                onChange={(event) =>
+                                  setPublishForm((current) => ({
+                                    ...current,
+                                    linkBllPublico: event.target.value,
+                                  }))
+                                }
+                              />
+                              {publishForm.linkBllPublico ? (
+                                <a
+                                  href={publishForm.linkBllPublico}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Abrir página pública da BLL
+                                </a>
+                              ) : null}
+                            </div>
+                          </FormField>
+                        ) : null}
+                        <FormField label="Link público do PNCP">
+                          <div className="space-y-2">
+                            <Input
+                              type="url"
+                              placeholder="https://pncp.gov.br/..."
+                              value={publishForm.linkPncpPublico}
+                              onChange={(event) =>
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  linkPncpPublico: event.target.value,
+                                }))
+                              }
+                            />
+                            {publishForm.linkPncpPublico ? (
+                              <a
+                                href={publishForm.linkPncpPublico}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--accent-color)]"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Abrir publicação do PNCP
+                              </a>
+                            ) : null}
+                          </div>
+                        </FormField>
+                      </div>
+
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <FormField label="Descrição da movimentação">
+                          <Input
+                            value={publishForm.descricao}
+                            onChange={(event) =>
+                              setPublishForm((current) => ({
+                                ...current,
+                                descricao: event.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                        <FormField label="Observação operacional">
+                          <Textarea
+                            rows={3}
+                            value={publishForm.observacao}
+                            onChange={(event) =>
+                              setPublishForm((current) => ({
+                                ...current,
+                                observacao: event.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                      </div>
+
+                      <div className="border-t border-[var(--border-subtle)] pt-5">
+                        <h3 className="mb-4 text-base font-semibold text-[var(--text-primary)]">
+                          Dados do registro
+                        </h3>
+                        {isInexigibilidadeModalidade(
+                          detalhe?.processo.modalidadeCodigo,
+                        ) ? (
+                          <FormField label="Fundamento legal da inexigibilidade">
+                            <Select
+                              value={configForm.fundamentoLegalInciso}
+                              onChange={(event) =>
+                                setConfigForm((current) => ({
+                                  ...current,
+                                  fundamentoLegalInciso: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">
+                                Selecione o inciso do art. 74
+                              </option>
+                              {inexigibilidadeFundamentoOptions.map((item) => (
+                                <option key={item.value} value={item.value}>
+                                  {item.label}
+                                </option>
+                              ))}
+                            </Select>
+                          </FormField>
+                        ) : null}
+
+                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                          {" "}
+                          <FormField label="Condutor do processo">
+                            <AsyncCombobox<CadastroLookupOption>
+                              value={
+                                publishForm.condutorProcessoId
+                                  ? Number(publishForm.condutorProcessoId)
+                                  : null
+                              }
+                              initialOption={condutorProcessoOption}
+                              query={(search, limit) =>
+                                queryCadastroLookup("pessoas", search, limit)
+                              }
+                              getOptionValue={(option) => option.id}
+                              getOptionLabel={(option) => option.label}
+                              renderOption={(option) => (
+                                <div className="min-w-0">
+                                  <div className="truncate font-semibold">
+                                    {option.label}
+                                  </div>
+                                  {option.subtitle ? (
+                                    <div className="truncate text-xs text-[var(--text-secondary)]">
+                                      {option.subtitle}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+                              onChange={(option) => {
+                                setCondutorProcessoOption(option);
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  condutorProcessoId: option
+                                    ? String(option.id)
+                                    : "",
+                                }));
+                              }}
+                              placeholder="Selecione o condutor"
+                              searchPlaceholder="Busque por nome, CPF ou matricula"
+                              minSearchLength={0}
+                              allowClear
+                              ariaLabel="Condutor do processo"
+                            />
+                          </FormField>
+                          <FormField label="Status do processo">
+                            <Select
+                              value={publishForm.statusId}
+                              onChange={(event) =>
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  statusId: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Manter atual</option>
+                              {catalogsQuery.data?.statusProcesso.map(
+                                (item) => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.nome}
+                                  </option>
+                                ),
+                              )}
+                            </Select>
+                          </FormField>
+                          <FormField label="Número do edital">
+                            <Input
+                              value={
+                                detalhe.processo.numeroEdital ??
+                                "Gerado ao registrar a publicação"
+                              }
+                              disabled
+                            />
+                          </FormField>
+                        </div>
+
+                        {publishCriticalStatusDateRequired ? (
+                          <FormField
+                            label={`Data do status critico (${selectedPublishStatus!.nome ?? selectedPublishStatus!.codigo})`}
+                          >
+                            <Input
+                              type="date"
+                              value={publishForm.dataStatus}
+                              required={publishCriticalStatusDateRequired}
+                              onChange={(event) =>
+                                setPublishForm((current) => ({
+                                  ...current,
+                                  dataStatus: event.target.value,
+                                }))
+                              }
+                            />
+                          </FormField>
+                        ) : null}
+                      </div>
+                      <details className="border-t border-[var(--border-subtle)] pt-4 text-sm">
+                        <summary className="cursor-pointer py-1 font-semibold text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2">
+                          Portal da Transparência
+                        </summary>
+                        <p className="mt-2 text-[var(--text-secondary)]">
+                          {detalhe.transparencia?.message ??
+                            "Integração não configurada."}
+                        </p>
+                      </details>
+                    </div>
+                  }
+                  footer={
+                    <footer className="flex flex-col gap-4 border-t border-[var(--border-subtle)] px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                      <p className="max-w-xl text-sm text-[var(--text-secondary)]">
+                        {detalhe.processo.publicado
+                          ? "Publicação registrada. Confira os requisitos antes de seguir para a próxima etapa."
+                          : "Confira os documentos, o cronograma e os canais antes de publicar."}
+                      </p>
+                      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-lg"
+                          onClick={() => void persistConfiguracao()}
+                          disabled={
+                            saveConfiguracaoMutation.isPending ||
+                            publishMutation.isPending
+                          }
+                          loading={saveConfiguracaoMutation.isPending}
+                        >
+                          Salvar cronograma
+                        </Button>
+                        <Button
+                          type="submit"
+                          className="rounded-lg"
+                          variant={
+                            detalhe.processo.publicado ? "outline" : "default"
+                          }
+                          loading={publishMutation.isPending}
+                          disabled={
+                            publishMutation.isPending ||
+                            saveConfiguracaoMutation.isPending ||
+                            inexigibilidadeFundamentoPendente
+                          }
+                        >
+                          {detalhe.processo.publicado
+                            ? "Atualizar publicação"
+                            : "Publicar processo"}
+                        </Button>
+                        {detalhe.processo.publicado ? (
+                          <Button
+                            type="button"
+                            className="rounded-lg"
+                            disabled={
+                              !canAccessLegalPhase(
+                                licitacaoLinearPhaseOrder[2],
+                              ) || publishMutation.isPending
+                            }
+                            onClick={() =>
+                              selectLegalPhase(licitacaoLinearPhaseOrder[2])
+                            }
+                          >
+                            Abrir próxima fase
+                            <ArrowRight
+                              aria-hidden="true"
+                              className="h-4 w-4"
+                            />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </footer>
+                  }
+                />
+              </form>
             </section>
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
