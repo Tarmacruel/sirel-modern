@@ -19,6 +19,7 @@ import {
   Package,
   Settings2,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,15 @@ export interface LicitacaoPhaseWorkspaceProps {
   onSelectCategory: (category: string) => void;
   editor: ReactNode;
   itemsContent?: ReactNode;
-  phase?: "preparation" | "publication";
+  phase?: "preparation" | "publication" | "dispute";
+  context?: ReactNode;
+  operationTabs?: {
+    value: "bidders" | "proposals" | "bids";
+    label: string;
+    icon: LucideIcon;
+    count: number;
+    content: ReactNode;
+  }[];
   scheduleContent?: ReactNode;
   channelsContent?: ReactNode;
   footer?: ReactNode;
@@ -61,7 +70,10 @@ export type WorkspaceTab =
   | "people"
   | "configuration"
   | "schedule"
-  | "channels";
+  | "channels"
+  | "bidders"
+  | "proposals"
+  | "bids";
 type ObjectTab = "documents" | "people";
 type ObjectFilter = "all" | "pending" | "completed";
 
@@ -95,6 +107,8 @@ export function LicitacaoPhaseWorkspace({
   editor,
   itemsContent,
   phase = "preparation",
+  context,
+  operationTabs = [],
   scheduleContent,
   channelsContent,
   footer,
@@ -110,9 +124,21 @@ export function LicitacaoPhaseWorkspace({
   isAdvancing = false,
 }: LicitacaoPhaseWorkspaceProps) {
   const id = useId();
-  const tabs = phase === "publication" ? publicationTabs : preparationTabs;
-  const phaseName = phase === "publication" ? "Publicação" : "Preparação";
-  const phaseNoun = phase === "publication" ? "publicação" : "preparação";
+  const tabs =
+    phase === "dispute"
+      ? [
+          { value: "documents" as const, label: "Documentos", icon: FileText },
+          ...operationTabs,
+        ]
+      : phase === "publication"
+        ? publicationTabs
+        : preparationTabs;
+  const phaseName = {
+    preparation: "Preparação",
+    publication: "Publicação",
+    dispute: "Disputa",
+  }[phase];
+  const phaseNoun = phaseName.toLocaleLowerCase("pt-BR");
   const initiallyInstitutional = items.find(
     (item) => item.category === activeCategory,
   )?.institutional;
@@ -189,6 +215,14 @@ export function LicitacaoPhaseWorkspace({
     if (nextItem && nextItem.category !== activeCategory)
       onSelectCategory(nextItem.category);
   }
+
+  // If the dispute mode changes, return from a removed operational tab to documents.
+  useEffect(() => {
+    if (tabs.some((tab) => tab.value === activeTab)) return;
+    setLocalTab("documents");
+    onTabChange?.("documents");
+    setMobileDetail(false);
+  }, [activeTab, tabs, onTabChange]);
 
   function handleTabKeyDown(
     event: KeyboardEvent<HTMLButtonElement>,
@@ -272,11 +306,18 @@ export function LicitacaoPhaseWorkspace({
             )
           ) : (
             <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {phase === "publication"
-                ? "Organize os comprovantes, as datas e os canais de publicação."
-                : "Organize os documentos, os itens e os responsáveis."}
+              {phase === "dispute"
+                ? "Acompanhe os documentos e os registros da sessão."
+                : phase === "publication"
+                  ? "Organize os comprovantes, as datas e os canais de publicação."
+                  : "Organize os documentos, os itens e os responsáveis."}
             </p>
           )}
+          {context ? (
+            <div className="mt-3 text-xs text-[var(--text-secondary)]">
+              {context}
+            </div>
+          ) : null}
         </div>
         <div className="w-full shrink-0 sm:w-44">
           <p
@@ -320,6 +361,13 @@ export function LicitacaoPhaseWorkspace({
               id={`${id}-tab-${tab.value}`}
               role="tab"
               type="button"
+              aria-label={
+                tab.value === "documents"
+                  ? `${tab.label} ${documentItems.length}`
+                  : "count" in tab
+                    ? `${tab.label} ${tab.count}`
+                    : tab.label
+              }
               aria-selected={activeTab === tab.value}
               aria-controls={`${id}-${tab.value === "documents" || tab.value === "people" ? "objects" : tab.value}-panel`}
               tabIndex={activeTab === tab.value ? 0 : -1}
@@ -337,6 +385,10 @@ export function LicitacaoPhaseWorkspace({
               {tab.value === "documents" ? (
                 <span className="text-xs font-normal tabular-nums text-[var(--text-muted)]">
                   {documentItems.length}
+                </span>
+              ) : "count" in tab ? (
+                <span className="text-xs font-normal tabular-nums text-[var(--text-muted)]">
+                  {tab.count}
                 </span>
               ) : null}
             </button>
@@ -535,6 +587,19 @@ export function LicitacaoPhaseWorkspace({
       >
         {channelsContent}
       </div>
+
+      {operationTabs.map((tab) => (
+        <div
+          key={tab.value}
+          id={`${id}-${tab.value}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${id}-tab-${tab.value}`}
+          hidden={activeTab !== tab.value}
+          className="min-w-0 px-5 py-5 sm:px-6 sm:py-6"
+        >
+          {tab.content}
+        </div>
+      ))}
 
       {footer ?? (
         <footer className="flex flex-col gap-3 border-t border-[var(--border-subtle)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">

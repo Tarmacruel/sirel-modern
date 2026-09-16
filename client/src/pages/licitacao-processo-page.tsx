@@ -13,6 +13,9 @@ import {
 } from "react";
 import {
   ArrowRight,
+  Users,
+  ListOrdered,
+  Gavel,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -689,6 +692,10 @@ export function LicitacaoProcessoPage({
 
   const [currentPhase, setCurrentPhase] =
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
+  const [phaseNavigationProcessId, setPhaseNavigationProcessId] = useState<
+    number | null
+  >(null);
+  const [disputeTab, setDisputeTab] = useState<WorkspaceTab>("documents");
   const [publicationTab, setPublicationTab] =
     useState<WorkspaceTab>("documents");
   const [uploadingChecklistCategory, setUploadingChecklistCategory] = useState<
@@ -818,9 +825,9 @@ export function LicitacaoProcessoPage({
   const externalRef = useRef<HTMLElement | null>(null);
   const docsRef = useRef<HTMLElement | null>(null);
   const publicationRef = useRef<HTMLElement | null>(null);
-  const licitantesRef = useRef<HTMLElement | null>(null);
-  const propostasRef = useRef<HTMLElement | null>(null);
-  const lancesRef = useRef<HTMLElement | null>(null);
+  const licitantesRef = useRef<HTMLDivElement | null>(null);
+  const propostasRef = useRef<HTMLDivElement | null>(null);
+  const lancesRef = useRef<HTMLDivElement | null>(null);
   const julgamentoRef = useRef<HTMLElement | null>(null);
   const habilitacaoRef = useRef<HTMLElement | null>(null);
   const recursosRef = useRef<HTMLElement | null>(null);
@@ -1307,6 +1314,7 @@ export function LicitacaoProcessoPage({
     "ADVISORY";
   const isBlockingFlow = flowEnforcement === "BLOCKING";
   const serverFlow = detalhe?.flow;
+  const hasServerFlow = Boolean(serverFlow);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1704,8 +1712,25 @@ export function LicitacaoProcessoPage({
     publicationDocumentItems.find((item) => !item.concluido) ??
     publicationDocumentItems[0] ??
     null;
-  const externalChecklistItems =
-    requirementChecklistItemsByPhase.get("DISPUTA") ?? [];
+  const externalChecklistItems = (
+    requirementChecklistItemsByPhase.get("DISPUTA") ?? []
+  ).map((item) =>
+    item.category === "LICITACAO_ATA_SESSAO_PROVISORIA"
+      ? {
+          ...item,
+          label: "Ata da sessão provisória",
+          description:
+            "Anexe a ata da sessão para revisar e importar os participantes, propostas e lances.",
+        }
+      : item,
+  );
+  const selectedDisputeDocument =
+    externalChecklistItems.find(
+      (item) => item.category === activeExternalEvidenceCategory,
+    ) ??
+    externalChecklistItems.find((item) => !item.concluido) ??
+    externalChecklistItems[0] ??
+    null;
   const julgamentoChecklistItems =
     requirementChecklistItemsByPhase.get("JULGAMENTO") ?? [];
   const habilitacaoChecklistItems =
@@ -3020,6 +3045,16 @@ export function LicitacaoProcessoPage({
     const isTraceSection = item.key === "auditoria" || item.key === "history";
     if (!canAccessLegalPhase(phase) && !isTraceSection) return;
     setCurrentPhase(phase);
+    if (phase === "DISPUTA") {
+      const targetTab = {
+        external: "documents",
+        licitantes: "bidders",
+        propostas: "proposals",
+        lances: "bids",
+      } as const;
+      if (item.key in targetTab)
+        setDisputeTab(targetTab[item.key as keyof typeof targetTab]);
+    }
     setSectionOpen((current) => ({
       ...current,
       [item.key]: true,
@@ -3103,7 +3138,9 @@ export function LicitacaoProcessoPage({
     getSectionsForPhase(currentPhase).includes(item.key),
   );
   const usesCompactWorkspace =
-    currentPhase === "PREPARACAO" || currentPhase === "PUBLICACAO";
+    currentPhase === "PREPARACAO" ||
+    currentPhase === "PUBLICACAO" ||
+    currentPhase === "DISPUTA";
   const selectedPhaseInfo = phaseCatalog[currentPhase];
   const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
@@ -3364,6 +3401,9 @@ export function LicitacaoProcessoPage({
   };
 
   useEffect(() => {
+    // Resolve the requested phase before persisting the initial UI state to the URL.
+    // Configuration hydration (including phase inversion) can trigger another render.
+    if (!serverFlow) return;
     if (typeof window === "undefined") {
       setCurrentPhase(currentProcessPhase);
       return;
@@ -3383,6 +3423,7 @@ export function LicitacaoProcessoPage({
     );
 
     setCurrentPhase(nextPhase);
+    setPhaseNavigationProcessId(processoId);
     setSectionOpen((current) => ({
       ...current,
       [getDefaultSectionForPhase(nextPhase)]: true,
@@ -3396,10 +3437,15 @@ export function LicitacaoProcessoPage({
     showLances,
     showRecursos,
     maxAccessiblePhaseIndex,
+    hasServerFlow,
   ]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !canAccessLegalPhase(currentPhase)) {
+    if (
+      typeof window === "undefined" ||
+      phaseNavigationProcessId !== processoId ||
+      !canAccessLegalPhase(currentPhase)
+    ) {
       return;
     }
 
@@ -3413,7 +3459,12 @@ export function LicitacaoProcessoPage({
       "",
       `${url.pathname}${url.search}${url.hash}`,
     );
-  }, [currentPhase, maxAccessiblePhaseIndex, processoId]);
+  }, [
+    currentPhase,
+    maxAccessiblePhaseIndex,
+    processoId,
+    phaseNavigationProcessId,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4668,6 +4719,456 @@ export function LicitacaoProcessoPage({
     );
   }
 
+  const disputeBiddersContent = (
+    <div ref={licitantesRef} className="min-w-0 space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">
+            Licitantes
+          </h3>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Selecione os fornecedores que participam do processo.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <FormField label="Fornecedor">
+          <AsyncCombobox<CadastroLookupOption>
+            value={licitanteFornecedorId ? Number(licitanteFornecedorId) : null}
+            initialOption={licitanteFornecedorOption}
+            query={(search, limit) =>
+              queryCadastroLookup("fornecedores", search, limit)
+            }
+            getOptionValue={(option) => option.id}
+            getOptionLabel={(option) => option.label}
+            renderOption={(option) => (
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{option.label}</div>
+                {option.metadata?.cnpj || option.subtitle ? (
+                  <div className="truncate text-xs text-[var(--text-secondary)]">
+                    {[option.metadata?.cnpj, option.subtitle]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            onChange={(option) => {
+              setLicitanteFornecedorOption(option);
+              setLicitanteFornecedorId(option ? String(option.id) : "");
+            }}
+            placeholder="Selecione o fornecedor"
+            searchPlaceholder="Busque por razao social ou CNPJ"
+            minSearchLength={0}
+            allowClear
+            ariaLabel="Fornecedor licitante"
+          />
+        </FormField>
+        <div className="flex items-end">
+          <Button
+            type="button"
+            onClick={() => void handleAddLicitante()}
+            disabled={saveLicitanteMutation.isPending || !licitanteFornecedorId}
+            className="w-full rounded-lg sm:w-auto"
+          >
+            {saveLicitanteMutation.isPending
+              ? "Incluindo..."
+              : "Adicionar licitante"}
+          </Button>
+        </div>
+      </div>
+      {detalhe.licitantes.length ? (
+        <div
+          role="region"
+          aria-label="Tabela de licitantes"
+          tabIndex={0}
+          className="mt-5 max-w-full overflow-x-auto rounded-lg border border-[var(--border-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]"
+        >
+          <Table aria-label="Licitantes registrados" className="min-w-[780px]">
+            <TableHead>
+              <tr>
+                <TableHeaderCell>Licitante</TableHeaderCell>
+                <TableHeaderCell>CNPJ</TableHeaderCell>
+                <TableHeaderCell>Habilitação</TableHeaderCell>
+                <TableHeaderCell>Cadastro</TableHeaderCell>
+                <TableHeaderCell className="text-right">Ações</TableHeaderCell>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {detalhe.licitantes.length ? (
+                detalhe.licitantes.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      {item.fornecedorId ? (
+                        <button
+                          type="button"
+                          className="font-semibold text-[var(--accent-color)]"
+                          onClick={() =>
+                            setLocation(
+                              `/dossie/fornecedor/${item.fornecedorId}`,
+                            )
+                          }
+                        >
+                          {item.razaoSocial}
+                        </button>
+                      ) : (
+                        <div className="font-semibold text-[var(--color-primary-900)]">
+                          {item.razaoSocial}
+                        </div>
+                      )}
+                      <div className="text-xs text-[var(--color-neutral-500)]">
+                        {item.ativo ? "Participando" : "Inativo"}
+                      </div>
+                    </TableCell>
+                    <TableCell>{item.cnpj ?? "-"}</TableCell>
+                    <TableCell>
+                      {habilitacaoStatusLabels[
+                        item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
+                      ] ?? item.statusHabilitacao}
+                    </TableCell>
+                    <TableCell>
+                      {formatShortDateTimeBR(item.dataCadastro)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Retirar ${item.razaoSocial}`}
+                        onClick={() =>
+                          void deleteLicitanteMutation.mutateAsync({
+                            licitanteId: item.id,
+                          })
+                        }
+                        disabled={
+                          deleteLicitanteMutation.isPending || !item.ativo
+                        }
+                      >
+                        Retirar
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="text-[var(--color-neutral-500)]"
+                  >
+                    Nenhum licitante registrado ainda.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <p className="border-t border-[var(--border-subtle)] py-10 text-sm text-[var(--text-secondary)]">
+          Nenhum licitante registrado ainda. Selecione um fornecedor para
+          começar.
+        </p>
+      )}
+    </div>
+  );
+  const disputeProposalsContent = (
+    <div ref={propostasRef} className="min-w-0 space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">
+            Propostas recebidas
+          </h3>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Compare os valores e a classificação por item e licitante.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="rounded-lg"
+            onClick={() =>
+              void handleAdvanceStage(
+                "RECEBIMENTO_PROPOSTAS",
+                "Licitacao / recebimento de propostas",
+                "Recebimento de propostas em andamento.",
+              )
+            }
+            disabled={
+              advanceStageMutation.isPending ||
+              detalhe.licitacao.statusLicitacao === "RECEBIMENTO_PROPOSTAS"
+            }
+          >
+            Marcar recebimento de propostas
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-lg"
+            onClick={() => setOperationModal("proposta")}
+            disabled={
+              !detalhe.licitantes.some((item) => item.ativo) ||
+              !detalhe.itens.length
+            }
+          >
+            Nova proposta
+          </Button>
+        </div>
+      </div>
+      {!detalhe.licitantes.some((item) => item.ativo) ||
+      !detalhe.itens.length ? (
+        <p className="text-sm text-[var(--text-secondary)]">
+          {!detalhe.itens.length
+            ? "Vincule os itens na Preparação para registrar propostas."
+            : "Adicione um fornecedor em Licitantes para registrar propostas."}
+        </p>
+      ) : null}
+      <div className="flex justify-end">
+        {propostasPagination.totalPages > 1 ? (
+          <Pagination
+            page={propostasPagination.page}
+            totalPages={propostasPagination.totalPages}
+            onPageChange={setPropostasPage}
+          />
+        ) : null}
+      </div>
+
+      {propostasPagination.totalItems ? (
+        <div
+          role="region"
+          aria-label="Tabela de propostas"
+          tabIndex={0}
+          className="mt-5 max-w-full overflow-x-auto rounded-lg border border-[var(--border-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]"
+        >
+          <Table aria-label="Propostas registradas" className="min-w-[980px]">
+            <TableHead>
+              <tr>
+                <TableHeaderCell className={stickyColumnHeaderClass}>
+                  Item
+                </TableHeaderCell>
+                <TableHeaderCell>Licitante</TableHeaderCell>
+                <TableHeaderCell>Valor unitário</TableHeaderCell>
+                <TableHeaderCell>Valor atual</TableHeaderCell>
+                <TableHeaderCell>Classificação</TableHeaderCell>
+                <TableHeaderCell>Situação</TableHeaderCell>
+                <TableHeaderCell>Data</TableHeaderCell>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {propostasPagination.totalItems ? (
+                propostasPagination.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className={stickyColumnCellClass}>
+                      {item.itemCatalogoId ? (
+                        <button
+                          type="button"
+                          className="font-semibold text-[var(--accent-color)]"
+                          onClick={() =>
+                            setLocation(`/dossie/item/${item.itemCatalogoId}`)
+                          }
+                        >
+                          Item {item.itemNumero}
+                        </button>
+                      ) : (
+                        <div className="font-semibold text-[var(--color-primary-900)]">
+                          Item {item.itemNumero}
+                        </div>
+                      )}
+                      <div className="text-xs text-[var(--color-neutral-500)]">
+                        {item.itemDescricao}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {item.fornecedorId ? (
+                        <button
+                          type="button"
+                          className="font-semibold text-[var(--accent-color)]"
+                          onClick={() =>
+                            setLocation(
+                              `/dossie/fornecedor/${item.fornecedorId}`,
+                            )
+                          }
+                        >
+                          {item.licitanteNome}
+                        </button>
+                      ) : (
+                        item.licitanteNome
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {formatCurrencyBRL(
+                        Number(item.valorUnitarioProposto ?? 0),
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {formatCurrencyBRL(Number(item.valorAtualUnitario ?? 0))}
+                    </TableCell>
+                    <TableCell>{item.classificacao ?? "-"}</TableCell>
+                    <TableCell>
+                      {propostaSituacaoLabels[
+                        item.situacao as keyof typeof propostaSituacaoLabels
+                      ] ?? item.situacao}
+                    </TableCell>
+                    <TableCell>
+                      {formatShortDateTimeBR(item.dataProposta)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="text-[var(--color-neutral-500)]"
+                  >
+                    Nenhuma proposta registrada ainda.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <p className="border-t border-[var(--border-subtle)] py-10 text-sm text-[var(--text-secondary)]">
+          Nenhuma proposta registrada ainda.
+        </p>
+      )}
+    </div>
+  );
+  const disputeBidsContent = (
+    <div ref={lancesRef} className="min-w-0 space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">
+            Lances da sessão
+          </h3>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            Acompanhe as ofertas registradas para cada proposta.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="rounded-lg"
+            onClick={() =>
+              void handleAdvanceStage(
+                "LANCES",
+                "Licitacao / fase de lances",
+                "Sessao de lances em andamento.",
+              )
+            }
+            disabled={
+              advanceStageMutation.isPending ||
+              detalhe.licitacao.statusLicitacao === "LANCES"
+            }
+          >
+            Marcar sessão de lances
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-lg"
+            onClick={() => setOperationModal("lance")}
+            disabled={!detalhe.propostas.length}
+          >
+            Registrar lance
+          </Button>
+        </div>
+      </div>
+      {!detalhe.propostas.length ? (
+        <p className="text-sm text-[var(--text-secondary)]">
+          Registre uma proposta para incluir os lances da sessão.
+        </p>
+      ) : null}
+      <div className="flex justify-end">
+        {lancesPagination.totalPages > 1 ? (
+          <Pagination
+            page={lancesPagination.page}
+            totalPages={lancesPagination.totalPages}
+            onPageChange={setLancesPage}
+          />
+        ) : null}
+      </div>
+
+      {lancesPagination.totalItems ? (
+        <div
+          role="region"
+          aria-label="Tabela de lances"
+          tabIndex={0}
+          className="mt-5 max-w-full overflow-x-auto rounded-lg border border-[var(--border-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-500)]"
+        >
+          <Table aria-label="Lances registrados" className="min-w-[780px]">
+            <TableHead>
+              <tr>
+                <TableHeaderCell className={stickyColumnHeaderClass}>
+                  Proposta
+                </TableHeaderCell>
+                <TableHeaderCell>Valor</TableHeaderCell>
+                <TableHeaderCell>Registrado em</TableHeaderCell>
+                <TableHeaderCell>Usuário</TableHeaderCell>
+                <TableHeaderCell>Observação</TableHeaderCell>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {lancesPagination.totalItems ? (
+                lancesPagination.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className={stickyColumnCellClass}>
+                      {(() => {
+                        const proposal = detalhe.propostas.find(
+                          (proposal) => proposal.id === item.propostaId,
+                        );
+                        return proposal ? (
+                          <>
+                            <span className="font-semibold text-[var(--text-primary)]">
+                              Item {proposal.itemNumero}
+                            </span>
+                            <span className="mt-1 block text-xs text-[var(--text-secondary)]">
+                              {proposal.licitanteNome}
+                            </span>
+                          </>
+                        ) : (
+                          `Proposta #${item.propostaId}`
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {formatCurrencyBRL(Number(item.valorLance ?? 0))}
+                    </TableCell>
+                    <TableCell>
+                      {formatShortDateTimeBR(item.dataLance)}
+                    </TableCell>
+                    <TableCell>{item.usuarioNome ?? "Sistema"}</TableCell>
+                    <TableCell>{item.observacao ?? "-"}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="text-[var(--color-neutral-500)]"
+                  >
+                    Nenhum lance registrado ainda.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <p className="border-t border-[var(--border-subtle)] py-10 text-sm text-[var(--text-secondary)]">
+          Nenhum lance registrado ainda.
+        </p>
+      )}
+    </div>
+  );
+  const disputeIndex = licitacaoLinearPhaseOrder.indexOf("DISPUTA");
+  const disputeNextPhase =
+    licitacaoLinearPhaseOrder[disputeIndex + 1] ?? "JULGAMENTO";
+  const disputeAlreadyAdvanced =
+    licitacaoLinearPhaseOrder.indexOf(currentProcessPhase) > disputeIndex;
+
   return (
     <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
@@ -4999,83 +5500,109 @@ export function LicitacaoProcessoPage({
               ref={externalRef}
               className={isLegalSectionVisible("external") ? "" : "hidden"}
             >
-              <CollapsibleSectionCard
-                title="Fase externa e rito operacional"
-                description="Checklist contextual da fase externa, com evidencias documentais e leitura do andamento da sessao."
-                open={sectionOpen.external}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    external: nextOpen,
-                  }))
-                }
-                action={
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-900)] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-white">
-                    <CalendarClock className="h-4 w-4" />
-                    {
-                      externalChecklistItems.filter((item) => item.concluido)
-                        .length
-                    }
-                    /{externalChecklistItems.length} concluidos
-                  </div>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Checklist externo:{" "}
-                      {
-                        externalChecklistItems.filter((item) => item.concluido)
-                          .length
-                      }
-                      /{externalChecklistItems.length}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Pendentes: {externalPendingRequired.length}
-                    </span>
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Publicado: {detalhe.processo.publicado ? "Sim" : "Nao"}
-                    </span>
-                  </div>
-                }
-              >
-                <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
-                  {[
-                    [
-                      "Sessao",
-                      detalhe.licitacao.dataAberturaPropostas
+              {currentPhase === "DISPUTA" ? (
+                <LicitacaoPhaseWorkspace
+                  key={`dispute-${processoId}`}
+                  phase="dispute"
+                  activeTab={disputeTab}
+                  onTabChange={setDisputeTab}
+                  objectDescription={detalhe.processo.objeto ?? undefined}
+                  context={
+                    <span>
+                      Sessão:{" "}
+                      {detalhe.licitacao.dataAberturaPropostas
                         ? formatShortDateTimeBR(
                             detalhe.licitacao.dataAberturaPropostas,
                           )
-                        : "Sem data",
-                    ],
-                    ["Propostas", String(detalhe.propostas.length)],
-                    [
-                      "Habilitacao",
-                      `${detalhe.licitantes.filter((item) => item.statusHabilitacao !== "PENDENTE").length}/${detalhe.licitantes.length}`,
-                    ],
-                    [
-                      "Fechamento",
-                      detalhe.processo.homologado
-                        ? "Homologado"
-                        : "Em andamento",
-                    ],
-                  ].map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2"
-                    >
-                      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                        {label}
-                      </div>
-                      <div className="mt-0.5 truncate text-sm font-black text-[var(--text-primary)]">
-                        {value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {renderEvidenceQueue(externalChecklistItems)}
-              </CollapsibleSectionCard>
+                        : "Data não informada"}{" "}
+                      ·{" "}
+                      {licitacaoStatusLabels[
+                        detalhe.licitacao
+                          .statusLicitacao as keyof typeof licitacaoStatusLabels
+                      ] ?? detalhe.licitacao.statusLicitacao}
+                    </span>
+                  }
+                  items={externalChecklistItems.map((item) => ({
+                    category: item.category,
+                    label: item.label,
+                    concluido: item.concluido,
+                    statusLabel: item.concluido
+                      ? getChecklistItemStatusLabel(item)
+                      : item.obrigatorio
+                        ? "Obrigatório · Pendente"
+                        : "Opcional",
+                  }))}
+                  activeCategory={selectedDisputeDocument?.category ?? null}
+                  onSelectCategory={setActiveExternalEvidenceCategory}
+                  editor={renderChecklistEditor(selectedDisputeDocument)}
+                  operationTabs={[
+                    ...(showCompetitivoSteps
+                      ? [
+                          {
+                            value: "bidders" as const,
+                            label: "Licitantes",
+                            icon: Users,
+                            count: detalhe.licitantes.length,
+                            content: disputeBiddersContent,
+                          },
+                          {
+                            value: "proposals" as const,
+                            label: "Propostas",
+                            icon: ListOrdered,
+                            count: detalhe.propostas.length,
+                            content: disputeProposalsContent,
+                          },
+                        ]
+                      : []),
+                    ...(showLances
+                      ? [
+                          {
+                            value: "bids" as const,
+                            label: "Lances",
+                            icon: Gavel,
+                            count: detalhe.lances.length,
+                            content: disputeBidsContent,
+                          },
+                        ]
+                      : []),
+                  ]}
+                  footer={
+                    <footer className="flex flex-col gap-3 border-t border-[var(--border-subtle)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                      <p
+                        id="dispute-advance-hint"
+                        className="max-w-xl text-sm text-[var(--text-secondary)]"
+                      >
+                        {phasePendingCounts.DISPUTA
+                          ? `${phasePendingCounts.DISPUTA} ${phasePendingCounts.DISPUTA === 1 ? "requisito obrigatório pendente" : "requisitos obrigatórios pendentes"}. ${isBlockingFlow ? "Conclua os documentos para avançar." : "O modo orientativo permite avançar."}`
+                          : "Requisitos concluídos. Confira os registros da sessão antes de avançar."}
+                      </p>
+                      <Button
+                        type="button"
+                        className="w-full shrink-0 rounded-lg sm:w-auto"
+                        aria-describedby="dispute-advance-hint"
+                        disabled={
+                          disputeAlreadyAdvanced
+                            ? !canAccessLegalPhase(disputeNextPhase)
+                            : primaryPhaseAction.disabled
+                        }
+                        loading={advanceStageMutation.isPending}
+                        onClick={() => {
+                          if (disputeAlreadyAdvanced)
+                            selectLegalPhase(disputeNextPhase);
+                          else if ("onClick" in primaryPhaseAction)
+                            primaryPhaseAction.onClick?.();
+                        }}
+                      >
+                        {disputeAlreadyAdvanced ? "Abrir" : "Avançar para"}{" "}
+                        {phaseCatalog[
+                          disputeNextPhase
+                        ].shortLabel.toLocaleLowerCase("pt-BR")}
+                        <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                      </Button>
+                    </footer>
+                  }
+                />
+              ) : null}
             </section>
 
             <section
@@ -5710,501 +6237,45 @@ export function LicitacaoProcessoPage({
             </section>
             {inversaoFasesAtiva ? habilitacaoSection : null}
 
-            {showCompetitivoSteps || !showLances ? (
-              <section
-                ref={licitantesRef}
-                className={isLegalSectionVisible("licitantes") ? "" : "hidden"}
-              >
-                <CollapsibleSectionCard
-                  title="Licitantes"
-                  description="Controle dos participantes habilitados a apresentar propostas nesta licitacao."
-                  open={sectionOpen.licitantes}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      licitantes: nextOpen,
-                    }))
-                  }
-                  collapsedSummary={
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        {detalhe.licitantes.length} licitante(s)
-                      </span>
-                      {detalhe.licitantes[0] ? (
-                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Ultimo: {detalhe.licitantes[0].razaoSocial}
-                        </span>
-                      ) : null}
-                    </div>
+            {currentPhase !== "DISPUTA" &&
+            (showCompetitivoSteps || !showLances) ? (
+              <>
+                <section
+                  className={
+                    isLegalSectionVisible("licitantes") ? "" : "hidden"
                   }
                 >
-                  <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto]">
-                    <FormField label="Fornecedor">
-                      <AsyncCombobox<CadastroLookupOption>
-                        value={
-                          licitanteFornecedorId
-                            ? Number(licitanteFornecedorId)
-                            : null
-                        }
-                        initialOption={licitanteFornecedorOption}
-                        query={(search, limit) =>
-                          queryCadastroLookup("fornecedores", search, limit)
-                        }
-                        getOptionValue={(option) => option.id}
-                        getOptionLabel={(option) => option.label}
-                        renderOption={(option) => (
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold">
-                              {option.label}
-                            </div>
-                            {option.metadata?.cnpj || option.subtitle ? (
-                              <div className="truncate text-xs text-[var(--text-secondary)]">
-                                {[option.metadata?.cnpj, option.subtitle]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </div>
-                            ) : null}
-                          </div>
-                        )}
-                        onChange={(option) => {
-                          setLicitanteFornecedorOption(option);
-                          setLicitanteFornecedorId(
-                            option ? String(option.id) : "",
-                          );
-                        }}
-                        placeholder="Selecione o fornecedor"
-                        searchPlaceholder="Busque por razao social ou CNPJ"
-                        minSearchLength={0}
-                        allowClear
-                        ariaLabel="Fornecedor licitante"
-                      />
-                    </FormField>
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        onClick={() => void handleAddLicitante()}
-                        disabled={saveLicitanteMutation.isPending}
-                      >
-                        {saveLicitanteMutation.isPending
-                          ? "Incluindo..."
-                          : "Adicionar licitante"}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[860px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>CNPJ</TableHeaderCell>
-                          <TableHeaderCell>Habilitacao</TableHeaderCell>
-                          <TableHeaderCell>Cadastro</TableHeaderCell>
-                          <TableHeaderCell className="text-right">
-                            Acoes
-                          </TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {detalhe.licitantes.length ? (
-                          detalhe.licitantes.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell>
-                                {item.fornecedorId ? (
-                                  <button
-                                    type="button"
-                                    className="font-semibold text-[var(--accent-color)]"
-                                    onClick={() =>
-                                      setLocation(
-                                        `/dossie/fornecedor/${item.fornecedorId}`,
-                                      )
-                                    }
-                                  >
-                                    {item.razaoSocial}
-                                  </button>
-                                ) : (
-                                  <div className="font-semibold text-[var(--color-primary-900)]">
-                                    {item.razaoSocial}
-                                  </div>
-                                )}
-                                <div className="text-xs text-[var(--color-neutral-500)]">
-                                  {item.ativo ? "Participando" : "Inativo"}
-                                </div>
-                              </TableCell>
-                              <TableCell>{item.cnpj ?? "-"}</TableCell>
-                              <TableCell>
-                                {habilitacaoStatusLabels[
-                                  item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
-                                ] ?? item.statusHabilitacao}
-                              </TableCell>
-                              <TableCell>
-                                {formatShortDateTimeBR(item.dataCadastro)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    void deleteLicitanteMutation.mutateAsync({
-                                      licitanteId: item.id,
-                                    })
-                                  }
-                                  disabled={
-                                    deleteLicitanteMutation.isPending ||
-                                    !item.ativo
-                                  }
-                                >
-                                  Retirar
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={5}
-                              className="text-[var(--color-neutral-500)]"
-                            >
-                              Nenhum licitante registrado ainda.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CollapsibleSectionCard>
-              </section>
-            ) : null}
-
-            {showCompetitivoSteps || !showLances ? (
-              <section
-                ref={propostasRef}
-                className={isLegalSectionVisible("propostas") ? "" : "hidden"}
-              >
-                <CollapsibleSectionCard
-                  title="Propostas"
-                  description="Recebimento, classificacao inicial e situacao das propostas por item e por licitante."
-                  open={sectionOpen.propostas}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      propostas: nextOpen,
-                    }))
-                  }
-                  action={
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setOperationModal("proposta")}
-                      >
-                        Nova proposta
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          void handleAdvanceStage(
-                            "RECEBIMENTO_PROPOSTAS",
-                            "Licitacao / recebimento de propostas",
-                            "Recebimento de propostas em andamento.",
-                          )
-                        }
-                        disabled={advanceStageMutation.isPending}
-                      >
-                        Definir etapa atual
-                      </Button>
-                    </div>
-                  }
-                  collapsedSummary={
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        {detalhe.propostas.length} proposta(s)
-                      </span>
-                      {detalhe.propostas[0] ? (
-                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Ultima: item {detalhe.propostas[0].itemNumero}
-                        </span>
-                      ) : null}
-                    </div>
-                  }
+                  <CollapsibleSectionCard
+                    title="Licitantes"
+                    open={sectionOpen.licitantes}
+                    onToggle={(open) =>
+                      setSectionOpen((current) => ({
+                        ...current,
+                        licitantes: open,
+                      }))
+                    }
+                  >
+                    {disputeBiddersContent}
+                  </CollapsibleSectionCard>
+                </section>
+                <section
+                  className={isLegalSectionVisible("propostas") ? "" : "hidden"}
                 >
-                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Entrada sob demanda
-                        </div>
-                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                          O cadastro foi movido para um modal focado.
-                        </p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                          A secao agora prioriza leitura, classificacao e
-                          comparacao das propostas sem empilhar campos na tela.
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        onClick={() => setOperationModal("proposta")}
-                      >
-                        Nova proposta
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      {propostasPagination.totalItems} proposta(s) registradas.
-                    </div>
-                    {propostasPagination.totalPages > 1 ? (
-                      <Pagination
-                        page={propostasPagination.page}
-                        totalPages={propostasPagination.totalPages}
-                        onPageChange={setPropostasPage}
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[1080px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell className={stickyColumnHeaderClass}>
-                            Item
-                          </TableHeaderCell>
-                          <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>Valor unitario</TableHeaderCell>
-                          <TableHeaderCell>Valor atual</TableHeaderCell>
-                          <TableHeaderCell>Classificacao</TableHeaderCell>
-                          <TableHeaderCell>Situacao</TableHeaderCell>
-                          <TableHeaderCell>Data</TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {propostasPagination.totalItems ? (
-                          propostasPagination.items.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className={stickyColumnCellClass}>
-                                {item.itemCatalogoId ? (
-                                  <button
-                                    type="button"
-                                    className="font-semibold text-[var(--accent-color)]"
-                                    onClick={() =>
-                                      setLocation(
-                                        `/dossie/item/${item.itemCatalogoId}`,
-                                      )
-                                    }
-                                  >
-                                    Item {item.itemNumero}
-                                  </button>
-                                ) : (
-                                  <div className="font-semibold text-[var(--color-primary-900)]">
-                                    Item {item.itemNumero}
-                                  </div>
-                                )}
-                                <div className="text-xs text-[var(--color-neutral-500)]">
-                                  {item.itemDescricao}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                {item.fornecedorId ? (
-                                  <button
-                                    type="button"
-                                    className="font-semibold text-[var(--accent-color)]"
-                                    onClick={() =>
-                                      setLocation(
-                                        `/dossie/fornecedor/${item.fornecedorId}`,
-                                      )
-                                    }
-                                  >
-                                    {item.licitanteNome}
-                                  </button>
-                                ) : (
-                                  item.licitanteNome
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {formatCurrencyBRL(
-                                  Number(item.valorUnitarioProposto ?? 0),
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {formatCurrencyBRL(
-                                  Number(item.valorAtualUnitario ?? 0),
-                                )}
-                              </TableCell>
-                              <TableCell>{item.classificacao ?? "-"}</TableCell>
-                              <TableCell>
-                                {propostaSituacaoLabels[
-                                  item.situacao as keyof typeof propostaSituacaoLabels
-                                ] ?? item.situacao}
-                              </TableCell>
-                              <TableCell>
-                                {formatShortDateTimeBR(item.dataProposta)}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={7}
-                              className="text-[var(--color-neutral-500)]"
-                            >
-                              Nenhuma proposta registrada ainda.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CollapsibleSectionCard>
-              </section>
+                  <CollapsibleSectionCard
+                    title="Propostas"
+                    open={sectionOpen.propostas}
+                    onToggle={(open) =>
+                      setSectionOpen((current) => ({
+                        ...current,
+                        propostas: open,
+                      }))
+                    }
+                  >
+                    {disputeProposalsContent}
+                  </CollapsibleSectionCard>
+                </section>
+              </>
             ) : null}
-
-            {showLances ? (
-              <section
-                ref={lancesRef}
-                className={isLegalSectionVisible("lances") ? "" : "hidden"}
-              >
-                <CollapsibleSectionCard
-                  title="Lances"
-                  description="Registro operacional dos lances apresentados durante a sessao publica."
-                  open={sectionOpen.lances}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      lances: nextOpen,
-                    }))
-                  }
-                  action={
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setOperationModal("lance")}
-                      >
-                        Registrar lance
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          void handleAdvanceStage(
-                            "LANCES",
-                            "Licitacao / fase de lances",
-                            "Sessao de lances em andamento.",
-                          )
-                        }
-                        disabled={advanceStageMutation.isPending}
-                      >
-                        Definir etapa atual
-                      </Button>
-                    </div>
-                  }
-                  collapsedSummary={
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        {detalhe.lances.length} lance(s)
-                      </span>
-                      {detalhe.lances[0] ? (
-                        <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                          Ultimo em{" "}
-                          {formatShortDateTimeBR(detalhe.lances[0].dataLance)}
-                        </span>
-                      ) : null}
-                    </div>
-                  }
-                >
-                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Registro rapido
-                        </div>
-                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                          Os lances agora entram por modal para reduzir rolagem.
-                        </p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                          A secao principal fica dedicada ao acompanhamento da
-                          sessao e a leitura da trilha de ofertas.
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        onClick={() => setOperationModal("lance")}
-                      >
-                        Registrar lance
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      {lancesPagination.totalItems} lance(s) registrados.
-                    </div>
-                    {lancesPagination.totalPages > 1 ? (
-                      <Pagination
-                        page={lancesPagination.page}
-                        totalPages={lancesPagination.totalPages}
-                        onPageChange={setLancesPage}
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[920px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell className={stickyColumnHeaderClass}>
-                            Proposta
-                          </TableHeaderCell>
-                          <TableHeaderCell>Valor</TableHeaderCell>
-                          <TableHeaderCell>Registrado em</TableHeaderCell>
-                          <TableHeaderCell>Usuario</TableHeaderCell>
-                          <TableHeaderCell>Observacao</TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {lancesPagination.totalItems ? (
-                          lancesPagination.items.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className={stickyColumnCellClass}>
-                                {item.propostaId}
-                              </TableCell>
-                              <TableCell>
-                                {formatCurrencyBRL(
-                                  Number(item.valorLance ?? 0),
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {formatShortDateTimeBR(item.dataLance)}
-                              </TableCell>
-                              <TableCell>
-                                {item.usuarioNome ?? "Sistema"}
-                              </TableCell>
-                              <TableCell>{item.observacao ?? "-"}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={5}
-                              className="text-[var(--color-neutral-500)]"
-                            >
-                              Nenhum lance registrado ainda.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CollapsibleSectionCard>
-              </section>
-            ) : null}
-
             {showCompetitivoSteps || !showLances ? (
               <section
                 ref={julgamentoRef}
@@ -6705,7 +6776,7 @@ export function LicitacaoProcessoPage({
         open={operationModal === "proposta"}
         onClose={() => setOperationModal(null)}
         title="Registrar proposta"
-        description="Cadastro focado para manter a leitura da disputa limpa."
+        description="Informe o licitante, o item e o valor da proposta."
         size="lg"
         actions={
           <div className="flex flex-wrap justify-end gap-2">
@@ -6847,7 +6918,7 @@ export function LicitacaoProcessoPage({
         open={operationModal === "lance"}
         onClose={() => setOperationModal(null)}
         title="Registrar lance"
-        description="Entrada rapida para manter a sessao principal enxuta."
+        description="Vincule a oferta a uma proposta e informe o valor do lance."
         size="lg"
         actions={
           <div className="flex flex-wrap justify-end gap-2">
