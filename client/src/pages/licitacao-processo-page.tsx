@@ -59,6 +59,10 @@ import {
   type WorkspaceTab,
 } from "@/components/licitacao/processo/licitacao-phase-workspace";
 import { LicitacaoPreparationWorkspace } from "@/components/licitacao/processo/licitacao-preparation-workspace";
+import {
+  LicitacaoQualificationReview,
+  type QualificationBidder,
+} from "@/components/licitacao/processo/licitacao-qualification-review";
 import { LicitacaoEvidenceQueue } from "@/components/licitacao/processo/licitacao-evidence-queue";
 import type { LicitacaoEvidenceItem } from "@/components/licitacao/processo/licitacao-evidence-row";
 import {
@@ -692,6 +696,8 @@ export function LicitacaoProcessoPage({
 
   const [currentPhase, setCurrentPhase] =
     useState<LicitacaoLinearPhaseKey>("PREPARACAO");
+  const [qualificationTab, setQualificationTab] =
+    useState<WorkspaceTab>("documents");
   const [phaseNavigationProcessId, setPhaseNavigationProcessId] = useState<
     number | null
   >(null);
@@ -800,7 +806,6 @@ export function LicitacaoProcessoPage({
   );
   const [propostasPage, setPropostasPage] = useState(1);
   const [lancesPage, setLancesPage] = useState(1);
-  const [habilitacaoPage, setHabilitacaoPage] = useState(1);
   const [recursosPage, setRecursosPage] = useState(1);
   const [auditoriaPage, setAuditoriaPage] = useState(1);
   const [sdFile, setSdFile] = useState<File | null>(null);
@@ -1733,8 +1738,25 @@ export function LicitacaoProcessoPage({
     null;
   const julgamentoChecklistItems =
     requirementChecklistItemsByPhase.get("JULGAMENTO") ?? [];
-  const habilitacaoChecklistItems =
-    requirementChecklistItemsByPhase.get("HABILITACAO") ?? [];
+  const habilitacaoChecklistItems = (
+    requirementChecklistItemsByPhase.get("HABILITACAO") ?? []
+  ).map((item) =>
+    item.category === "LICITACAO_HABILITACAO_EMPRESAS"
+      ? {
+          ...item,
+          label: "Habilitação das empresas",
+          description:
+            "Anexe os documentos que comprovam a análise e o resultado da habilitação.",
+        }
+      : item,
+  );
+  const selectedQualificationDocument =
+    habilitacaoChecklistItems.find(
+      (item) => item.category === activeExternalEvidenceCategory,
+    ) ??
+    habilitacaoChecklistItems.find((item) => !item.concluido) ??
+    habilitacaoChecklistItems[0] ??
+    null;
   const recursosChecklistItems =
     requirementChecklistItemsByPhase.get("RECURSOS") ?? [];
   const controleInternoChecklistItems =
@@ -2588,13 +2610,22 @@ export function LicitacaoProcessoPage({
       setErrorMessage("Selecione o licitante para atualizar a habilitacao.");
       return;
     }
-    await saveHabilitacaoMutation.mutateAsync({
+    saveHabilitacaoMutation.mutate({
       licitanteId: Number(habilitacaoForm.licitanteId),
       statusHabilitacao: habilitacaoForm.statusHabilitacao as
         | "PENDENTE"
         | "HABILITADO"
         | "INABILITADO",
       observacaoHabilitacao: habilitacaoForm.observacaoHabilitacao || undefined,
+    });
+  }
+
+  function selectQualificationBidder(bidder: QualificationBidder) {
+    saveHabilitacaoMutation.reset();
+    setHabilitacaoForm({
+      licitanteId: String(bidder.id),
+      statusHabilitacao: bidder.statusHabilitacao,
+      observacaoHabilitacao: bidder.observacaoHabilitacao ?? "",
     });
   }
 
@@ -3140,7 +3171,8 @@ export function LicitacaoProcessoPage({
   const usesCompactWorkspace =
     currentPhase === "PREPARACAO" ||
     currentPhase === "PUBLICACAO" ||
-    currentPhase === "DISPUTA";
+    currentPhase === "DISPUTA" ||
+    currentPhase === "HABILITACAO";
   const selectedPhaseInfo = phaseCatalog[currentPhase];
   const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
@@ -3180,10 +3212,6 @@ export function LicitacaoProcessoPage({
     propostasPage,
   );
   const lancesPagination = paginateItems(detalhe?.lances ?? [], lancesPage);
-  const habilitacaoPagination = paginateItems(
-    detalhe?.licitantes ?? [],
-    habilitacaoPage,
-  );
   const recursosPagination = paginateItems(
     detalhe?.recursos ?? [],
     recursosPage,
@@ -3613,134 +3641,6 @@ export function LicitacaoProcessoPage({
       </div>
     );
   }
-
-  const habilitacaoSection = (
-    <section
-      ref={habilitacaoRef}
-      className={isLegalSectionVisible("habilitacao") ? "" : "hidden"}
-    >
-      <CollapsibleSectionCard
-        title="Habilitacao"
-        description="Registro da situacao documental do licitante classificado e observacoes da comissao."
-        open={sectionOpen.habilitacao}
-        onToggle={(nextOpen) =>
-          setSectionOpen((current) => ({ ...current, habilitacao: nextOpen }))
-        }
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setOperationModal("habilitacao")}
-            >
-              Atualizar habilitacao
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                void handleAdvanceStage(
-                  "HABILITACAO",
-                  "Licitacao / habilitacao",
-                  "Verificacao documental do licitante classificado.",
-                )
-              }
-              disabled={advanceStageMutation.isPending}
-            >
-              Definir etapa atual
-            </Button>
-          </div>
-        }
-        collapsedSummary={
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-              {detalhe?.licitantes.length ?? 0} licitante(s) para conferencia
-            </span>
-          </div>
-        }
-      >
-        <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                Operacao focada
-              </div>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                A decisao documental foi movida para um modal dedicado.
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                A area principal fica reservada para conferencia da situacao dos
-                licitantes e leitura do historico de habilitacao.
-              </p>
-            </div>
-            <Button
-              type="button"
-              onClick={() => setOperationModal("habilitacao")}
-            >
-              Atualizar habilitacao
-            </Button>
-          </div>
-        </div>
-
-        {renderEvidenceQueue(habilitacaoChecklistItems)}
-
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="text-sm text-[var(--text-secondary)]">
-            {habilitacaoPagination.totalItems} licitante(s) com status de
-            habilitacao.
-          </div>
-          {habilitacaoPagination.totalPages > 1 ? (
-            <Pagination
-              page={habilitacaoPagination.page}
-              totalPages={habilitacaoPagination.totalPages}
-              onPageChange={setHabilitacaoPage}
-            />
-          ) : null}
-        </div>
-
-        <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-          <Table className="min-w-[920px]">
-            <TableHead>
-              <tr>
-                <TableHeaderCell className={stickyColumnHeaderClass}>
-                  Licitante
-                </TableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Observacao</TableHeaderCell>
-              </tr>
-            </TableHead>
-            <TableBody>
-              {habilitacaoPagination.totalItems ? (
-                habilitacaoPagination.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className={stickyColumnCellClass}>
-                      {item.razaoSocial}
-                    </TableCell>
-                    <TableCell>
-                      {habilitacaoStatusLabels[
-                        item.statusHabilitacao as keyof typeof habilitacaoStatusLabels
-                      ] ?? item.statusHabilitacao}
-                    </TableCell>
-                    <TableCell>{item.observacaoHabilitacao ?? "-"}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-[var(--color-neutral-500)]"
-                  >
-                    Nenhum licitante cadastrado para habilitacao.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </CollapsibleSectionCard>
-    </section>
-  );
 
   if (detailQuery.isLoading) {
     return (
@@ -4719,6 +4619,54 @@ export function LicitacaoProcessoPage({
     );
   }
 
+  const bidderRegistrationContent = (
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <FormField label="Fornecedor">
+        <AsyncCombobox<CadastroLookupOption>
+          value={licitanteFornecedorId ? Number(licitanteFornecedorId) : null}
+          initialOption={licitanteFornecedorOption}
+          query={(search, limit) =>
+            queryCadastroLookup("fornecedores", search, limit)
+          }
+          getOptionValue={(option) => option.id}
+          getOptionLabel={(option) => option.label}
+          renderOption={(option) => (
+            <div className="min-w-0">
+              <div className="truncate font-semibold">{option.label}</div>
+              {option.metadata?.cnpj || option.subtitle ? (
+                <div className="truncate text-xs text-[var(--text-secondary)]">
+                  {[option.metadata?.cnpj, option.subtitle]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              ) : null}
+            </div>
+          )}
+          onChange={(option) => {
+            setLicitanteFornecedorOption(option);
+            setLicitanteFornecedorId(option ? String(option.id) : "");
+          }}
+          placeholder="Selecione o fornecedor"
+          searchPlaceholder="Busque por razao social ou CNPJ"
+          minSearchLength={0}
+          allowClear
+          ariaLabel="Fornecedor licitante"
+        />
+      </FormField>
+      <div className="flex items-end">
+        <Button
+          type="button"
+          onClick={() => void handleAddLicitante()}
+          disabled={saveLicitanteMutation.isPending || !licitanteFornecedorId}
+          className="w-full rounded-lg sm:w-auto"
+        >
+          {saveLicitanteMutation.isPending
+            ? "Incluindo..."
+            : "Adicionar licitante"}
+        </Button>
+      </div>
+    </div>
+  );
   const disputeBiddersContent = (
     <div ref={licitantesRef} className="min-w-0 space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -4731,52 +4679,7 @@ export function LicitacaoProcessoPage({
           </p>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <FormField label="Fornecedor">
-          <AsyncCombobox<CadastroLookupOption>
-            value={licitanteFornecedorId ? Number(licitanteFornecedorId) : null}
-            initialOption={licitanteFornecedorOption}
-            query={(search, limit) =>
-              queryCadastroLookup("fornecedores", search, limit)
-            }
-            getOptionValue={(option) => option.id}
-            getOptionLabel={(option) => option.label}
-            renderOption={(option) => (
-              <div className="min-w-0">
-                <div className="truncate font-semibold">{option.label}</div>
-                {option.metadata?.cnpj || option.subtitle ? (
-                  <div className="truncate text-xs text-[var(--text-secondary)]">
-                    {[option.metadata?.cnpj, option.subtitle]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
-                ) : null}
-              </div>
-            )}
-            onChange={(option) => {
-              setLicitanteFornecedorOption(option);
-              setLicitanteFornecedorId(option ? String(option.id) : "");
-            }}
-            placeholder="Selecione o fornecedor"
-            searchPlaceholder="Busque por razao social ou CNPJ"
-            minSearchLength={0}
-            allowClear
-            ariaLabel="Fornecedor licitante"
-          />
-        </FormField>
-        <div className="flex items-end">
-          <Button
-            type="button"
-            onClick={() => void handleAddLicitante()}
-            disabled={saveLicitanteMutation.isPending || !licitanteFornecedorId}
-            className="w-full rounded-lg sm:w-auto"
-          >
-            {saveLicitanteMutation.isPending
-              ? "Incluindo..."
-              : "Adicionar licitante"}
-          </Button>
-        </div>
-      </div>
+      {bidderRegistrationContent}
       {detalhe.licitantes.length ? (
         <div
           role="region"
@@ -5163,6 +5066,134 @@ export function LicitacaoProcessoPage({
       )}
     </div>
   );
+  const qualificationIndex = licitacaoLinearPhaseOrder.indexOf("HABILITACAO");
+  const qualificationNextPhase =
+    licitacaoLinearPhaseOrder[qualificationIndex + 1] ?? "RECURSOS";
+  const qualificationAlreadyAdvanced =
+    licitacaoLinearPhaseOrder.indexOf(currentProcessPhase) > qualificationIndex;
+  const qualificationReviewPending = phasePendingItems.HABILITACAO.some(
+    (item) => item.category === "qualification-review",
+  );
+  const qualificationDocumentsPending = habilitacaoChecklistItems.some(
+    (item) => item.obrigatorio && !item.concluido,
+  );
+  const habilitacaoSection = (
+    <section
+      ref={habilitacaoRef}
+      className={isLegalSectionVisible("habilitacao") ? "" : "hidden"}
+    >
+      {currentPhase === "HABILITACAO" ? (
+        <LicitacaoPhaseWorkspace
+          key={`qualification-${processoId}`}
+          phase="qualification"
+          activeTab={qualificationTab}
+          onTabChange={setQualificationTab}
+          objectDescription={detalhe.processo.objeto ?? undefined}
+          context={
+            inversaoFasesAtiva
+              ? "Fases invertidas: a habilitação antecede a disputa."
+              : undefined
+          }
+          items={habilitacaoChecklistItems.map((item) => ({
+            category: item.category,
+            label: item.label,
+            concluido: item.concluido,
+            statusLabel: item.concluido
+              ? getChecklistItemStatusLabel(item)
+              : item.obrigatorio
+                ? "Obrigatório · Pendente"
+                : "Opcional",
+          }))}
+          activeCategory={selectedQualificationDocument?.category ?? null}
+          onSelectCategory={setActiveExternalEvidenceCategory}
+          progressCount={
+            habilitacaoChecklistItems.filter((item) => item.concluido).length +
+            (qualificationReviewPending ? 0 : 1)
+          }
+          totalCount={habilitacaoChecklistItems.length + 1}
+          editor={renderChecklistEditor(selectedQualificationDocument)}
+          operationTabs={[
+            {
+              value: "review",
+              label: "Licitantes",
+              icon: Users,
+              count: detalhe.licitantes.length,
+              content: (
+                <LicitacaoQualificationReview
+                  bidders={detalhe.licitantes}
+                  registration={bidderRegistrationContent}
+                  onReview={(bidder) => {
+                    selectQualificationBidder(bidder);
+                    setOperationModal("habilitacao");
+                  }}
+                />
+              ),
+            },
+          ]}
+          footer={
+            <footer className="flex flex-col gap-3 border-t border-[var(--border-subtle)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div
+                className="max-w-2xl text-sm text-[var(--text-secondary)]"
+                id="qualification-advance-hint"
+              >
+                <p>
+                  {phasePendingCounts.HABILITACAO
+                    ? `${phasePendingCounts.HABILITACAO} ${phasePendingCounts.HABILITACAO === 1 ? "requisito pendente" : "requisitos pendentes"}. ${isBlockingFlow ? "Conclua os requisitos para avançar." : "O modo orientativo permite avançar."}`
+                    : "Requisitos concluídos. Confira o resultado da habilitação antes de avançar."}
+                </p>
+                {qualificationDocumentsPending || qualificationReviewPending ? (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+                    {qualificationDocumentsPending ? (
+                      <button
+                        type="button"
+                        className="font-semibold text-[var(--color-primary-600)] hover:underline focus-visible:outline focus-visible:outline-2"
+                        onClick={() => setQualificationTab("documents")}
+                      >
+                        Concluir documentos
+                      </button>
+                    ) : null}
+                    {qualificationReviewPending ? (
+                      <button
+                        type="button"
+                        className="font-semibold text-[var(--color-primary-600)] hover:underline focus-visible:outline focus-visible:outline-2"
+                        onClick={() => setQualificationTab("review")}
+                      >
+                        Revisar licitantes
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                className="w-full shrink-0 rounded-lg sm:w-auto"
+                aria-describedby="qualification-advance-hint"
+                disabled={
+                  qualificationAlreadyAdvanced
+                    ? !canAccessLegalPhase(qualificationNextPhase)
+                    : primaryPhaseAction.disabled
+                }
+                loading={advanceStageMutation.isPending}
+                onClick={() => {
+                  if (qualificationAlreadyAdvanced)
+                    selectLegalPhase(qualificationNextPhase);
+                  else if ("onClick" in primaryPhaseAction)
+                    primaryPhaseAction.onClick?.();
+                }}
+              >
+                {qualificationAlreadyAdvanced ? "Abrir" : "Avançar para"}{" "}
+                {phaseCatalog[
+                  qualificationNextPhase
+                ].shortLabel.toLocaleLowerCase("pt-BR")}
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            </footer>
+          }
+        />
+      ) : null}
+    </section>
+  );
+
   const disputeIndex = licitacaoLinearPhaseOrder.indexOf("DISPUTA");
   const disputeNextPhase =
     licitacaoLinearPhaseOrder[disputeIndex + 1] ?? "JULGAMENTO";
@@ -7006,8 +7037,8 @@ export function LicitacaoProcessoPage({
       <Modal
         open={operationModal === "habilitacao"}
         onClose={() => setOperationModal(null)}
-        title="Atualizar habilitacao"
-        description="Painel dedicado para analise documental do licitante."
+        title="Revisar habilitação"
+        description="Confira a situação documental e registre as observações da análise."
         size="lg"
         actions={
           <div className="flex flex-wrap justify-end gap-2">
@@ -7025,7 +7056,7 @@ export function LicitacaoProcessoPage({
             >
               {saveHabilitacaoMutation.isPending
                 ? "Salvando..."
-                : "Salvar habilitacao"}
+                : "Salvar habilitação"}
             </Button>
           </div>
         }
@@ -7035,15 +7066,26 @@ export function LicitacaoProcessoPage({
           className="grid gap-4 2xl:grid-cols-2"
           onSubmit={handleSaveHabilitacao}
         >
+          {saveHabilitacaoMutation.error ? (
+            <Alert variant="error" className="2xl:col-span-2">
+              {saveHabilitacaoMutation.error.message}
+            </Alert>
+          ) : null}
           <FormField label="Licitante">
             <Select
               value={habilitacaoForm.licitanteId}
-              onChange={(event) =>
-                setHabilitacaoForm((current) => ({
-                  ...current,
-                  licitanteId: event.target.value,
-                }))
-              }
+              onChange={(event) => {
+                const bidder = detalhe.licitantes.find(
+                  (item) => item.id === Number(event.target.value),
+                );
+                if (bidder) selectQualificationBidder(bidder);
+                else
+                  setHabilitacaoForm({
+                    licitanteId: "",
+                    statusHabilitacao: "PENDENTE",
+                    observacaoHabilitacao: "",
+                  });
+              }}
             >
               <option value="">Selecione</option>
               {detalhe.licitantes.map((item) => (
@@ -7053,7 +7095,7 @@ export function LicitacaoProcessoPage({
               ))}
             </Select>
           </FormField>
-          <FormField label="Status da habilitacao">
+          <FormField label="Situação da habilitação">
             <Select
               value={habilitacaoForm.statusHabilitacao}
               onChange={(event) =>
@@ -7070,7 +7112,7 @@ export function LicitacaoProcessoPage({
               ))}
             </Select>
           </FormField>
-          <FormField label="Observacao" className="2xl:col-span-2">
+          <FormField label="Observação" className="2xl:col-span-2">
             <Textarea
               rows={4}
               value={habilitacaoForm.observacaoHabilitacao}

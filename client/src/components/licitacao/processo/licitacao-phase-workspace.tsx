@@ -40,10 +40,10 @@ export interface LicitacaoPhaseWorkspaceProps {
   onSelectCategory: (category: string) => void;
   editor: ReactNode;
   itemsContent?: ReactNode;
-  phase?: "preparation" | "publication" | "dispute";
+  phase?: "preparation" | "publication" | "dispute" | "qualification";
   context?: ReactNode;
   operationTabs?: {
-    value: "bidders" | "proposals" | "bids";
+    value: "bidders" | "proposals" | "bids" | "review";
     label: string;
     icon: LucideIcon;
     count: number;
@@ -73,6 +73,7 @@ export type WorkspaceTab =
   | "channels"
   | "bidders"
   | "proposals"
+  | "review"
   | "bids";
 type ObjectTab = "documents" | "people";
 type ObjectFilter = "all" | "pending" | "completed";
@@ -125,7 +126,7 @@ export function LicitacaoPhaseWorkspace({
 }: LicitacaoPhaseWorkspaceProps) {
   const id = useId();
   const tabs =
-    phase === "dispute"
+    phase === "dispute" || phase === "qualification"
       ? [
           { value: "documents" as const, label: "Documentos", icon: FileText },
           ...operationTabs,
@@ -137,6 +138,7 @@ export function LicitacaoPhaseWorkspace({
     preparation: "Preparação",
     publication: "Publicação",
     dispute: "Disputa",
+    qualification: "Habilitação",
   }[phase];
   const phaseNoun = phaseName.toLocaleLowerCase("pt-BR");
   const initiallyInstitutional = items.find(
@@ -306,11 +308,13 @@ export function LicitacaoPhaseWorkspace({
             )
           ) : (
             <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {phase === "dispute"
-                ? "Acompanhe os documentos e os registros da sessão."
-                : phase === "publication"
-                  ? "Organize os comprovantes, as datas e os canais de publicação."
-                  : "Organize os documentos, os itens e os responsáveis."}
+              {phase === "qualification"
+                ? "Confira os documentos e a situação dos licitantes."
+                : phase === "dispute"
+                  ? "Acompanhe os documentos e os registros da sessão."
+                  : phase === "publication"
+                    ? "Organize os comprovantes, as datas e os canais de publicação."
+                    : "Organize os documentos, os itens e os responsáveis."}
             </p>
           )}
           {context ? (
