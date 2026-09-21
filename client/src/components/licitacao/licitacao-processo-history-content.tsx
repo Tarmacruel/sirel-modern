@@ -1,4 +1,6 @@
 import { Alert } from "@/components/ui/alert";
+import { useState } from "react";
+import { Pagination } from "@/components/ui/pagination";
 
 type HistoricoItem = {
   id: number;
@@ -18,29 +20,26 @@ export default function LicitacaoProcessoHistoryContent({
   cleanDisplayText,
   formatShortDateTimeBR,
 }: LicitacaoProcessoHistoryContentProps) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / 10));
+  const currentPage = Math.min(page, totalPages);
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-[var(--border-subtle)]">
       {items.length ? (
-        items.map((item) => (
-          <article
-            key={item.id}
-            className="rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-4"
-          >
-            <div className="flex items-start justify-between gap-3">
+        items.slice((currentPage - 1) * 10, currentPage * 10).map((item) => (
+          <article key={item.id} className="py-4 first:pt-0">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div>
-                <div className="font-semibold text-[var(--color-primary-900)]">
+                <div className="break-words font-semibold text-[var(--text-primary)]">
                   {cleanDisplayText(item.descricao)}
                 </div>
-                <div className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--color-neutral-500)]">
-                  Registro operacional da Licitacao
-                </div>
               </div>
-              <span className="text-xs text-[var(--color-neutral-500)]">
+              <span className="shrink-0 text-xs text-[var(--text-muted)]">
                 {formatShortDateTimeBR(item.criadoEm)}
               </span>
             </div>
             {item.observacao ? (
-              <p className="mt-3 text-sm leading-6 text-[var(--color-neutral-600)]">
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text-secondary)]">
                 {cleanDisplayText(item.observacao)}
               </p>
             ) : null}
@@ -48,9 +47,18 @@ export default function LicitacaoProcessoHistoryContent({
         ))
       ) : (
         <Alert variant="info">
-          Ainda nao ha movimentacoes registradas para esta etapa da Licitacao.
+          Ainda não há movimentações registradas para esta etapa da Licitação.
         </Alert>
       )}
+      {totalPages > 1 ? (
+        <div className="pt-4">
+          <Pagination
+            page={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

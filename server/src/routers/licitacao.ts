@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { getProcessAuditJustification, saveProcessAuditJustification } from "../lib/licitacao-audit-justification.js";
 import { assertLicitacaoFlow, loadLicitacaoFlow } from "../lib/licitacao-flow-guard.js";
 import { isCompletedFlowException } from "../lib/licitacao-flow-state.js";
 import { TRPCError } from "@trpc/server";
@@ -759,10 +761,28 @@ async function getBaseProcesso(db: DbClient, processoId: number) {
     });
   }
 
-  return processo;
+  return {
+    ...processo,
+    justificativaAuditoria: processo.foraDoFluxo
+      ? await getProcessAuditJustification(db, processoId)
+      : null,
+  };
 }
 
 export const licitacaoRouter = router({
+  saveJustificativaAuditoria: operadorProcedure
+    .input(z.object({ processoId: z.number().int().positive(), justificativa: z.string().trim().min(1).max(4000) }))
+    .mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      return db.transaction(async (tx) => {
+        const [processo] = await tx.select({ foraDoFluxo: processos.foraDoFluxo })
+          .from(processos).where(eq(processos.id, input.processoId)).for("update");
+        if (!processo) throw new TRPCError({ code: "NOT_FOUND", message: "Processo nao encontrado." });
+        if (!processo.foraDoFluxo) throw new TRPCError({ code: "BAD_REQUEST", message: "O processo nao esta marcado como fora do fluxo." });
+        const justificativa = await saveProcessAuditJustification(tx, input.processoId, input.justificativa, ctx.user?.id ?? null);
+        return { justificativa };
+      });
+    }),
   summary: publicProcedure.query(async () => {
     const db = requireDb();
     const [totalRow] = await db
@@ -1258,7 +1278,7 @@ export const licitacaoRouter = router({
 
       const licitacao = await ensureLicitacao(db, input.processoId);
       const justificativaAuditoria = toNullableText(
-        input.justificativaAuditoria,
+        input.justificativaAuditoria?.trim() || processo.justificativaAuditoria,
       );
       if (
         processo.foraDoFluxo &&
@@ -1437,6 +1457,10 @@ export const licitacaoRouter = router({
         });
       }
 
+      if (processo.foraDoFluxo && !processo.justificativaAuditoria && justificativaAuditoria) {
+        await saveProcessAuditJustification(db, input.processoId, justificativaAuditoria, ctx.user?.id ?? null);
+      }
+
       return { success: true };
     }),
 
@@ -1446,7 +1470,7 @@ export const licitacaoRouter = router({
       const db = requireDb();
       const processo = await getBaseProcesso(db, input.processoId);
       const justificativaAuditoria = toNullableText(
-        input.justificativaAuditoria,
+        input.justificativaAuditoria?.trim() || processo.justificativaAuditoria,
       );
       if (isLicitacaoFlowBlocking() && !justificativaAuditoria) {
         throw new TRPCError({
@@ -1661,7 +1685,7 @@ export const licitacaoRouter = router({
 
       const licitacao = await ensureLicitacao(db, input.processoId);
       const justificativaAuditoria = toNullableText(
-        input.justificativaAuditoria,
+        input.justificativaAuditoria?.trim() || processo.justificativaAuditoria,
       );
       if (
         processo.foraDoFluxo &&
@@ -1944,6 +1968,10 @@ export const licitacaoRouter = router({
           justificativa: justificativaAuditoria,
           prefixo: "Publicação fora do fluxo",
         });
+      }
+
+      if (processo.foraDoFluxo && !processo.justificativaAuditoria && justificativaAuditoria) {
+        await saveProcessAuditJustification(db, input.processoId, justificativaAuditoria, ctx.user?.id ?? null);
       }
 
       return {
@@ -2446,7 +2474,7 @@ export const licitacaoRouter = router({
           .from(recursosLicitacao)
           .where(eq(recursosLicitacao.id, input.recursoId))
           .limit(1);
-        if (!existing) {
+        if (!existing || existing.licitacaoId !== licitacao.id) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Recurso não encontrado.",
@@ -2493,7 +2521,7 @@ export const licitacaoRouter = router({
       await assertLicitacaoFlow(db, input.processoId, "phase", input.statusLicitacao);
       const processo = await getBaseProcesso(db, input.processoId);
       const justificativaAuditoria = toNullableText(
-        input.justificativaAuditoria,
+        input.justificativaAuditoria?.trim() || processo.justificativaAuditoria,
       );
       if (
         processo.foraDoFluxo &&
@@ -2543,6 +2571,10 @@ export const licitacaoRouter = router({
         });
       }
 
+      if (processo.foraDoFluxo && !processo.justificativaAuditoria && justificativaAuditoria) {
+        await saveProcessAuditJustification(db, input.processoId, justificativaAuditoria, ctx.user?.id ?? null);
+      }
+
       return { success: true };
     }),
 
@@ -2554,7 +2586,7 @@ export const licitacaoRouter = router({
       const processo = await getBaseProcesso(db, input.processoId);
       const licitacao = await ensureLicitacao(db, input.processoId);
       const justificativaAuditoria = toNullableText(
-        input.justificativaAuditoria,
+        input.justificativaAuditoria?.trim() || processo.justificativaAuditoria,
       );
       if (
         processo.foraDoFluxo &&
@@ -2704,6 +2736,10 @@ export const licitacaoRouter = router({
           justificativa: justificativaAuditoria,
           prefixo: "Homologação fora do fluxo",
         });
+      }
+
+      if (processo.foraDoFluxo && !processo.justificativaAuditoria && justificativaAuditoria) {
+        await saveProcessAuditJustification(db, input.processoId, justificativaAuditoria, ctx.user?.id ?? null);
       }
 
       return { success: true };

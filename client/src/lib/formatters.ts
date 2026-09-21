@@ -110,9 +110,12 @@ export function maskCurrencyInputBR(value: string) {
   if (!raw) return "";
 
   let parsed: number | undefined;
-  if (/^\d+$/.test(raw)) {
+  if (/^\d+$/.test(raw) || raw.startsWith("R$")) {
     // Mantém experiência de digitação progressiva (centavos).
-    parsed = Number(raw) / 100;
+    // Reuse masked digits on each keystroke instead of rounding a third decimal.
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return "";
+    parsed = Number(digits) / 100;
   } else {
     parsed = normalizeDecimalInput(raw);
   }

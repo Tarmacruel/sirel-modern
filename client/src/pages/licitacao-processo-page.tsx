@@ -1,3 +1,8 @@
+import {
+  LicitacaoAppealsList,
+  type AppealRecord,
+} from "@/components/licitacao/processo/licitacao-appeals-list";
+import { LicitacaoJudgmentRanking } from "@/components/licitacao/processo/licitacao-judgment-ranking";
 import { reconcileFormDraft } from "@/lib/reconcile-form-draft";
 import { resolveAccessibleLicitacaoPhase } from "@/lib/licitacao-phase-access";
 import {
@@ -701,6 +706,11 @@ export function LicitacaoProcessoPage({
   const [phaseNavigationProcessId, setPhaseNavigationProcessId] = useState<
     number | null
   >(null);
+  const [finalTabs, setFinalTabs] = useState<
+    Partial<Record<LicitacaoLinearPhaseKey, WorkspaceTab>>
+  >({ FECHAMENTO: "summary" });
+  const [editingRecursoId, setEditingRecursoId] = useState<number | null>(null);
+  const [judgmentTab, setJudgmentTab] = useState<WorkspaceTab>("documents");
   const [disputeTab, setDisputeTab] = useState<WorkspaceTab>("documents");
   const [publicationTab, setPublicationTab] =
     useState<WorkspaceTab>("documents");
@@ -1073,6 +1083,13 @@ export function LicitacaoProcessoPage({
     setSdVinculacaoError(null);
   }, [processoId]);
 
+  const saveAuditJustificationMutation =
+    trpc.licitacao.saveJustificativaAuditoria.useMutation({
+      onSuccess: async () => {
+        await utils.licitacao.detail.invalidate({ processoId });
+      },
+    });
+
   const saveConfiguracaoMutation = trpc.licitacao.saveConfiguracao.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -1322,31 +1339,20 @@ export function LicitacaoProcessoPage({
   const hasServerFlow = Boolean(serverFlow);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storedValue = window.localStorage.getItem(
-      auditJustificationStorageKey,
-    );
-    setAuditJustification(storedValue ?? "");
-  }, [auditJustificationStorageKey]);
+    if (detalhe?.processo.id !== processoId) return;
+    const saved = detalhe.processo.justificativaAuditoria;
+    const legacyDraft =
+      typeof window === "undefined"
+        ? ""
+        : (window.localStorage.getItem(auditJustificationStorageKey) ?? "");
+    setAuditJustification(saved || legacyDraft);
+  }, [
+    processoId,
+    detalhe?.processo.id,
+    detalhe?.processo.justificativaAuditoria,
+    auditJustificationStorageKey,
+  ]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!isForaDoFluxo) {
-      window.localStorage.removeItem(auditJustificationStorageKey);
-      return;
-    }
-
-    const trimmedValue = auditJustification.trim();
-    if (trimmedValue) {
-      window.localStorage.setItem(
-        auditJustificationStorageKey,
-        auditJustification,
-      );
-      return;
-    }
-
-    window.localStorage.removeItem(auditJustificationStorageKey);
-  }, [auditJustification, auditJustificationStorageKey, isForaDoFluxo]);
   const inversaoFasesAtiva = configForm.inversaoFasesHabilitada;
   const flowConfig = getLicitacaoFlowConfig({
     modalidadeCodigo: detalhe?.processo.modalidadeCodigo,
@@ -1738,6 +1744,13 @@ export function LicitacaoProcessoPage({
     null;
   const julgamentoChecklistItems =
     requirementChecklistItemsByPhase.get("JULGAMENTO") ?? [];
+  const selectedJudgmentDocument =
+    julgamentoChecklistItems.find(
+      (item) => item.category === activeExternalEvidenceCategory,
+    ) ??
+    julgamentoChecklistItems.find((item) => !item.concluido) ??
+    julgamentoChecklistItems[0] ??
+    null;
   const habilitacaoChecklistItems = (
     requirementChecklistItemsByPhase.get("HABILITACAO") ?? []
   ).map((item) =>
@@ -1933,6 +1946,10 @@ export function LicitacaoProcessoPage({
       utils.workflow.byProcesso.invalidate({ processoId }),
       utils.processos.overview.invalidate({ processoId }),
       utils.auditoria.list.invalidate(),
+      utils.processos.macroPhaseGate.invalidate({
+        processoId,
+        moduloDestino: "CONTRATOS",
+      }),
     ]);
   }
 
@@ -2629,6 +2646,27 @@ export function LicitacaoProcessoPage({
     });
   }
 
+  function openAppeal(item?: AppealRecord) {
+    saveRecursoMutation.reset();
+    setEditingRecursoId(item?.id ?? null);
+    setRecursoForm(
+      item
+        ? {
+            licitanteId: String(item.licitanteId),
+            dataInterposicao: toDateInputValue(item.dataInterposicao),
+            dataJulgamento: toDateInputValue(item.dataJulgamento),
+            resultado: item.resultado,
+            descricao: item.descricao,
+            decisao: item.decisao ?? "",
+          }
+        : {
+            ...initialRecursoForm,
+            licitanteId: detalhe?.licitantes[0]?.id.toString() ?? "",
+          },
+    );
+    setOperationModal("recurso");
+  }
+
   async function handleSaveRecurso(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!recursoForm.licitanteId || !recursoForm.descricao.trim()) {
@@ -2638,8 +2676,9 @@ export function LicitacaoProcessoPage({
       );
       return;
     }
-    await saveRecursoMutation.mutateAsync({
+    saveRecursoMutation.mutate({
       processoId,
+      recursoId: editingRecursoId ?? undefined,
       licitanteId: Number(recursoForm.licitanteId),
       dataInterposicao: recursoForm.dataInterposicao || undefined,
       dataJulgamento: recursoForm.dataJulgamento || undefined,
@@ -2715,7 +2754,7 @@ export function LicitacaoProcessoPage({
       return;
     }
     if (!ensureAuditJustification("homologar o processo")) return;
-    await homologarMutation.mutateAsync({
+    homologarMutation.mutate({
       processoId,
       dataHomologacao: homologacaoForm.dataHomologacao || undefined,
       dataStatus: homologacaoForm.dataStatus || undefined,
@@ -3076,6 +3115,11 @@ export function LicitacaoProcessoPage({
     const isTraceSection = item.key === "auditoria" || item.key === "history";
     if (!canAccessLegalPhase(phase) && !isTraceSection) return;
     setCurrentPhase(phase);
+    if (isTraceSection)
+      setFinalTabs((current) => ({
+        ...current,
+        FECHAMENTO: item.key === "auditoria" ? "audit" : "history",
+      }));
     if (phase === "DISPUTA") {
       const targetTab = {
         external: "documents",
@@ -3131,9 +3175,7 @@ export function LicitacaoProcessoPage({
           ...(showLances ? (["lances"] as const) : []),
         ];
       case "JULGAMENTO":
-        return showCompetitivoSteps
-          ? ["julgamento"]
-          : ["licitantes", "propostas", "julgamento"];
+        return ["julgamento"];
       case "HABILITACAO":
         return ["habilitacao"];
       case "RECURSOS":
@@ -3168,11 +3210,7 @@ export function LicitacaoProcessoPage({
   const selectedPhaseNavItems = navItems.filter((item) =>
     getSectionsForPhase(currentPhase).includes(item.key),
   );
-  const usesCompactWorkspace =
-    currentPhase === "PREPARACAO" ||
-    currentPhase === "PUBLICACAO" ||
-    currentPhase === "DISPUTA" ||
-    currentPhase === "HABILITACAO";
+  const usesCompactWorkspace = true;
   const selectedPhaseInfo = phaseCatalog[currentPhase];
   const runtimePhaseInfo = phaseCatalog[currentProcessPhase];
   const selectedPhasePendingItems = phasePendingItems[currentPhase];
@@ -3432,6 +3470,14 @@ export function LicitacaoProcessoPage({
     // Resolve the requested phase before persisting the initial UI state to the URL.
     // Configuration hydration (including phase inversion) can trigger another render.
     if (!serverFlow) return;
+    if (phaseNavigationProcessId === processoId) {
+      // Refetches may finish during an explicit phase change. Validate the current
+      // selection without re-reading the URL from the previous render.
+      setCurrentPhase((current) =>
+        resolveAccessibleLicitacaoPhase(current, serverFlow.phases),
+      );
+      return;
+    }
     if (typeof window === "undefined") {
       setCurrentPhase(currentProcessPhase);
       return;
@@ -3466,6 +3512,7 @@ export function LicitacaoProcessoPage({
     showRecursos,
     maxAccessiblePhaseIndex,
     hasServerFlow,
+    phaseNavigationProcessId,
   ]);
 
   useEffect(() => {
@@ -5200,6 +5247,208 @@ export function LicitacaoProcessoPage({
   const disputeAlreadyAdvanced =
     licitacaoLinearPhaseOrder.indexOf(currentProcessPhase) > disputeIndex;
 
+  const judgmentIndex = licitacaoLinearPhaseOrder.indexOf("JULGAMENTO");
+  const judgmentNextPhase =
+    licitacaoLinearPhaseOrder[judgmentIndex + 1] ?? "HABILITACAO";
+  const judgmentAlreadyAdvanced =
+    licitacaoLinearPhaseOrder.indexOf(currentProcessPhase) > judgmentIndex;
+  const judgmentRequirementCount =
+    julgamentoChecklistItems.filter((item) => item.obrigatorio).length +
+    1 +
+    (inversaoFasesAtiva && showCompetitivoSteps ? 1 : 0);
+
+  const finalPhase = (
+    {
+      RECURSOS: "appeals",
+      CONTROLE_INTERNO: "control",
+      HOMOLOGACAO: "homologation",
+      FECHAMENTO: "closing",
+    } as const
+  )[
+    currentPhase as
+      | "RECURSOS"
+      | "CONTROLE_INTERNO"
+      | "HOMOLOGACAO"
+      | "FECHAMENTO"
+  ];
+  const finalPhaseDescriptions = {
+    appeals: "Acompanhe os recursos apresentados e registre as decisões.",
+    control: "Reúna os documentos de encaminhamento ao Controle Interno.",
+    homologation: "Confira os documentos finais e formalize o resultado.",
+    closing:
+      "Confira o resultado e o histórico antes de seguir para Contratos.",
+  };
+  const finalTab =
+    finalTabs[currentPhase] ??
+    (currentPhase === "FECHAMENTO" ? "summary" : "documents");
+  const selectFinalTab = (tab: WorkspaceTab) =>
+    setFinalTabs((current) => ({ ...current, [currentPhase]: tab }));
+  const selectedFinalDocument =
+    currentPhaseEvidenceItems.find(
+      (item) => item.category === activeExternalEvidenceCategory,
+    ) ??
+    currentPhaseEvidenceItems.find((item) => !item.concluido) ??
+    currentPhaseEvidenceItems[0];
+  const finalIndex = licitacaoLinearPhaseOrder.indexOf(currentPhase);
+  const finalNextPhase = licitacaoLinearPhaseOrder[finalIndex + 1];
+  const finalAlreadyAdvanced =
+    licitacaoLinearPhaseOrder.indexOf(currentProcessPhase) > finalIndex;
+  const finalRequirementCount =
+    currentPhaseEvidenceItems.filter((item) => item.obrigatorio).length +
+    (currentPhase === "RECURSOS" || currentPhase === "HOMOLOGACAO" ? 1 : 0);
+  const finalPendingItems =
+    currentPhase === "HOMOLOGACAO"
+      ? (serverFlow?.actions.homologar.blockers ?? [])
+      : selectedPhasePendingItems.map((item) => ({
+          ...item,
+          phase: currentPhase,
+        }));
+  const alreadyInContracts =
+    contractGateQuery.data?.moduloAtual === "CONTRATOS";
+  const finalActionDisabled =
+    currentPhase === "FECHAMENTO"
+      ? !alreadyInContracts &&
+        (contractGateQuery.isFetching ||
+          !contractGateQuery.data ||
+          contractGateQuery.isError ||
+          advanceMacroPhaseMutation.isPending)
+      : currentPhase === "HOMOLOGACAO"
+        ? homologarMutation.isPending ||
+          (detalhe.processo.homologado
+            ? !canAccessLegalPhase("FECHAMENTO")
+            : isBlockingFlow && !serverFlow?.actions.homologar.allowed)
+        : finalAlreadyAdvanced
+          ? !finalNextPhase || !canAccessLegalPhase(finalNextPhase)
+          : primaryPhaseAction.disabled;
+  function openHomologation() {
+    homologarMutation.reset();
+    setOperationModal("homologacao");
+  }
+  const resultSummary = (
+    <div className="space-y-5">
+      <h3 className="text-base font-semibold">Resultado do processo</h3>
+      <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[
+          [
+            "Homologação",
+            detalhe.processo.homologado ? "Registrada" : "Pendente",
+          ],
+          [
+            "Data da homologação",
+            detalhe.licitacao.dataHomologacao
+              ? formatShortDateBR(detalhe.licitacao.dataHomologacao)
+              : "Não informada",
+          ],
+          ["Documentos no processo", String(documentos.length)],
+          [
+            "Licitantes",
+            String(detalhe.licitantes.filter((item) => item.ativo).length),
+          ],
+          ["Propostas", String(detalhe.propostas.length)],
+          [
+            "Recursos pendentes",
+            String(
+              detalhe.recursos.filter((item) => item.resultado === "PENDENTE")
+                .length,
+            ),
+          ],
+        ].map(([label, value]) => (
+          <div
+            key={label}
+            className="border-b border-[var(--border-subtle)] pb-3"
+          >
+            <dt className="text-xs text-[var(--text-muted)]">{label}</dt>
+            <dd className="mt-1 text-sm font-semibold">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex flex-wrap gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setShowAllDocsModal(true)}
+        >
+          Ver documentos
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setLocation(`/dossie/${processoId}`)}
+        >
+          Abrir dossiê
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-lg"
+          disabled={!canAccessLegalPhase("JULGAMENTO")}
+          onClick={() => {
+            setJudgmentTab("ranking");
+            selectLegalPhase("JULGAMENTO");
+          }}
+        >
+          Conferir classificação
+        </Button>
+      </div>
+    </div>
+  );
+  const closingGateContent = (
+    <div className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
+      <h3 className="text-base font-semibold">Encaminhamento para Contratos</h3>
+      {contractGateQuery.isError ? (
+        <Alert variant="warning">
+          Não foi possível conferir as pendências.{" "}
+          <button
+            type="button"
+            className="font-semibold underline"
+            onClick={() => void contractGateQuery.refetch()}
+          >
+            Tentar novamente
+          </button>
+        </Alert>
+      ) : contractGateQuery.isFetching ? (
+        <p role="status" className="text-sm text-[var(--text-secondary)]">
+          Conferindo pendências…
+        </p>
+      ) : alreadyInContracts ? (
+        <p className="text-sm text-[var(--text-secondary)]">
+          O processo já foi encaminhado para Contratos.
+        </p>
+      ) : contractGateQuery.data ? (
+        contractGateQuery.data.blockers.length ? (
+          <ul
+            aria-label="Pendências para Contratos"
+            className="divide-y divide-[var(--border-subtle)]"
+          >
+            {contractGateQuery.data.blockers.map((item, index) => (
+              <li key={index} className="py-3">
+                <p className="text-sm font-semibold">{item.label}</p>
+                {item.detalhe ? (
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    {item.detalhe}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-[var(--text-secondary)]">
+            Nenhuma pendência encontrada para o encaminhamento.
+          </p>
+        )
+      ) : (
+        <p className="text-sm text-[var(--text-secondary)]">
+          Conclua as etapas anteriores para conferir o encaminhamento.
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
@@ -5229,6 +5478,15 @@ export function LicitacaoProcessoPage({
                 visible={isForaDoFluxo}
                 value={auditJustification}
                 onChange={setAuditJustification}
+                savedValue={detalhe.processo.justificativaAuditoria ?? ""}
+                saving={saveAuditJustificationMutation.isPending}
+                onSave={async () => {
+                  await saveAuditJustificationMutation.mutateAsync({
+                    processoId,
+                    justificativa: auditJustification.trim(),
+                  });
+                  window.localStorage.removeItem(auditJustificationStorageKey);
+                }}
               />
             }
           />
@@ -6307,480 +6565,408 @@ export function LicitacaoProcessoPage({
                 </section>
               </>
             ) : null}
-            {showCompetitivoSteps || !showLances ? (
-              <section
-                ref={julgamentoRef}
-                className={isLegalSectionVisible("julgamento") ? "" : "hidden"}
-              >
-                <CollapsibleSectionCard
-                  title="Julgamento"
-                  description="Definicao visual da etapa de julgamento e conferencia da classificacao das propostas."
-                  open={sectionOpen.julgamento}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      julgamento: nextOpen,
-                    }))
-                  }
-                  action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void handleAdvanceStage(
-                          "JULGAMENTO",
-                          "Licitacao / julgamento",
-                          "Classificacao e julgamento das propostas.",
-                        )
-                      }
-                      disabled={advanceStageMutation.isPending}
-                    >
-                      Definir etapa atual
-                    </Button>
-                  }
-                  collapsedSummary={
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        Status:{" "}
-                        {licitacaoStatusLabels[
-                          detalhe.licitacao
-                            .statusLicitacao as keyof typeof licitacaoStatusLabels
-                        ] ?? detalhe.licitacao.statusLicitacao}
-                      </span>
-                    </div>
-                  }
-                >
-                  <Alert variant="info">
-                    Use as classificacoes e situacoes lancadas em propostas para
-                    registrar o julgamento. Esta secao define visualmente a
-                    etapa atual e permite conferencia consolidada.
-                  </Alert>
-                  {renderEvidenceQueue(julgamentoChecklistItems)}
-                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[1040px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell>Item</TableHeaderCell>
-                          <TableHeaderCell>Licitante</TableHeaderCell>
-                          <TableHeaderCell>Classificacao</TableHeaderCell>
-                          <TableHeaderCell>Situacao</TableHeaderCell>
-                          <TableHeaderCell>Valor atual</TableHeaderCell>
-                          <TableHeaderCell>Justificativa</TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {detalhe.propostas.length ? (
-                          detalhe.propostas.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell>
-                                {item.itemCatalogoId ? (
-                                  <button
-                                    type="button"
-                                    className="font-semibold text-[var(--accent-color)]"
-                                    onClick={() =>
-                                      setLocation(
-                                        `/dossie/item/${item.itemCatalogoId}`,
-                                      )
-                                    }
-                                  >
-                                    {item.itemNumero}
-                                  </button>
-                                ) : (
-                                  item.itemNumero
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {item.fornecedorId ? (
-                                  <button
-                                    type="button"
-                                    className="font-semibold text-[var(--accent-color)]"
-                                    onClick={() =>
-                                      setLocation(
-                                        `/dossie/fornecedor/${item.fornecedorId}`,
-                                      )
-                                    }
-                                  >
-                                    {item.licitanteNome}
-                                  </button>
-                                ) : (
-                                  item.licitanteNome
-                                )}
-                              </TableCell>
-                              <TableCell>{item.classificacao ?? "-"}</TableCell>
-                              <TableCell>
-                                {propostaSituacaoLabels[
-                                  item.situacao as keyof typeof propostaSituacaoLabels
-                                ] ?? item.situacao}
-                              </TableCell>
-                              <TableCell>
-                                {formatCurrencyBRL(
-                                  Number(item.valorAtualTotal ?? 0),
-                                )}
-                              </TableCell>
-                              <TableCell>{item.justificativa ?? "-"}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={6}
-                              className="text-[var(--color-neutral-500)]"
+            <section
+              ref={julgamentoRef}
+              className={isLegalSectionVisible("julgamento") ? "" : "hidden"}
+            >
+              {currentPhase === "JULGAMENTO" ? (
+                <LicitacaoPhaseWorkspace
+                  key={`judgment-${processoId}`}
+                  phase="judgment"
+                  activeTab={judgmentTab}
+                  onTabChange={setJudgmentTab}
+                  objectDescription={detalhe.processo.objeto ?? undefined}
+                  context={`${detalhe.itens.length} ${detalhe.itens.length === 1 ? "item" : "itens"} · ${detalhe.propostas.length} ${detalhe.propostas.length === 1 ? "proposta" : "propostas"} para conferência`}
+                  progressCount={Math.max(
+                    0,
+                    judgmentRequirementCount - phasePendingCounts.JULGAMENTO,
+                  )}
+                  totalCount={judgmentRequirementCount}
+                  items={julgamentoChecklistItems.map((item) => ({
+                    category: item.category,
+                    label: item.label,
+                    concluido: item.concluido,
+                    statusLabel: item.concluido
+                      ? getChecklistItemStatusLabel(item)
+                      : item.obrigatorio
+                        ? "Obrigatório · Pendente"
+                        : "Opcional",
+                  }))}
+                  activeCategory={selectedJudgmentDocument?.category ?? null}
+                  onSelectCategory={setActiveExternalEvidenceCategory}
+                  editor={renderChecklistEditor(selectedJudgmentDocument)}
+                  operationTabs={[
+                    {
+                      value: "ranking",
+                      label: "Classificação",
+                      icon: ListOrdered,
+                      count: detalhe.propostas.length,
+                      content: (
+                        <LicitacaoJudgmentRanking
+                          items={detalhe.itens}
+                          proposals={detalhe.propostas}
+                          saving={savePropostaMutation.isPending}
+                          canCreate={
+                            detalhe.licitantes.some((item) => item.ativo) &&
+                            detalhe.itens.length > 0
+                          }
+                          onNewProposal={() => setOperationModal("proposta")}
+                          onOpenSupplier={(id) =>
+                            setLocation(`/dossie/fornecedor/${id}`)
+                          }
+                          onOpenItem={(id) => setLocation(`/dossie/item/${id}`)}
+                          onSave={async (edit) => {
+                            const proposal = detalhe.propostas.find(
+                              (item) => item.id === edit.propostaId,
+                            );
+                            if (!proposal)
+                              throw new Error(
+                                "Proposta não encontrada. Atualize a página.",
+                              );
+                            await savePropostaMutation.mutateAsync({
+                              processoId,
+                              ...edit,
+                              licitanteId: proposal.licitanteId,
+                              itemId: proposal.itemId,
+                              valorUnitarioProposto: Number(
+                                proposal.valorUnitarioProposto,
+                              ),
+                              dataProposta: proposal.dataProposta
+                                ? new Date(proposal.dataProposta).toISOString()
+                                : undefined,
+                            });
+                          }}
+                        />
+                      ),
+                    },
+                    ...(!showCompetitivoSteps
+                      ? [
+                          {
+                            value: "bidders" as const,
+                            label: "Licitantes",
+                            icon: Users,
+                            count: detalhe.licitantes.length,
+                            content: disputeBiddersContent,
+                          },
+                        ]
+                      : []),
+                  ]}
+                  footer={
+                    <footer className="flex flex-col gap-3 border-t border-[var(--border-subtle)] px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                      <div
+                        className="min-w-0 text-sm text-[var(--text-secondary)]"
+                        id="judgment-advance-hint"
+                      >
+                        {phasePendingCounts.JULGAMENTO ? (
+                          <>
+                            <p>
+                              {phasePendingCounts.JULGAMENTO}{" "}
+                              {phasePendingCounts.JULGAMENTO === 1
+                                ? "requisito pendente"
+                                : "requisitos pendentes"}
+                              .
+                              {!isBlockingFlow
+                                ? " O modo orientativo permite avançar."
+                                : ""}
+                            </p>
+                            <button
+                              type="button"
+                              className="mt-1 text-left font-semibold text-[var(--color-primary-600)] hover:underline focus-visible:outline focus-visible:outline-2"
+                              onClick={() => {
+                                const pending = phasePendingItems.JULGAMENTO[0];
+                                const document = julgamentoChecklistItems.find(
+                                  (item) => item.category === pending?.category,
+                                );
+                                if (document) {
+                                  setActiveExternalEvidenceCategory(
+                                    document.category,
+                                  );
+                                  setJudgmentTab("documents");
+                                } else setJudgmentTab("ranking");
+                              }}
                             >
-                              Sem propostas para julgamento.
-                            </TableCell>
-                          </TableRow>
+                              {phasePendingItems.JULGAMENTO[0]?.label}
+                            </button>
+                          </>
+                        ) : (
+                          <p>
+                            Requisitos concluídos. Confira a classificação antes
+                            de avançar.
+                          </p>
                         )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CollapsibleSectionCard>
-              </section>
-            ) : null}
+                      </div>
+                      <Button
+                        type="button"
+                        className="w-full shrink-0 rounded-lg lg:w-auto"
+                        aria-describedby="judgment-advance-hint"
+                        disabled={
+                          judgmentAlreadyAdvanced
+                            ? !canAccessLegalPhase(judgmentNextPhase)
+                            : primaryPhaseAction.disabled
+                        }
+                        loading={advanceStageMutation.isPending}
+                        onClick={() => {
+                          if (judgmentAlreadyAdvanced)
+                            selectLegalPhase(judgmentNextPhase);
+                          else if ("onClick" in primaryPhaseAction)
+                            primaryPhaseAction.onClick?.();
+                        }}
+                      >
+                        {judgmentAlreadyAdvanced ? "Abrir" : "Avançar para"}{" "}
+                        {judgmentNextPhase === "HABILITACAO"
+                          ? "habilitação"
+                          : phaseCatalog[
+                              judgmentNextPhase
+                            ].shortLabel.toLocaleLowerCase("pt-BR")}
+                        <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                      </Button>
+                    </footer>
+                  }
+                />
+              ) : null}
+            </section>
 
             {!inversaoFasesAtiva ? habilitacaoSection : null}
 
-            {showRecursos ? (
+            {finalPhase ? (
               <section
-                ref={recursosRef}
-                className={isLegalSectionVisible("recursos") ? "" : "hidden"}
+                ref={sectionRefs[getDefaultSectionForPhase(currentPhase)]}
               >
-                <CollapsibleSectionCard
-                  title="Recursos"
-                  description="Registro de interposicao, julgamento e resultado recursal dentro da fase licitatoria."
-                  open={sectionOpen.recursos}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      recursos: nextOpen,
-                    }))
+                <LicitacaoPhaseWorkspace
+                  key={`${currentPhase}-${processoId}`}
+                  phase={finalPhase}
+                  activeTab={finalTab}
+                  onTabChange={selectFinalTab}
+                  objectDescription={detalhe.processo.objeto ?? undefined}
+                  context={finalPhaseDescriptions[finalPhase]}
+                  showDocuments={currentPhase !== "FECHAMENTO"}
+                  showProgress={currentPhase !== "FECHAMENTO"}
+                  progressCount={Math.max(
+                    0,
+                    finalRequirementCount - selectedPhasePendingItems.length,
+                  )}
+                  totalCount={finalRequirementCount}
+                  items={currentPhaseEvidenceItems.map((item) => ({
+                    category: item.category,
+                    label: item.label,
+                    concluido: item.concluido,
+                    statusLabel: item.concluido
+                      ? getChecklistItemStatusLabel(item)
+                      : item.obrigatorio
+                        ? "Obrigatório · Pendente"
+                        : "Opcional",
+                  }))}
+                  activeCategory={selectedFinalDocument?.category ?? null}
+                  onSelectCategory={setActiveExternalEvidenceCategory}
+                  editor={renderChecklistEditor(selectedFinalDocument)}
+                  operationTabs={
+                    currentPhase === "RECURSOS"
+                      ? [
+                          {
+                            value: "appeals",
+                            label: "Decisões",
+                            icon: Scale,
+                            count: detalhe.recursos.length,
+                            content: (
+                              <LicitacaoAppealsList
+                                items={detalhe.recursos}
+                                canCreate={detalhe.licitantes.length > 0}
+                                onCreate={() => openAppeal()}
+                                onEdit={openAppeal}
+                              />
+                            ),
+                          },
+                        ]
+                      : currentPhase === "HOMOLOGACAO"
+                        ? [
+                            {
+                              value: "summary",
+                              label: "Resultado",
+                              icon: CheckCircle2,
+                              content: resultSummary,
+                            },
+                          ]
+                        : currentPhase === "FECHAMENTO"
+                          ? [
+                              {
+                                value: "summary",
+                                label: "Resumo",
+                                icon: FileCheck2,
+                                content: (
+                                  <div className="space-y-6">
+                                    {resultSummary}
+                                    {closingGateContent}
+                                  </div>
+                                ),
+                              },
+                              {
+                                value: "history",
+                                label: "Histórico",
+                                icon: Clock3,
+                                count: detalhe.historico.length,
+                                content: (
+                                  <Suspense fallback={deferredSectionFallback}>
+                                    <LicitacaoProcessoHistoryContent
+                                      items={detalhe.historico}
+                                      cleanDisplayText={cleanDisplayText}
+                                      formatShortDateTimeBR={
+                                        formatShortDateTimeBR
+                                      }
+                                    />
+                                  </Suspense>
+                                ),
+                              },
+                              ...(isForaDoFluxo
+                                ? [
+                                    {
+                                      value: "audit" as const,
+                                      label: "Auditoria",
+                                      icon: ShieldCheck,
+                                      count: auditoriaItems.length,
+                                      content: (
+                                        <Suspense
+                                          fallback={deferredSectionFallback}
+                                        >
+                                          <LicitacaoProcessoAuditoriaContent
+                                            actionFilter={auditActionFilter}
+                                            userFilter={auditUserFilter}
+                                            onActionFilterChange={
+                                              setAuditActionFilter
+                                            }
+                                            onUserFilterChange={
+                                              setAuditUserFilter
+                                            }
+                                            userOptions={auditoriaUserOptions}
+                                            isLoading={auditoriaQuery.isLoading}
+                                            items={auditoriaItems}
+                                            pagination={auditoriaPagination}
+                                            onPageChange={setAuditoriaPage}
+                                            stickyColumnHeaderClass={
+                                              stickyColumnHeaderClass
+                                            }
+                                            stickyColumnCellClass={
+                                              stickyColumnCellClass
+                                            }
+                                            formatShortDateTimeBR={
+                                              formatShortDateTimeBR
+                                            }
+                                            formatAuditValue={formatAuditValue}
+                                            cleanDisplayText={cleanDisplayText}
+                                          />
+                                        </Suspense>
+                                      ),
+                                    },
+                                  ]
+                                : []),
+                            ]
+                          : []
                   }
-                  action={
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setOperationModal("recurso")}
+                  footer={
+                    <footer className="flex flex-col gap-3 border-t border-[var(--border-subtle)] px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                      <div
+                        id="final-phase-hint"
+                        className="min-w-0 text-sm text-[var(--text-secondary)]"
                       >
-                        Registrar recurso
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          void handleAdvanceStage(
-                            "RECURSOS",
-                            "Licitacao / recursos administrativos",
-                            "Abertura da fase recursal.",
-                          )
-                        }
-                        disabled={advanceStageMutation.isPending}
-                      >
-                        Definir etapa atual
-                      </Button>
-                    </div>
-                  }
-                  collapsedSummary={
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                        {detalhe.recursos.length} recurso(s)
-                      </span>
-                    </div>
-                  }
-                >
-                  <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                          Tratamento recursal focado
-                        </div>
-                        <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                          Interposicao e decisao foram concentradas em modal.
+                        <p>
+                          {currentPhase === "FECHAMENTO"
+                            ? alreadyInContracts
+                              ? "Processo encaminhado para o módulo de Contratos."
+                              : "Confira o resumo e as pendências antes de encaminhar."
+                            : finalPendingItems.length
+                              ? `${finalPendingItems.length} ${finalPendingItems.length === 1 ? "requisito pendente" : "requisitos pendentes"}.${!isBlockingFlow ? " O modo orientativo permite avançar." : ""}`
+                              : currentPhase === "HOMOLOGACAO" &&
+                                  !detalhe.processo.homologado
+                                ? "Documentos conferidos. Registre a homologação para concluir."
+                                : "Requisitos concluídos. Confira os registros antes de seguir."}
                         </p>
-                        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                          O painel principal passa a destacar os recursos
-                          existentes e o status de cada decisao.
-                        </p>
+                        {finalPendingItems.length &&
+                        currentPhase !== "FECHAMENTO" ? (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer font-semibold text-[var(--color-primary-600)]">
+                              Ver pendências
+                            </summary>
+                            <ul className="mt-2 space-y-2">
+                              {finalPendingItems.map((item) => (
+                                <li key={`${item.phase}-${item.category}`}>
+                                  <button
+                                    type="button"
+                                    className="text-left text-[var(--color-primary-600)] hover:underline"
+                                    onClick={() => {
+                                      if (item.phase !== currentPhase)
+                                        selectLegalPhase(item.phase);
+                                      else {
+                                        setActiveExternalEvidenceCategory(
+                                          item.category,
+                                        );
+                                        selectFinalTab(
+                                          item.category === "appeals"
+                                            ? "appeals"
+                                            : "documents",
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    {item.label}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </div>
-                      <Button
-                        type="button"
-                        onClick={() => setOperationModal("recurso")}
-                      >
-                        Registrar recurso
-                      </Button>
-                    </div>
-                  </div>
-
-                  {renderEvidenceQueue(recursosChecklistItems)}
-
-                  <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      {recursosPagination.totalItems} recurso(s) cadastrados.
-                    </div>
-                    {recursosPagination.totalPages > 1 ? (
-                      <Pagination
-                        page={recursosPagination.page}
-                        totalPages={recursosPagination.totalPages}
-                        onPageChange={setRecursosPage}
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-                    <Table className="min-w-[1100px]">
-                      <TableHead>
-                        <tr>
-                          <TableHeaderCell className={stickyColumnHeaderClass}>
-                            Licitante
-                          </TableHeaderCell>
-                          <TableHeaderCell>Interposicao</TableHeaderCell>
-                          <TableHeaderCell>Julgamento</TableHeaderCell>
-                          <TableHeaderCell>Resultado</TableHeaderCell>
-                          <TableHeaderCell>Descricao</TableHeaderCell>
-                        </tr>
-                      </TableHead>
-                      <TableBody>
-                        {recursosPagination.totalItems ? (
-                          recursosPagination.items.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className={stickyColumnCellClass}>
-                                {item.licitanteNome}
-                              </TableCell>
-                              <TableCell>
-                                {formatShortDateBR(item.dataInterposicao)}
-                              </TableCell>
-                              <TableCell>
-                                {formatShortDateBR(item.dataJulgamento)}
-                              </TableCell>
-                              <TableCell>
-                                {recursoResultadoLabels[
-                                  item.resultado as keyof typeof recursoResultadoLabels
-                                ] ?? item.resultado}
-                              </TableCell>
-                              <TableCell>{item.descricao}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell
-                              colSpan={5}
-                              className="text-[var(--color-neutral-500)]"
-                            >
-                              Nenhum recurso registrado ate o momento.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CollapsibleSectionCard>
+                      <div className="flex flex-col gap-2 sm:flex-row lg:shrink-0">
+                        {currentPhase === "HOMOLOGACAO" &&
+                        detalhe.processo.homologado ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-lg"
+                            onClick={openHomologation}
+                          >
+                            Revisar homologação
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          className="rounded-lg"
+                          aria-describedby="final-phase-hint"
+                          disabled={finalActionDisabled}
+                          loading={
+                            advanceStageMutation.isPending ||
+                            homologarMutation.isPending ||
+                            advanceMacroPhaseMutation.isPending
+                          }
+                          onClick={() => {
+                            if (currentPhase === "FECHAMENTO") {
+                              if (alreadyInContracts) setLocation("/contratos");
+                              else setContractTransitionOpen(true);
+                            } else if (currentPhase === "HOMOLOGACAO") {
+                              if (detalhe.processo.homologado)
+                                selectLegalPhase("FECHAMENTO");
+                              else openHomologation();
+                            } else if (finalAlreadyAdvanced && finalNextPhase)
+                              selectLegalPhase(finalNextPhase);
+                            else if ("onClick" in primaryPhaseAction)
+                              primaryPhaseAction.onClick?.();
+                          }}
+                        >
+                          {currentPhase === "FECHAMENTO"
+                            ? alreadyInContracts
+                              ? "Abrir Contratos"
+                              : "Encaminhar para Contratos"
+                            : currentPhase === "HOMOLOGACAO"
+                              ? detalhe.processo.homologado
+                                ? "Abrir fechamento"
+                                : "Concluir homologação"
+                              : `${finalAlreadyAdvanced ? "Abrir" : "Avançar para"} ${finalNextPhase === "HOMOLOGACAO" ? "homologação" : "controle interno"}`}
+                          <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </footer>
+                  }
+                />
               </section>
             ) : null}
-
-            <section
-              ref={controleInternoRef}
-              className={
-                isLegalSectionVisible("controleInterno") ? "" : "hidden"
-              }
-            >
-              <CollapsibleSectionCard
-                title="Controle Interno"
-                description="Encaminhamento do processo para validacao antes da homologacao."
-                open={sectionOpen.controleInterno}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    controleInterno: nextOpen,
-                  }))
-                }
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      void handleAdvanceStage(
-                        "CONTROLE_INTERNO",
-                        "Licitacao / controle interno",
-                        "Encaminhamento ao Controle Interno.",
-                      )
-                    }
-                    disabled={advanceStageMutation.isPending}
-                  >
-                    Definir etapa atual
-                  </Button>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      Pendentes: {controleInternoEvidencePendingRequired.length}
-                    </span>
-                  </div>
-                }
-              >
-                {renderEvidenceQueue(controleInternoChecklistItems)}
-              </CollapsibleSectionCard>
-            </section>
-
-            <section
-              ref={homologacaoRef}
-              className={isLegalSectionVisible("homologacao") ? "" : "hidden"}
-            >
-              <CollapsibleSectionCard
-                title="Homologacao"
-                description="Encerramento formal da fase licitatoria com atualizacao do status final do processo."
-                open={sectionOpen.homologacao}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    homologacao: nextOpen,
-                  }))
-                }
-                action={
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setOperationModal("homologacao")}
-                  >
-                    {detalhe.processo.homologado
-                      ? "Revisar homologacao"
-                      : "Concluir homologacao"}
-                  </Button>
-                }
-                collapsedSummary={
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="rounded-full bg-[var(--color-primary-50)] px-3 py-1 font-semibold text-[var(--color-primary-700)]">
-                      {detalhe.processo.homologado
-                        ? "Processo homologado"
-                        : "Homologacao pendente"}
-                    </span>
-                  </div>
-                }
-              >
-                {renderEvidenceQueue(homologacaoChecklistItems)}
-
-                <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-primary-600)]">
-                        Encerramento formal
-                      </div>
-                      <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
-                        A homologacao agora acontece em um modal concentrado.
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                        Isso preserva a leitura do encerramento e deixa a acao
-                        principal da etapa sempre acessivel pelo rodape fixo.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      onClick={() => setOperationModal("homologacao")}
-                    >
-                      {detalhe.processo.homologado
-                        ? "Revisar homologacao"
-                        : "Concluir homologacao"}
-                    </Button>
-                  </div>
-                </div>
-              </CollapsibleSectionCard>
-            </section>
-
-            {isForaDoFluxo ? (
-              <section
-                ref={auditoriaRef}
-                className={isLegalSectionVisible("auditoria") ? "" : "hidden"}
-              >
-                <CollapsibleSectionCard
-                  title="Auditoria reforcada"
-                  description="Log detalhado de alteracoes campo a campo para processos fora do fluxo."
-                  open={sectionOpen.auditoria}
-                  onToggle={(nextOpen) =>
-                    setSectionOpen((current) => ({
-                      ...current,
-                      auditoria: nextOpen,
-                    }))
-                  }
-                  collapsedSummary={
-                    auditoriaItems.length ? (
-                      <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                        <span className="font-semibold text-[var(--color-primary-900)]">
-                          {cleanDisplayText(auditoriaItems[0]?.descricao)}
-                        </span>
-                        <div className="text-[var(--color-neutral-500)]">
-                          {formatShortDateTimeBR(auditoriaItems[0]?.criadoEm)}
-                        </div>
-                      </div>
-                    ) : (
-                      <Alert variant="info">
-                        Nenhuma auditoria registrada para este processo.
-                      </Alert>
-                    )
-                  }
-                >
-                  <Suspense fallback={deferredSectionFallback}>
-                    <LicitacaoProcessoAuditoriaContent
-                      actionFilter={auditActionFilter}
-                      userFilter={auditUserFilter}
-                      onActionFilterChange={setAuditActionFilter}
-                      onUserFilterChange={setAuditUserFilter}
-                      userOptions={auditoriaUserOptions}
-                      isLoading={auditoriaQuery.isLoading}
-                      items={auditoriaItems}
-                      pagination={auditoriaPagination}
-                      onPageChange={setAuditoriaPage}
-                      stickyColumnHeaderClass={stickyColumnHeaderClass}
-                      stickyColumnCellClass={stickyColumnCellClass}
-                      formatShortDateTimeBR={formatShortDateTimeBR}
-                      formatAuditValue={formatAuditValue}
-                      cleanDisplayText={cleanDisplayText}
-                    />
-                  </Suspense>
-                </CollapsibleSectionCard>
-              </section>
-            ) : null}
-
-            <section
-              ref={historyRef}
-              className={isLegalSectionVisible("history") ? "" : "hidden"}
-            >
-              <CollapsibleSectionCard
-                title="Movimentacoes recentes"
-                description="Rastro operacional da fase licitatoria para acompanhamento do setor e da gestao."
-                open={sectionOpen.history}
-                onToggle={(nextOpen) =>
-                  setSectionOpen((current) => ({
-                    ...current,
-                    history: nextOpen,
-                  }))
-                }
-                collapsedSummary={
-                  detalhe.historico.length ? (
-                    <div className="rounded-2xl border border-[rgba(204,225,255,0.92)] bg-[var(--color-primary-50)] px-4 py-3 text-sm">
-                      <span className="font-semibold text-[var(--color-primary-900)]">
-                        {cleanDisplayText(detalhe.historico[0]?.descricao)}
-                      </span>
-                      <div className="text-[var(--color-neutral-500)]">
-                        {formatShortDateTimeBR(detalhe.historico[0]?.criadoEm)}
-                      </div>
-                    </div>
-                  ) : (
-                    <Alert variant="info">
-                      Ainda nao ha movimentacoes registradas para esta etapa.
-                    </Alert>
-                  )
-                }
-              >
-                <Suspense fallback={deferredSectionFallback}>
-                  <LicitacaoProcessoHistoryContent
-                    items={detalhe.historico}
-                    cleanDisplayText={cleanDisplayText}
-                    formatShortDateTimeBR={formatShortDateTimeBR}
-                  />
-                </Suspense>
-              </CollapsibleSectionCard>
-            </section>
           </div>
         </div>
       </div>
@@ -6793,13 +6979,15 @@ export function LicitacaoProcessoPage({
         blockers={contractGateQuery.data?.blockers ?? []}
         loading={advanceMacroPhaseMutation.isPending}
         onConfirm={async (payload) => {
-          await advanceMacroPhaseMutation.mutateAsync({
-            processoId,
-            moduloDestino: "CONTRATOS",
-            permitirBypass: payload.permitirBypass,
-            justificativaAuditoria: payload.justificativaAuditoria,
-            observacao: payload.observacao,
-          });
+          await advanceMacroPhaseMutation
+            .mutateAsync({
+              processoId,
+              moduloDestino: "CONTRATOS",
+              permitirBypass: payload.permitirBypass,
+              justificativaAuditoria: payload.justificativaAuditoria,
+              observacao: payload.observacao,
+            })
+            .catch(() => undefined);
         }}
       />
 
@@ -7129,9 +7317,11 @@ export function LicitacaoProcessoPage({
 
       <Modal
         open={operationModal === "recurso"}
-        onClose={() => setOperationModal(null)}
-        title="Registrar recurso"
-        description="Tratamento recursal em painel unico para reduzir ruido na tela."
+        onClose={() => {
+          if (!saveRecursoMutation.isPending) setOperationModal(null);
+        }}
+        title={editingRecursoId ? "Revisar recurso" : "Registrar recurso"}
+        description="Informe a interposição, o resultado e a decisão do recurso."
         size="lg"
         actions={
           <div className="flex flex-wrap justify-end gap-2">
@@ -7149,7 +7339,9 @@ export function LicitacaoProcessoPage({
             >
               {saveRecursoMutation.isPending
                 ? "Salvando..."
-                : "Registrar recurso"}
+                : editingRecursoId
+                  ? "Salvar decisão"
+                  : "Registrar recurso"}
             </Button>
           </div>
         }
@@ -7159,9 +7351,15 @@ export function LicitacaoProcessoPage({
           className="grid gap-4 2xl:grid-cols-2"
           onSubmit={handleSaveRecurso}
         >
+          {saveRecursoMutation.error ? (
+            <Alert variant="warning" className="2xl:col-span-2">
+              {saveRecursoMutation.error.message}
+            </Alert>
+          ) : null}
           <FormField label="Licitante">
             <Select
               value={recursoForm.licitanteId}
+              required
               onChange={(event) =>
                 setRecursoForm((current) => ({
                   ...current,
@@ -7218,10 +7416,11 @@ export function LicitacaoProcessoPage({
               }
             />
           </FormField>
-          <FormField label="Descricao" className="2xl:col-span-2">
+          <FormField label="Descrição" className="2xl:col-span-2">
             <Textarea
               rows={4}
               value={recursoForm.descricao}
+              required
               onChange={(event) =>
                 setRecursoForm((current) => ({
                   ...current,
@@ -7230,7 +7429,7 @@ export function LicitacaoProcessoPage({
               }
             />
           </FormField>
-          <FormField label="Decisao" className="2xl:col-span-2">
+          <FormField label="Decisão" className="2xl:col-span-2">
             <Textarea
               rows={4}
               value={recursoForm.decisao}
@@ -7247,9 +7446,15 @@ export function LicitacaoProcessoPage({
 
       <Modal
         open={operationModal === "homologacao"}
-        onClose={() => setOperationModal(null)}
-        title="Concluir homologacao"
-        description="Encerramento formal da fase licitatoria em painel focado."
+        onClose={() => {
+          if (!homologarMutation.isPending) setOperationModal(null);
+        }}
+        title={
+          detalhe.processo.homologado
+            ? "Revisar homologação"
+            : "Concluir homologação"
+        }
+        description="Informe a data e o status final do processo."
         size="lg"
         actions={
           <div className="flex flex-wrap justify-end gap-2">
@@ -7277,10 +7482,16 @@ export function LicitacaoProcessoPage({
           className="grid gap-4 2xl:grid-cols-2"
           onSubmit={handleHomologar}
         >
-          <FormField label="Data da homologacao">
+          {homologarMutation.error ? (
+            <Alert variant="warning" className="2xl:col-span-2">
+              {homologarMutation.error.message}
+            </Alert>
+          ) : null}
+          <FormField label="Data da homologação">
             <Input
               type="date"
               value={homologacaoForm.dataHomologacao}
+              required
               onChange={(event) =>
                 setHomologacaoForm((current) => ({
                   ...current,

@@ -117,8 +117,16 @@ export default function LicitacaoProcessoAuditoriaContent({
               />
             ) : null}
           </div>
-          <div className="mt-4 overflow-x-auto rounded-[28px] border border-[rgba(204,225,255,0.92)] bg-white shadow-[0_12px_24px_-24px_rgba(15,26,109,0.22)]">
-            <Table className="min-w-[1080px]">
+          <div
+            role="region"
+            aria-label="Tabela de auditoria"
+            tabIndex={0}
+            className="mt-4 max-w-full overflow-x-auto rounded-lg border border-[var(--border-subtle)] focus-visible:outline focus-visible:outline-2"
+          >
+            <Table
+              aria-label="Registros de auditoria"
+              className="min-w-[1080px]"
+            >
               <TableHead>
                 <tr>
                   <TableHeaderCell className={stickyColumnHeaderClass}>

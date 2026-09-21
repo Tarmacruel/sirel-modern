@@ -430,22 +430,16 @@ try {
   assert.equal(await workspace().isVisible(), false);
   assert.equal(
     await page
-      .getByRole("navigation", { name: "Fases da licitacao" })
+      .getByRole("navigation", { name: "Fases da licitação" })
       .getByRole("button", { name: /Disputa/ })
       .count(),
     0,
   );
-  await page
-    .getByRole("button", { name: "Exibir seção", exact: true })
-    .first()
-    .click();
+  await page.getByRole("tab", { name: /^Licitantes/ }).click();
   await page
     .getByRole("button", { name: "Adicionar licitante", exact: true })
     .waitFor();
-  await page
-    .getByRole("button", { name: "Exibir seção", exact: true })
-    .first()
-    .click();
+  await page.getByRole("tab", { name: /^Classificação/ }).click();
   assert.equal(
     await page
       .getByRole("button", { name: "Nova proposta", exact: true })

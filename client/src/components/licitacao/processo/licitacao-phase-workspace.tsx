@@ -40,13 +40,33 @@ export interface LicitacaoPhaseWorkspaceProps {
   onSelectCategory: (category: string) => void;
   editor: ReactNode;
   itemsContent?: ReactNode;
-  phase?: "preparation" | "publication" | "dispute" | "qualification";
+  phase?:
+    | "preparation"
+    | "publication"
+    | "dispute"
+    | "judgment"
+    | "qualification"
+    | "appeals"
+    | "control"
+    | "homologation"
+    | "closing";
+  showDocuments?: boolean;
+  showProgress?: boolean;
   context?: ReactNode;
   operationTabs?: {
-    value: "bidders" | "proposals" | "bids" | "review";
+    value:
+      | "bidders"
+      | "proposals"
+      | "bids"
+      | "ranking"
+      | "review"
+      | "appeals"
+      | "summary"
+      | "history"
+      | "audit";
     label: string;
     icon: LucideIcon;
-    count: number;
+    count?: number;
     content: ReactNode;
   }[];
   scheduleContent?: ReactNode;
@@ -73,7 +93,12 @@ export type WorkspaceTab =
   | "channels"
   | "bidders"
   | "proposals"
+  | "ranking"
   | "review"
+  | "appeals"
+  | "summary"
+  | "history"
+  | "audit"
   | "bids";
 type ObjectTab = "documents" | "people";
 type ObjectFilter = "all" | "pending" | "completed";
@@ -108,6 +133,8 @@ export function LicitacaoPhaseWorkspace({
   editor,
   itemsContent,
   phase = "preparation",
+  showDocuments = true,
+  showProgress = true,
   context,
   operationTabs = [],
   scheduleContent,
@@ -126,9 +153,17 @@ export function LicitacaoPhaseWorkspace({
 }: LicitacaoPhaseWorkspaceProps) {
   const id = useId();
   const tabs =
-    phase === "dispute" || phase === "qualification"
+    phase !== "preparation" && phase !== "publication"
       ? [
-          { value: "documents" as const, label: "Documentos", icon: FileText },
+          ...(showDocuments
+            ? [
+                {
+                  value: "documents" as const,
+                  label: "Documentos",
+                  icon: FileText,
+                },
+              ]
+            : []),
           ...operationTabs,
         ]
       : phase === "publication"
@@ -138,14 +173,25 @@ export function LicitacaoPhaseWorkspace({
     preparation: "Preparação",
     publication: "Publicação",
     dispute: "Disputa",
+    judgment: "Julgamento",
     qualification: "Habilitação",
+    appeals: "Recursos",
+    control: "Controle Interno",
+    homologation: "Homologação",
+    closing: "Fechamento",
   }[phase];
   const phaseNoun = phaseName.toLocaleLowerCase("pt-BR");
+  const phaseArticle =
+    phase === "appeals"
+      ? "dos"
+      : ["judgment", "control", "closing"].includes(phase)
+        ? "do"
+        : "da";
   const initiallyInstitutional = items.find(
     (item) => item.category === activeCategory,
   )?.institutional;
   const [localTab, setLocalTab] = useState<WorkspaceTab>(
-    initiallyInstitutional ? "people" : "documents",
+    initiallyInstitutional ? "people" : (tabs[0]?.value ?? "documents"),
   );
   const activeTab = controlledTab ?? localTab;
   const [objectTab, setObjectTab] = useState<ObjectTab>(
@@ -221,8 +267,9 @@ export function LicitacaoPhaseWorkspace({
   // If the dispute mode changes, return from a removed operational tab to documents.
   useEffect(() => {
     if (tabs.some((tab) => tab.value === activeTab)) return;
-    setLocalTab("documents");
-    onTabChange?.("documents");
+    const firstTab = tabs[0]?.value ?? "documents";
+    setLocalTab(firstTab);
+    onTabChange?.(firstTab);
     setMobileDetail(false);
   }, [activeTab, tabs, onTabChange]);
 
@@ -308,13 +355,23 @@ export function LicitacaoPhaseWorkspace({
             )
           ) : (
             <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {phase === "qualification"
-                ? "Confira os documentos e a situação dos licitantes."
-                : phase === "dispute"
-                  ? "Acompanhe os documentos e os registros da sessão."
-                  : phase === "publication"
-                    ? "Organize os comprovantes, as datas e os canais de publicação."
-                    : "Organize os documentos, os itens e os responsáveis."}
+              {phase === "closing"
+                ? "Confira o resultado e o encaminhamento do processo."
+                : phase === "homologation"
+                  ? "Confira os documentos finais e o resultado."
+                  : phase === "control"
+                    ? "Organize os documentos de encaminhamento."
+                    : phase === "appeals"
+                      ? "Confira os documentos, os recursos e as decisões."
+                      : phase === "qualification"
+                        ? "Confira os documentos e a situação dos licitantes."
+                        : phase === "judgment"
+                          ? "Confira os documentos e a classificação das propostas."
+                          : phase === "dispute"
+                            ? "Acompanhe os documentos e os registros da sessão."
+                            : phase === "publication"
+                              ? "Organize os comprovantes, as datas e os canais de publicação."
+                              : "Organize os documentos, os itens e os responsáveis."}
             </p>
           )}
           {context ? (
@@ -323,35 +380,39 @@ export function LicitacaoPhaseWorkspace({
             </div>
           ) : null}
         </div>
-        <div className="w-full shrink-0 sm:w-44">
-          <p
-            id={`${id}-progress-label`}
-            className="mb-2 text-xs font-medium text-[var(--text-secondary)]"
-          >
-            <span className="font-bold tabular-nums text-[var(--text-primary)]">
-              {progressCount} de {totalCount}
-            </span>{" "}
-            requisitos concluídos
-          </p>
-          <div
-            role="progressbar"
-            aria-labelledby={`${id}-progress-label`}
-            aria-valuemin={0}
-            aria-valuemax={Math.max(totalCount, 1)}
-            aria-valuenow={Math.min(progressCount, Math.max(totalCount, 1))}
-            className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]"
-          >
+        {showProgress ? (
+          <div className="w-full shrink-0 sm:w-44">
+            <p
+              id={`${id}-progress-label`}
+              className="mb-2 text-xs font-medium text-[var(--text-secondary)]"
+            >
+              <span className="font-bold tabular-nums text-[var(--text-primary)]">
+                {progressCount} de {totalCount}
+              </span>{" "}
+              {totalCount === 1
+                ? "requisito concluído"
+                : "requisitos concluídos"}
+            </p>
             <div
-              className="h-full rounded-full bg-[var(--color-primary-500)] transition-[width] duration-200 motion-reduce:transition-none"
-              style={{ width: `${progress}%` }}
-            />
+              role="progressbar"
+              aria-labelledby={`${id}-progress-label`}
+              aria-valuemin={0}
+              aria-valuemax={Math.max(totalCount, 1)}
+              aria-valuenow={Math.min(progressCount, Math.max(totalCount, 1))}
+              className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]"
+            >
+              <div
+                className="h-full rounded-full bg-[var(--color-primary-500)] transition-[width] duration-200 motion-reduce:transition-none"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
-        </div>
+        ) : null}
       </header>
 
       <div
         role="tablist"
-        aria-label={`Objetos da ${phaseNoun}`}
+        aria-label={`Objetos ${phaseArticle} ${phaseNoun}`}
         className="flex flex-wrap border-b border-[var(--border-subtle)] px-3 sm:flex sm:px-6"
       >
         {tabs.map((tab, index) => {
@@ -368,7 +429,7 @@ export function LicitacaoPhaseWorkspace({
               aria-label={
                 tab.value === "documents"
                   ? `${tab.label} ${documentItems.length}`
-                  : "count" in tab
+                  : "count" in tab && tab.count !== undefined
                     ? `${tab.label} ${tab.count}`
                     : tab.label
               }
@@ -390,7 +451,7 @@ export function LicitacaoPhaseWorkspace({
                 <span className="text-xs font-normal tabular-nums text-[var(--text-muted)]">
                   {documentItems.length}
                 </span>
-              ) : "count" in tab ? (
+              ) : "count" in tab && tab.count !== undefined ? (
                 <span className="text-xs font-normal tabular-nums text-[var(--text-muted)]">
                   {tab.count}
                 </span>
@@ -444,7 +505,7 @@ export function LicitacaoPhaseWorkspace({
                 aria-label={
                   objectTab === "people"
                     ? `Responsáveis da ${phaseNoun}`
-                    : `Documentos da ${phaseNoun}`
+                    : `Documentos ${phaseArticle} ${phaseNoun}`
                 }
                 className="divide-y divide-[var(--border-subtle)]"
               >
