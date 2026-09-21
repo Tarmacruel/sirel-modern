@@ -1089,9 +1089,10 @@ export const cadastrosInstitucionaisRouter = router({
           processo.dataEntradaLicitacao ??
           new Date().toISOString().slice(0, 10);
         const secretariaId = input.secretariaId ?? processo.secretariaId;
+        const secretariaFiltro = input.incluirOutrasSecretarias ? undefined : secretariaId;
         const groupInput = {
           search: input.search,
-          secretariaId,
+          secretariaId: secretariaFiltro,
           ativo: true,
           somenteVigentes: input.somenteVigentes,
           dataReferencia,
@@ -1103,7 +1104,7 @@ export const cadastrosInstitucionaisRouter = router({
           listGroups(db, groupInput, "EQUIPE_APOIO"),
           listOrdenadores(db, {
             search: input.search,
-            secretariaId,
+            secretariaId: secretariaFiltro,
             ativo: true,
             somenteVigentes: input.somenteVigentes,
             dataReferencia,

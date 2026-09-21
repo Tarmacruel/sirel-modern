@@ -1,5 +1,6 @@
 import { Building2, CheckCircle2, FileText, Search, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { formatShortDateBR } from "@/lib/formatters";
 
 import { Modal } from "@/components/shared/modal";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,12 @@ interface LicitacaoInstitutionalSelectorProps {
   options: InstitutionalOption[];
   isLoading?: boolean;
   isSaving?: boolean;
+  error?: string;
+  onRetry?: () => void;
+  includeOtherSecretariats?: boolean;
+  onIncludeOtherSecretariatsChange?: (include: boolean) => void;
+  referenceDate?: string | Date;
+  processSecretariat?: string;
   suggestedConductor?: SuggestedConductor | null;
   onSelect: (id: number, applySuggestedConductor: boolean) => void;
   onOpenCadastros: () => void;
@@ -55,7 +62,7 @@ interface LicitacaoInstitutionalSelectorProps {
 
 function formatDate(value: string | Date | null | undefined) {
   if (!value) return "-";
-  return String(value).slice(0, 10).split("-").reverse().join("/");
+  return formatShortDateBR(value);
 }
 
 function optionName(option: InstitutionalOption) {
@@ -98,6 +105,12 @@ export function LicitacaoInstitutionalSelector({
   options,
   isLoading = false,
   isSaving = false,
+  error,
+  onRetry,
+  includeOtherSecretariats = false,
+  onIncludeOtherSecretariatsChange,
+  referenceDate,
+  processSecretariat,
   suggestedConductor,
   onSelect,
   onOpenCadastros,
@@ -105,6 +118,10 @@ export function LicitacaoInstitutionalSelector({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [applyConductor, setApplyConductor] = useState(false);
+  useEffect(() => {
+    setSearch("");
+    setApplyConductor(false);
+  }, [kind, open]);
   const filteredOptions = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return options;
@@ -148,7 +165,11 @@ export function LicitacaoInstitutionalSelector({
         <div className="flex flex-wrap gap-2">
           {selectedAtoUrl ? (
             <a href={selectedAtoUrl} target="_blank" rel="noreferrer">
-              <Button size="sm" variant="outline" icon={<FileText className="h-4 w-4" />}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<FileText className="h-4 w-4" />}
+              >
                 Ver ato
               </Button>
             </a>
@@ -186,6 +207,7 @@ export function LicitacaoInstitutionalSelector({
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
               <Search className="h-4 w-4 text-[var(--text-secondary)]" />
               <input
+                aria-label="Buscar designações"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar por nome, ato ou secretaria"
@@ -196,6 +218,29 @@ export function LicitacaoInstitutionalSelector({
               Abrir Cadastros
             </Button>
           </div>
+
+          {onIncludeOtherSecretariatsChange ? (
+            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={includeOtherSecretariats}
+                  onChange={(event) =>
+                    onIncludeOtherSecretariatsChange(event.target.checked)
+                  }
+                />
+                Consultar todas as secretarias
+              </label>
+              <p>
+                {includeOtherSecretariats
+                  ? "Exibindo registros de todas as secretarias. Confira o escopo do ato ao selecionar."
+                  : `Secretaria do processo: ${processSecretariat ?? "não informada"}.`}
+                {referenceDate
+                  ? ` Vigência em ${formatDate(referenceDate)}.`
+                  : ""}
+              </p>
+            </div>
+          ) : null}
 
           {suggestedConductor && kind === "comissao" ? (
             <label className="flex items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-3 text-sm font-semibold text-[var(--text-secondary)]">
@@ -209,7 +254,19 @@ export function LicitacaoInstitutionalSelector({
             </label>
           ) : null}
 
-          {isLoading ? (
+          {error ? (
+            <div
+              role="alert"
+              className="space-y-3 rounded-lg border border-[var(--border-subtle)] p-4 text-sm"
+            >
+              <p>Não foi possível carregar as designações. {error}</p>
+              {onRetry ? (
+                <Button type="button" variant="outline" onClick={onRetry}>
+                  Tentar novamente
+                </Button>
+              ) : null}
+            </div>
+          ) : isLoading ? (
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-8 text-sm text-[var(--text-secondary)]">
               Carregando registros...
             </div>
@@ -256,7 +313,29 @@ export function LicitacaoInstitutionalSelector({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-8 text-sm text-[var(--text-secondary)]">
-              Nenhum registro encontrado para os filtros atuais.
+              <p>
+                {search.trim()
+                  ? "Nenhum registro corresponde à busca."
+                  : "Nenhum registro vigente encontrado neste escopo."}
+              </p>
+              {search.trim() ? (
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  onClick={() => setSearch("")}
+                >
+                  Limpar busca
+                </Button>
+              ) : !includeOtherSecretariats &&
+                onIncludeOtherSecretariatsChange ? (
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  onClick={() => onIncludeOtherSecretariatsChange(true)}
+                >
+                  Ver todas as secretarias
+                </Button>
+              ) : null}
             </div>
           )}
         </div>

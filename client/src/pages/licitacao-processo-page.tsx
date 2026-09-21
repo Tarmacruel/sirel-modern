@@ -731,6 +731,7 @@ export function LicitacaoProcessoPage({
     null,
   );
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
+  const [includeOtherDesignationSecretariats, setIncludeOtherDesignationSecretariats] = useState(false);
   const [showCIReservaModal, setShowCIReservaModal] = useState(false);
   const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
   const [operationModal, setOperationModal] =
@@ -1306,6 +1307,7 @@ export function LicitacaoProcessoPage({
         processoId,
         secretariaId: detalhe?.processo.secretariaId ?? undefined,
         somenteVigentes: true,
+        incluirOutrasSecretarias: includeOtherDesignationSecretariats,
       },
       { enabled: Boolean(detalhe), retry: false },
     );
@@ -4282,7 +4284,13 @@ export function LicitacaoProcessoPage({
                         ? (availableDesignacoesQuery.data?.equipesApoio ?? [])
                         : (availableDesignacoesQuery.data?.ordenadores ?? [])
                   }
-                  isLoading={availableDesignacoesQuery.isLoading}
+                  isLoading={availableDesignacoesQuery.isFetching}
+                  error={availableDesignacoesQuery.error?.message}
+                  onRetry={() => void availableDesignacoesQuery.refetch()}
+                  includeOtherSecretariats={includeOtherDesignationSecretariats}
+                  onIncludeOtherSecretariatsChange={setIncludeOtherDesignationSecretariats}
+                  referenceDate={availableDesignacoesQuery.data?.dataReferencia}
+                  processSecretariat={detalhe?.processo.secretaria ?? undefined}
                   isSaving={selectDesignacoesMutation.isPending}
                   suggestedConductor={
                     designacoesQuery.data?.condutorSugerido ?? null

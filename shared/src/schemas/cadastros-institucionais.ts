@@ -202,6 +202,7 @@ export const cadastroInstitucionalIdInputSchema = z.object({
 
 export const designacoesForProcessInputSchema = z.object({
   processoId: z.number().int().positive(),
+  incluirOutrasSecretarias: z.boolean().default(false),
   search: z.string().trim().optional(),
   secretariaId: z.number().int().positive().optional(),
   dataReferencia: optionalDateSchema,
