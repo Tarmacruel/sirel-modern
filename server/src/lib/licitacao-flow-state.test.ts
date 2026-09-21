@@ -18,6 +18,33 @@ function ready(): LicitacaoFlowSnapshot {
 const evaluate = (snapshot: LicitacaoFlowSnapshot) => ({ snapshot, state: evaluateLicitacaoFlow(snapshot, "BLOCKING") });
 
 describe("completude do fluxo da licitacao", () => {
+  it.each([
+    ["DISPENSA_SIMPLIFICADA", "ABERTO", false],
+    ["DISPENSA_SIMPLIFICADA", "NAO_SE_APLICA", false],
+    ["INEXIGIBILIDADE", "NAO_SE_APLICA", false],
+    ["PREGAO_ELETRONICO", "ABERTO", true],
+    ["CONCORRENCIA", "ABERTO", true],
+    ["DISPENSA_ELETRONICA", "ABERTO", true],
+  ])("atas finais em %s / %s: obrigatorias=%s", (modalidadeCodigo, modoDisputa, obrigatorio) => {
+    const snapshot = ready();
+    snapshot.context = { modalidadeCodigo, modoDisputa };
+    snapshot.fields.fundamentoLegalInciso = "I";
+    snapshot.fields.linkBllPublico = "https://bllcompras.com/teste";
+    const requirements = getLicitacaoDocumentRequirements(snapshot.context);
+    const minutes = requirements.filter((item) => item.phase === "HOMOLOGACAO" && item.category !== "LICITACAO_TERMO_HOMOLOGACAO");
+    expect(minutes).toHaveLength(5);
+    expect(minutes.every((item) => item.obrigatorio === obrigatorio)).toBe(true);
+    snapshot.documents = requirements.filter((item) => item.obrigatorio && item.phase !== "HOMOLOGACAO")
+      .map((item) => ({ categoria: item.category, arquivoUrl: `/storage/test/${item.category}.pdf` }));
+    const flow = evaluate(snapshot);
+    expect(flow.state.actions.homologar.allowed).toBe(!obrigatorio);
+    expect(flow.state.actions.homologar.blockers.filter((item) => item.phase === "HOMOLOGACAO")).toHaveLength(obrigatorio ? 5 : 0);
+    // Optional attachments do not replace the formal homologation record.
+    expect(() => assertLicitacaoFlowState(flow, "close")).toThrow();
+    snapshot.homologado = true;
+    if (!obrigatorio) expect(() => assertLicitacaoFlowState(evaluate(snapshot), "close")).not.toThrow();
+  });
+
   it("completa a dispensa sem disputa sem BLL, lances ou sessao competitiva", () => {
     const flow = evaluate(ready());
     expect(flow.state.phases.map((phase) => phase.key)).toEqual(["PREPARACAO", "PUBLICACAO", "JULGAMENTO", "HABILITACAO", "CONTROLE_INTERNO", "HOMOLOGACAO", "FECHAMENTO"]);

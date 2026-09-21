@@ -28,7 +28,7 @@ const server = published
     });
 await server?.listen();
 let browser, page;
-let fixture = createFinalPhasesFixture();
+let fixture = createFinalPhasesFixture({ modalidade: "PREGAO_ELETRONICO" });
 let rejectNextReview = false;
 let rejectedProcedure = "licitacao.saveRecurso";
 const errors = [],
@@ -441,6 +441,42 @@ try {
   await page
     .getByRole("button", { name: "Encaminhar para Contratos", exact: true })
     .click({ trial: true });
+  for (const modalidade of ["DISPENSA_SIMPLIFICADA", "INEXIGIBILIDADE"]) {
+    fixture = createFinalPhasesFixture({ phase: "HOMOLOGACAO", modalidade });
+    await open("HOMOLOGACAO", "Homologação");
+    const documents = workspace("Homologação").getByRole("list");
+    assert.equal(await documents.getByRole("button").count(), 6);
+    assert.equal(
+      await documents.getByText("Opcional", { exact: true }).count(),
+      6,
+    );
+    assert.equal(
+      await workspace("Homologação")
+        .getByRole("progressbar")
+        .getAttribute("aria-valuemax"),
+      "1",
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Concluir homologação", exact: true })
+        .isDisabled(),
+      false,
+    );
+    assert.equal(
+      fixture
+        .detail()
+        .documentos.some((doc) =>
+          fixture
+            .detail()
+            .flow.evidence.some(
+              (item) =>
+                item.phase === "HOMOLOGACAO" && item.category === doc.categoria,
+            ),
+        ),
+      false,
+    );
+    await capture(`homologation-optional-${modalidade.toLowerCase()}`);
+  }
   fixture = createFinalPhasesFixture({
     phase: "HOMOLOGACAO",
     direct: true,

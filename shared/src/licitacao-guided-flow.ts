@@ -278,6 +278,23 @@ function appliesToNotInexigibilidade(context: Required<LicitacaoFlowContext>) {
   return !isInexigibilidadeModalidade(context.modalidadeCodigo);
 }
 
+function hasOptionalHomologationMinutes(context: LicitacaoFlowContext) {
+  return (
+    /DISPENSA[ _]SIMPLIFICADA/.test(normalizeText(context.modalidadeCodigo)) ||
+    isInexigibilidadeModalidade(context.modalidadeCodigo)
+  );
+}
+
+function requiresHomologationMinutes(context: LicitacaoFlowContext) {
+  return !hasOptionalHomologationMinutes(context);
+}
+
+function appliesToFinalSessionMinutes(context: LicitacaoFlowContext) {
+  return (
+    hasLicitacaoDispute(context) || hasOptionalHomologationMinutes(context)
+  );
+}
+
 const requirementCatalog: readonly RequirementFactoryItem[] = [
   {
     category: "LICITACAO_DECRETO_COMISSAO",
@@ -680,30 +697,30 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     order: 900,
     label: "Ata de homologacao",
     description: "Ata final que registra a homologacao do resultado.",
-    obrigatorio: true,
+    obrigatorio: requiresHomologationMinutes,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "DOCUMENT_PRESENT",
   },
   {
     category: "LICITACAO_ATA_RELATORIO_LANCES",
-    appliesTo: hasLicitacaoDispute,
+    appliesTo: appliesToFinalSessionMinutes,
     phase: "HOMOLOGACAO",
     order: 910,
     label: "Ata relatorio de lances",
     description: "Relatorio final de lances emitido pela plataforma.",
-    obrigatorio: true,
+    obrigatorio: requiresHomologationMinutes,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "PARSER_OR_DOCUMENT",
     aliases: ["LICITACAO_ATA_RELATORIO_FINAL"],
   },
   {
     category: "LICITACAO_ATA_SESSAO_FINAL",
-    appliesTo: hasLicitacaoDispute,
+    appliesTo: appliesToFinalSessionMinutes,
     phase: "HOMOLOGACAO",
     order: 920,
     label: "Ata da sessao final",
     description: "Ata final consolidada da sessao publica.",
-    obrigatorio: true,
+    obrigatorio: requiresHomologationMinutes,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "PARSER_OR_DOCUMENT",
     aliases: ["LICITACAO_ATAS_SESSAO_ADJUDICACAO"],
@@ -714,7 +731,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     order: 930,
     label: "Ata de adjudicacao",
     description: "Documento que registra a adjudicacao do objeto.",
-    obrigatorio: true,
+    obrigatorio: requiresHomologationMinutes,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "PARSER_OR_DOCUMENT",
     aliases: ["LICITACAO_ATAS_SESSAO_ADJUDICACAO"],
@@ -725,7 +742,7 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     order: 940,
     label: "Ata de vencedores",
     description: "Relacao dos vencedores e itens adjudicados.",
-    obrigatorio: true,
+    obrigatorio: requiresHomologationMinutes,
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "PARSER_OR_DOCUMENT",
     aliases: ["LICITACAO_ATAS_SESSAO_ADJUDICACAO"],

@@ -10,6 +10,7 @@ export function createFinalPhasesFixture({
   appeals = phase === "RECURSOS" ? 1 : 0,
   enforcement = "BLOCKING",
   gateBlockers = [],
+  modalidade,
 } = {}) {
   const base = createDisputeFixture({
     populated: true,
@@ -19,7 +20,7 @@ export function createFinalPhasesFixture({
   });
   const initial = base.detail();
   const context = {
-    modalidadeCodigo: initial.processo.modalidadeCodigo,
+    modalidadeCodigo: modalidade ?? initial.processo.modalidadeCodigo,
     modoDisputa: initial.processo.modoDisputa,
     inversaoFasesHabilitada: inverted,
     exigeDeclaracaoNaoFracionamento: true,
@@ -29,6 +30,10 @@ export function createFinalPhasesFixture({
     module = "LICITACAO";
   const fields = {
     ...initial.licitacao,
+    fundamentoLegalInciso:
+      modalidade === "INEXIGIBILIDADE"
+        ? "I"
+        : initial.licitacao.fundamentoLegalInciso,
     dataHomologacao: homologado ? "2026-09-20" : null,
   };
   const documents = initial.documentos,
@@ -88,6 +93,8 @@ export function createFinalPhasesFixture({
     ...base.detail(),
     processo: {
       ...initial.processo,
+      modalidadeCodigo: context.modalidadeCodigo,
+      modalidade: modalidade ?? initial.processo.modalidade,
       homologado,
       foraDoFluxo: manual,
       justificativaAuditoria: justification,
