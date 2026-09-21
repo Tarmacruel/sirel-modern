@@ -448,19 +448,19 @@ try {
     assert.equal(await documents.getByRole("button").count(), 6);
     assert.equal(
       await documents.getByText("Opcional", { exact: true }).count(),
-      6,
+      5,
     );
     assert.equal(
       await workspace("Homologação")
         .getByRole("progressbar")
         .getAttribute("aria-valuemax"),
-      "1",
+      "2",
     );
     assert.equal(
       await page
         .getByRole("button", { name: "Concluir homologação", exact: true })
         .isDisabled(),
-      false,
+      true,
     );
     assert.equal(
       fixture
@@ -476,7 +476,34 @@ try {
       false,
     );
     await capture(`homologation-optional-${modalidade.toLowerCase()}`);
+    await uploadRequired("HOMOLOGACAO", "Homologação");
+    await page
+      .getByRole("button", { name: "Concluir homologação", exact: true })
+      .click({ trial: true });
   }
+  fixture = createFinalPhasesFixture({
+    phase: "HOMOLOGACAO",
+    modalidade: "CREDENCIAMENTO",
+  });
+  await open("HOMOLOGACAO", "Homologação");
+  await workspace("Homologação")
+    .getByRole("list")
+    .getByRole("button", { name: /Termo de homologacao/ })
+    .getByText("Opcional", { exact: true })
+    .waitFor();
+  await uploadRequired("HOMOLOGACAO", "Homologação");
+  assert.equal(
+    fixture
+      .detail()
+      .documentos.some(
+        (doc) => doc.categoria === "LICITACAO_TERMO_HOMOLOGACAO",
+      ),
+    false,
+  );
+  await page
+    .getByRole("button", { name: "Concluir homologação", exact: true })
+    .click({ trial: true });
+  await capture("homologation-credenciamento-optional-term");
   fixture = createFinalPhasesFixture({
     phase: "HOMOLOGACAO",
     direct: true,

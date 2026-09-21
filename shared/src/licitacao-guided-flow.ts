@@ -753,11 +753,9 @@ const requirementCatalog: readonly RequirementFactoryItem[] = [
     order: 950,
     label: "Termo de homologacao",
     description: "Termo final assinado quando aplicavel.",
-    obrigatorio: false,
+    obrigatorio: (context) => !isCredenciamentoModalidade(context.modalidadeCodigo),
     source: "DOCUMENT_UPLOAD",
     completionStrategy: "DOCUMENT_PRESENT",
-    completionHint:
-      "Tambem pode ser concluido quando o processo ja estiver homologado.",
   },
 ];
 

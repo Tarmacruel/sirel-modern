@@ -18,6 +18,25 @@ function ready(): LicitacaoFlowSnapshot {
 const evaluate = (snapshot: LicitacaoFlowSnapshot) => ({ snapshot, state: evaluateLicitacaoFlow(snapshot, "BLOCKING") });
 
 describe("completude do fluxo da licitacao", () => {
+  it.each(["DISPENSA_SIMPLIFICADA", "INEXIGIBILIDADE", "DISPENSA_ELETRONICA", "PREGAO_ELETRONICO", "PREGAO_PRESENCIAL", "CONCORRENCIA", "LEILAO", "CREDENCIAMENTO"])("termo de homologacao em %s", (modalidadeCodigo) => {
+    const snapshot = ready();
+    snapshot.context = { modalidadeCodigo, modoDisputa: "ABERTO" };
+    snapshot.fields.fundamentoLegalInciso = "I";
+    snapshot.fields.linkBllPublico = "https://bllcompras.com/teste";
+    const requirements = getLicitacaoDocumentRequirements(snapshot.context);
+    const term = requirements.find((item) => item.category === "LICITACAO_TERMO_HOMOLOGACAO")!;
+    const required = modalidadeCodigo !== "CREDENCIAMENTO";
+    expect(term.obrigatorio).toBe(required);
+    snapshot.documents = requirements.filter((item) => item.obrigatorio && item.category !== term.category)
+      .map((item) => ({ categoria: item.category, arquivoUrl: `/storage/test/${item.category}.pdf` }));
+    expect(evaluate(snapshot).state.actions.homologar.allowed).toBe(!required);
+    expect(evaluate(snapshot).state.actions.homologar.blockers.map((item) => item.category)).toEqual(required ? [term.category] : []);
+    snapshot.homologado = true;
+    if (required) expect(() => assertLicitacaoFlowState(evaluate(snapshot), "close")).toThrow(term.label);
+    snapshot.documents.push({ categoria: term.category, arquivoUrl: "/storage/test/termo.pdf" });
+    expect(() => assertLicitacaoFlowState(evaluate(snapshot), "close")).not.toThrow();
+  });
+
   it.each([
     ["DISPENSA_SIMPLIFICADA", "ABERTO", false],
     ["DISPENSA_SIMPLIFICADA", "NAO_SE_APLICA", false],
@@ -34,7 +53,7 @@ describe("completude do fluxo da licitacao", () => {
     const minutes = requirements.filter((item) => item.phase === "HOMOLOGACAO" && item.category !== "LICITACAO_TERMO_HOMOLOGACAO");
     expect(minutes).toHaveLength(5);
     expect(minutes.every((item) => item.obrigatorio === obrigatorio)).toBe(true);
-    snapshot.documents = requirements.filter((item) => item.obrigatorio && item.phase !== "HOMOLOGACAO")
+    snapshot.documents = requirements.filter((item) => item.obrigatorio && !minutes.some((minute) => minute.category === item.category))
       .map((item) => ({ categoria: item.category, arquivoUrl: `/storage/test/${item.category}.pdf` }));
     const flow = evaluate(snapshot);
     expect(flow.state.actions.homologar.allowed).toBe(!obrigatorio);

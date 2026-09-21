@@ -16,6 +16,8 @@ Foram concluídos os ajustes locais associados: persistência da justificativa d
 
 ## Verificação reproduzível
 
+Regra documental da homologação: o termo é obrigatório em todas as modalidades, exceto Credenciamento. As atas de homologação, relatório de lances, sessão final, adjudicação e vencedores são opcionais em Dispensa Simplificada e Inexigibilidade. A ausência de um documento obrigatório bloqueia a conclusão; o status de processo homologado não substitui o anexo.
+
 ```powershell
 npm run build
 npm run test:all
