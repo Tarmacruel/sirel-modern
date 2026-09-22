@@ -18,6 +18,22 @@ function ready(): LicitacaoFlowSnapshot {
 const evaluate = (snapshot: LicitacaoFlowSnapshot) => ({ snapshot, state: evaluateLicitacaoFlow(snapshot, "BLOCKING") });
 
 describe("completude do fluxo da licitacao", () => {
+  it("exige agente cadastrado e preserva decretos anexados antes da mudança", () => {
+    const snapshot = ready();
+    snapshot.context = { modalidadeCodigo: "DISPENSA_ELETRONICA", modoDisputa: "ABERTO" };
+    const category = "LICITACAO_DECRETO_AGENTE_CONTRATACAO";
+    snapshot.documents = [];
+    const evidence = () => evaluate(snapshot).state.evidence.find((item) => item.category === category)!;
+    expect(evidence().editor).toBe("INSTITUTIONAL_SELECTOR");
+    expect(evidence().concluido).toBe(false);
+    snapshot.fields.agenteContratacaoId = 5;
+    expect(evidence().concluido).toBe(true);
+    expect(evidence().statusOrigem).toBe("Cadastro do sistema");
+    snapshot.fields.agenteContratacaoId = null;
+    snapshot.documents = [{ categoria: category, arquivoUrl: "/storage/decreto-legado.pdf" }];
+    expect(evidence().concluido).toBe(true);
+    expect(evidence().statusOrigem).toBe("Documento anexado");
+  });
   it.each(["DISPENSA_SIMPLIFICADA", "INEXIGIBILIDADE", "DISPENSA_ELETRONICA", "PREGAO_ELETRONICO", "PREGAO_PRESENCIAL", "CONCORRENCIA", "LEILAO", "CREDENCIAMENTO"])("termo de homologacao em %s", (modalidadeCodigo) => {
     const snapshot = ready();
     snapshot.context = { modalidadeCodigo, modoDisputa: "ABERTO" };

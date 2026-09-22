@@ -9,6 +9,7 @@ import {
   type AtoDesignacaoFormState,
 } from "./ato-designacao-form";
 import { ComissoesPanel } from "./comissoes-panel";
+import { GruposInstitucionaisPanel } from "./grupos-institucionais-panel";
 import { EquipesApoioPanel } from "./equipes-apoio-panel";
 import { OrdenadoresPanel } from "./ordenadores-panel";
 import { Alert } from "@/components/ui/alert";
@@ -71,6 +72,7 @@ function AtosDesignacaoPanel() {
         utils.cadastrosInstitucionais.comissoes.list.invalidate(),
         utils.cadastrosInstitucionais.equipesApoio.list.invalidate(),
         utils.cadastrosInstitucionais.ordenadores.list.invalidate(),
+        utils.cadastrosInstitucionais.agentesContratacao.list.invalidate(),
       ]);
       setForm(createAtoDesignacaoFormState());
       setEditing(false);
@@ -262,6 +264,11 @@ export function CadastrosInstitucionaisPanel() {
     >
       <Tabs
         items={[
+          {
+            value: "agentes",
+            label: "Agentes de contratação",
+            content: <GruposInstitucionaisPanel tipo="AGENTE_CONTRATACAO" title="Agente de contratação" emptyLabel="Nenhum agente de contratação cadastrado." />,
+          },
           {
             value: "atos",
             label: "Atos",

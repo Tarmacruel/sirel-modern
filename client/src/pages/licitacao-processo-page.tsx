@@ -635,7 +635,7 @@ const preparationObjectLabels: Record<string, string> = {
   LICITACAO_COMUNICACAO_PARECER_JURIDICO: "CI solicitando parecer jurídico",
   LICITACAO_PARECER_JURIDICO: "Parecer jurídico",
   LICITACAO_TERMO_AUTUACAO: "Termo de autuação",
-  LICITACAO_DECRETO_AGENTE_CONTRATACAO: "Decreto do agente de contratação",
+  LICITACAO_DECRETO_AGENTE_CONTRATACAO: "Agente de contratação",
 };
 
 function isChecklistItemAddressed(item: ChecklistCardItem) {
@@ -1992,12 +1992,14 @@ export function LicitacaoProcessoPage({
       detalhe?.licitacao.ordenadorDespesaId ??
       null;
     const next = {
+      agenteContratacaoId: designacoesQuery.data?.agenteContratacao?.id ?? detalhe?.licitacao.agenteContratacaoId ?? null,
       comissaoId: currentComissaoId,
       equipeApoioId: currentEquipeApoioId,
       ordenadorDespesaId: currentOrdenadorDespesaId,
     };
 
     if (kind === "comissao") next.comissaoId = id;
+    if (kind === "agenteContratacao") next.agenteContratacaoId = id;
     if (kind === "equipeApoio") next.equipeApoioId = id;
     if (kind === "ordenadorDespesa") next.ordenadorDespesaId = id;
 
@@ -4210,6 +4212,8 @@ export function LicitacaoProcessoPage({
     const selectedInternalInstitutionalKind: LicitacaoInstitutionalKind | null =
       (() => {
         switch (selectedItem?.category) {
+          case "LICITACAO_DECRETO_AGENTE_CONTRATACAO":
+            return "agenteContratacao";
           case "LICITACAO_DECRETO_COMISSAO":
             return "comissao";
           case "LICITACAO_DECRETO_EQUIPE_APOIO":
@@ -4271,14 +4275,14 @@ export function LicitacaoProcessoPage({
                   kind={selectedInternalInstitutionalKind}
                   title={selectedItem.label}
                   selected={
-                    selectedInternalInstitutionalKind === "comissao"
+                    selectedInternalInstitutionalKind === "agenteContratacao" ? (designacoesQuery.data?.agenteContratacao ?? null) : selectedInternalInstitutionalKind === "comissao"
                       ? (designacoesQuery.data?.comissao ?? null)
                       : selectedInternalInstitutionalKind === "equipeApoio"
                         ? (designacoesQuery.data?.equipeApoio ?? null)
                         : (designacoesQuery.data?.ordenadorDespesa ?? null)
                   }
                   options={
-                    selectedInternalInstitutionalKind === "comissao"
+                    selectedInternalInstitutionalKind === "agenteContratacao" ? (availableDesignacoesQuery.data?.agentesContratacao ?? []) : selectedInternalInstitutionalKind === "comissao"
                       ? (availableDesignacoesQuery.data?.comissoes ?? [])
                       : selectedInternalInstitutionalKind === "equipeApoio"
                         ? (availableDesignacoesQuery.data?.equipesApoio ?? [])
@@ -4309,7 +4313,7 @@ export function LicitacaoProcessoPage({
               </div>
             ) : null}
 
-            {!selectedInternalUsesInstitutionalSelector &&
+            {(!selectedInternalUsesInstitutionalSelector || selectedInternalInstitutionalKind === "agenteContratacao") &&
             selectedInternalLatestDocumento ? (
               <div className="mt-5 rounded-xl border border-[var(--border-subtle)] bg-[var(--color-neutral-50)] px-4 py-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-primary-600)]">

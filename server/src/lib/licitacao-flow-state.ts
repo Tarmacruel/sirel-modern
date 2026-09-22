@@ -49,6 +49,7 @@ export function evaluateLicitacaoFlow(snapshot: LicitacaoFlowSnapshot, enforceme
   const requirements = getLicitacaoDocumentRequirements(snapshot.context);
   const overrides = new Map(snapshot.exceptions.map((item) => [item.categoria, item]));
   const fieldCategories: Record<string, string> = {
+    LICITACAO_DECRETO_AGENTE_CONTRATACAO: "agenteContratacaoId",
     LICITACAO_DECRETO_COMISSAO: "comissaoId", LICITACAO_DECRETO_EQUIPE_APOIO: "equipeApoioId",
     LICITACAO_DECRETO_ORDENADOR_DESPESAS: "ordenadorDespesaId",
     LICITACAO_FUNDAMENTO_INEXIGIBILIDADE: "fundamentoLegalInciso",
@@ -63,7 +64,8 @@ export function evaluateLicitacaoFlow(snapshot: LicitacaoFlowSnapshot, enforceme
     const field = fieldCategories[requirement.category];
     const system = field ? (field.startsWith("link") ? validUrl(snapshot.fields[field]) : Boolean(snapshot.fields[field])) : false;
     const exception = isCompletedFlowException(overrides.get(requirement.category));
-    const completed = requirement.completionStrategy === "CATALOG_SELECTION" ? system
+    const legacyAgentDocument = requirement.category === "LICITACAO_DECRETO_AGENTE_CONTRATACAO" && document;
+    const completed = requirement.completionStrategy === "CATALOG_SELECTION" ? system || legacyAgentDocument
       : field ? system : document || exception;
     return { ...requirement, concluido: completed, statusOrigem: completed ? system ? "Cadastro do sistema" : document ? "Documento anexado" : "Declaracao auditada" : "Pendente" };
   });

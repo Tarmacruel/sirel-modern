@@ -74,6 +74,7 @@ function buildAtoLabel(ato: {
 }
 
 function groupTypeLabel(tipo: GrupoInstitucionalTipo) {
+  if (tipo === "AGENTE_CONTRATACAO") return "agente de contratação";
   return tipo === "COMISSAO_CONTRATACAO"
     ? "comissao"
     : "equipe de apoio";
@@ -644,12 +645,17 @@ async function listOrdenadores(db: DbClient, input: any) {
 }
 
 async function saveGroup(db: DbClient, ctx: any, input: any, tipo: GrupoInstitucionalTipo) {
+  if (input.tipo !== tipo) throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de cadastro inválido." });
+  if (input.id) {
+    const existing = await loadGroupDetail(db, input.id);
+    if (!existing || existing.tipo !== tipo) throw new TRPCError({ code: "NOT_FOUND", message: "Cadastro não encontrado." });
+  }
   const linked = input.id
     ? await db
         .select({ id: licitacoes.id })
         .from(licitacoes)
         .where(
-          tipo === "COMISSAO_CONTRATACAO"
+          tipo === "AGENTE_CONTRATACAO" ? eq(licitacoes.agenteContratacaoId, input.id) : tipo === "COMISSAO_CONTRATACAO"
             ? eq(licitacoes.comissaoId, input.id)
             : eq(licitacoes.equipeApoioId, input.id),
         )
@@ -742,6 +748,26 @@ async function saveGroup(db: DbClient, ctx: any, input: any, tipo: GrupoInstituc
 }
 
 export const cadastrosInstitucionaisRouter = router({
+  agentesContratacao: router({
+    list: protectedProcedure.input(grupoInstitucionalListInputSchema)
+      .query(({ input }) => listGroups(requireDb(), input, "AGENTE_CONTRATACAO")),
+    get: protectedProcedure.input(grupoInstitucionalGetInputSchema).query(async ({ input }) => {
+      const item = await loadGroupDetail(requireDb(), input.id);
+      if (!item || item.tipo !== "AGENTE_CONTRATACAO") throw new TRPCError({ code: "NOT_FOUND", message: "Agente não encontrado." });
+      return item;
+    }),
+    save: gestorProcedure.input(grupoInstitucionalSaveInputSchema)
+      .mutation(({ ctx, input }) => saveGroup(requireDb(), ctx, input, "AGENTE_CONTRATACAO")),
+    inactivate: gestorProcedure.input(cadastroInstitucionalIdInputSchema).mutation(async ({ ctx, input }) => {
+      const db = requireDb();
+      const before = await loadGroupDetail(db, input.id);
+      if (!before || before.tipo !== "AGENTE_CONTRATACAO") throw new TRPCError({ code: "NOT_FOUND", message: "Agente não encontrado." });
+      const [updated] = await db.update(gruposInstitucionais).set({ ativo: false, atualizadoEm: new Date() })
+        .where(and(eq(gruposInstitucionais.id, input.id), eq(gruposInstitucionais.tipo, "AGENTE_CONTRATACAO"))).returning();
+      await logAuditoria(ctx, { tabela: "grupos_institucionais", registroId: input.id, acao: "UPDATE", dadosAnteriores: before, dadosNovos: updated, descricao: `Agente ${before.nome} inativado` });
+      return { success: true };
+    }),
+  }),
   atos: router({
     list: protectedProcedure
       .input(atoDesignacaoListInputSchema)
@@ -1099,7 +1125,8 @@ export const cadastrosInstitucionaisRouter = router({
           page: 1,
           pageSize: 100,
         };
-        const [comissoes, equipes, ordenadores] = await Promise.all([
+        const [agentes, comissoes, equipes, ordenadores] = await Promise.all([
+          listGroups(db, groupInput, "AGENTE_CONTRATACAO"),
           listGroups(db, groupInput, "COMISSAO_CONTRATACAO"),
           listGroups(db, groupInput, "EQUIPE_APOIO"),
           listOrdenadores(db, {
@@ -1116,6 +1143,7 @@ export const cadastrosInstitucionaisRouter = router({
           dataReferencia,
           secretariaId,
           comissoes: comissoes.items,
+          agentesContratacao: agentes.items,
           equipesApoio: equipes.items,
           ordenadores: ordenadores.items,
         };
@@ -1132,6 +1160,7 @@ export const cadastrosInstitucionaisRouter = router({
         if (!licitacao) {
           return {
             comissao: null,
+            agenteContratacao: null,
             equipeApoio: null,
             ordenadorDespesa: null,
             snapshot: null,
@@ -1140,7 +1169,8 @@ export const cadastrosInstitucionaisRouter = router({
             condutorSugerido: null,
           };
         }
-        const [comissao, equipeApoio, ordenadorDespesa] = await Promise.all([
+        const [agenteContratacao, comissao, equipeApoio, ordenadorDespesa] = await Promise.all([
+          licitacao.agenteContratacaoId ? loadGroupDetail(db, licitacao.agenteContratacaoId) : Promise.resolve(null),
           licitacao.comissaoId
             ? loadGroupDetail(db, licitacao.comissaoId)
             : Promise.resolve(null),
@@ -1153,6 +1183,7 @@ export const cadastrosInstitucionaisRouter = router({
         ]);
         return {
           comissao,
+          agenteContratacao,
           equipeApoio,
           ordenadorDespesa,
           snapshot: licitacao.designacoesSnapshot,
@@ -1174,7 +1205,10 @@ export const cadastrosInstitucionaisRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Processo nao encontrado." });
         }
         const licitacao = await ensureLicitacao(db, input.processoId);
-        const [comissao, equipeApoio, ordenadorDespesa] = await Promise.all([
+        // Older clients omit this new field; preserve the existing designation.
+        const agenteContratacaoId = input.agenteContratacaoId === undefined ? licitacao.agenteContratacaoId : input.agenteContratacaoId;
+        const [agenteContratacao, comissao, equipeApoio, ordenadorDespesa] = await Promise.all([
+          agenteContratacaoId ? loadGroupDetail(db, agenteContratacaoId) : Promise.resolve(null),
           input.comissaoId ? loadGroupDetail(db, input.comissaoId) : Promise.resolve(null),
           input.equipeApoioId ? loadGroupDetail(db, input.equipeApoioId) : Promise.resolve(null),
           input.ordenadorDespesaId ? loadOrdenadorDetail(db, input.ordenadorDespesaId) : Promise.resolve(null),
@@ -1188,6 +1222,13 @@ export const cadastrosInstitucionaisRouter = router({
         if (input.ordenadorDespesaId && !ordenadorDespesa) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Ordenador invalido." });
         }
+        if (agenteContratacaoId && (!agenteContratacao || agenteContratacao.tipo !== "AGENTE_CONTRATACAO")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Agente de contratação inválido." });
+        }
+        const agenteSelecionado = resolveSuggestedConductor(agenteContratacao);
+        if (input.agenteContratacaoId && input.agenteContratacaoId !== licitacao.agenteContratacaoId && (!agenteContratacao?.ativo || !agenteSelecionado)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione um agente ativo." });
+        }
         const condutorSugerido = resolveSuggestedConductor(comissao);
         if (input.aplicarCondutorSugerido) {
           if (!condutorSugerido || input.condutorSugeridoId !== condutorSugerido.id) {
@@ -1198,6 +1239,7 @@ export const cadastrosInstitucionaisRouter = router({
           }
         }
         const snapshot = {
+          agenteContratacao: buildGroupSnapshot(agenteContratacao),
           comissao: buildGroupSnapshot(comissao),
           equipeApoio: buildGroupSnapshot(equipeApoio),
           ordenadorDespesa: buildOrdenadorSnapshot(ordenadorDespesa),
@@ -1216,6 +1258,7 @@ export const cadastrosInstitucionaisRouter = router({
             .update(licitacoes)
             .set({
               comissaoId: input.comissaoId ?? null,
+              agenteContratacaoId: agenteContratacaoId ?? null,
               equipeApoioId: input.equipeApoioId ?? null,
               ordenadorDespesaId: input.ordenadorDespesaId ?? null,
               designacoesSnapshot: snapshot,
@@ -1226,15 +1269,14 @@ export const cadastrosInstitucionaisRouter = router({
             .where(eq(licitacoes.id, licitacao.id))
             .returning();
 
-          if (
-            input.aplicarCondutorSugerido &&
-            input.condutorSugeridoId &&
-            processo.condutorProcessoId !== input.condutorSugeridoId
-          ) {
+          const condutorId = input.agenteContratacaoId && input.agenteContratacaoId !== licitacao.agenteContratacaoId
+            ? agenteSelecionado?.id
+            : input.aplicarCondutorSugerido ? input.condutorSugeridoId : null;
+          if (condutorId && processo.condutorProcessoId !== condutorId) {
             await tx
               .update(processos)
               .set({
-                condutorProcessoId: input.condutorSugeridoId,
+                condutorProcessoId: condutorId,
                 atualizadoEm: new Date(),
               })
               .where(eq(processos.id, input.processoId));
@@ -1247,12 +1289,14 @@ export const cadastrosInstitucionaisRouter = router({
           registroId: licitacao.id,
           acao: "UPDATE",
           dadosAnteriores: {
+            agenteContratacaoId: licitacao.agenteContratacaoId,
             comissaoId: licitacao.comissaoId,
             equipeApoioId: licitacao.equipeApoioId,
             ordenadorDespesaId: licitacao.ordenadorDespesaId,
             designacoesSnapshot: licitacao.designacoesSnapshot,
           },
           dadosNovos: {
+            agenteContratacaoId: agenteContratacaoId ?? null,
             comissaoId: input.comissaoId ?? null,
             equipeApoioId: input.equipeApoioId ?? null,
             ordenadorDespesaId: input.ordenadorDespesaId ?? null,
@@ -1260,7 +1304,7 @@ export const cadastrosInstitucionaisRouter = router({
             justificativa: toNullableText(input.justificativa),
             condutorSugeridoAplicado: Boolean(input.aplicarCondutorSugerido),
             condutorAnteriorId: processo.condutorProcessoId,
-            condutorNovoId: input.aplicarCondutorSugerido
+            condutorNovoId: input.agenteContratacaoId && input.agenteContratacaoId !== licitacao.agenteContratacaoId ? agenteSelecionado?.id : input.aplicarCondutorSugerido
               ? input.condutorSugeridoId
               : processo.condutorProcessoId,
           },

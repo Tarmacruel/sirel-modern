@@ -43,6 +43,7 @@ export const atoDesignacaoTipoEnum = pgEnum("ato_designacao_tipo", [
 export const grupoInstitucionalTipoEnum = pgEnum("grupo_institucional_tipo", [
   "COMISSAO_CONTRATACAO",
   "EQUIPE_APOIO",
+  "AGENTE_CONTRATACAO",
 ]);
 export const grupoInstitucionalMembroFuncaoEnum = pgEnum(
   "grupo_institucional_membro_funcao",
@@ -1526,6 +1527,7 @@ export const licitacoes = pgTable(
       () => ordenadoresDespesa.id,
       { onDelete: "restrict" },
     ),
+    agenteContratacaoId: integer("agente_contratacao_id").references(() => gruposInstitucionais.id),
     designacoesSnapshot: jsonb("designacoes_snapshot"),
     designacoesSelecionadasPor: integer(
       "designacoes_selecionadas_por",
@@ -1548,6 +1550,7 @@ export const licitacoes = pgTable(
   (table) => ({
     idxStatus: index("licitacoes_status_idx").on(table.statusLicitacao),
     idxComissao: index("licitacoes_comissao_idx").on(table.comissaoId),
+    idxAgenteContratacao: index("licitacoes_agente_contratacao_idx").on(table.agenteContratacaoId),
     idxEquipeApoio: index("licitacoes_equipe_apoio_idx").on(
       table.equipeApoioId,
     ),

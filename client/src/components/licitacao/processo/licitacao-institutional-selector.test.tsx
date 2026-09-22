@@ -24,7 +24,7 @@ it("permite ampliar o escopo vazio sem selecionar automaticamente", async () => 
   };
   const view = render(<LicitacaoInstitutionalSelector {...props} />);
   await user.click(
-    screen.getByRole("button", { name: "Selecionar", exact: true }),
+    screen.getByRole("button", { name: "Selecionar" }),
   );
   await user.click(
     screen.getByRole("button", { name: "Ver todas as secretarias" }),
@@ -58,7 +58,7 @@ it("mostra falhas de carregamento e permite tentar novamente", async () => {
     />,
   );
   await user.click(
-    screen.getByRole("button", { name: "Selecionar", exact: true }),
+    screen.getByRole("button", { name: "Selecionar" }),
   );
   expect(screen.getByRole("alert").textContent).toContain("Falha de conexão");
   expect(screen.queryByText(/Nenhum registro vigente/)).toBeNull();
@@ -70,12 +70,12 @@ it("limpa buscas ao reabrir o seletor e ao trocar de catálogo", async () => {
   const user = userEvent.setup();
   const view = render(<LicitacaoInstitutionalSelector {...defaults} />);
   await user.click(
-    screen.getByRole("button", { name: "Selecionar", exact: true }),
+    screen.getByRole("button", { name: "Selecionar" }),
   );
   await user.type(screen.getByRole("textbox"), "comissão inexistente");
   await user.keyboard("{Escape}");
   await user.click(
-    screen.getByRole("button", { name: "Selecionar", exact: true }),
+    screen.getByRole("button", { name: "Selecionar" }),
   );
   expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("");
   await user.type(screen.getByRole("textbox"), "comissão");

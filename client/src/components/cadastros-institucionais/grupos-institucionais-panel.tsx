@@ -51,9 +51,7 @@ interface SecretariaOption {
   metadata?: { sigla?: string | null };
 }
 
-function toSecretariaOption(
-  item: Record<string, unknown>,
-): SecretariaOption {
+function toSecretariaOption(item: Record<string, unknown>): SecretariaOption {
   const metadata =
     item.metadata && typeof item.metadata === "object"
       ? (item.metadata as Record<string, unknown>)
@@ -68,7 +66,7 @@ function toSecretariaOption(
   };
 }
 
-function createGrupoFormState(): GrupoFormState {
+function createGrupoFormState(singleAgent = false): GrupoFormState {
   return {
     nome: "",
     sigla: "",
@@ -80,7 +78,17 @@ function createGrupoFormState(): GrupoFormState {
     substituiGrupoId: "",
     observacao: "",
     ativo: true,
-    membros: [],
+    membros: singleAgent
+      ? [
+          {
+            pessoaId: 0,
+            funcao: "AGENTE_CONTRATACAO",
+            ordem: 0,
+            titular: true,
+            ativo: true,
+          },
+        ]
+      : [],
     secretariaOption: null,
   };
 }
@@ -95,9 +103,12 @@ export function GruposInstitucionaisPanel({
   title,
   emptyLabel,
 }: GruposInstitucionaisPanelProps) {
+  const singleAgent = tipo === "AGENTE_CONTRATACAO";
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState<GrupoFormState>(() => createGrupoFormState());
+  const [form, setForm] = useState<GrupoFormState>(() =>
+    createGrupoFormState(singleAgent),
+  );
   const [editing, setEditing] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,16 +117,19 @@ export function GruposInstitucionaisPanel({
     { ativo: true, page: 1, pageSize: 100 },
     { retry: false },
   );
-  const listProcedure =
-    tipo === "COMISSAO_CONTRATACAO"
+  const listProcedure = singleAgent
+    ? trpc.cadastrosInstitucionais.agentesContratacao.list
+    : tipo === "COMISSAO_CONTRATACAO"
       ? trpc.cadastrosInstitucionais.comissoes.list
       : trpc.cadastrosInstitucionais.equipesApoio.list;
-  const saveProcedure =
-    tipo === "COMISSAO_CONTRATACAO"
+  const saveProcedure = singleAgent
+    ? trpc.cadastrosInstitucionais.agentesContratacao.save
+    : tipo === "COMISSAO_CONTRATACAO"
       ? trpc.cadastrosInstitucionais.comissoes.save
       : trpc.cadastrosInstitucionais.equipesApoio.save;
-  const inactivateProcedure =
-    tipo === "COMISSAO_CONTRATACAO"
+  const inactivateProcedure = singleAgent
+    ? trpc.cadastrosInstitucionais.agentesContratacao.inactivate
+    : tipo === "COMISSAO_CONTRATACAO"
       ? trpc.cadastrosInstitucionais.comissoes.inactivate
       : trpc.cadastrosInstitucionais.equipesApoio.inactivate;
 
@@ -132,11 +146,12 @@ export function GruposInstitucionaisPanel({
   const saveMutation = saveProcedure.useMutation({
     onSuccess: async () => {
       await Promise.all([
+        utils.cadastrosInstitucionais.agentesContratacao.list.invalidate(),
         utils.cadastrosInstitucionais.comissoes.list.invalidate(),
         utils.cadastrosInstitucionais.equipesApoio.list.invalidate(),
         utils.cadastrosInstitucionais.designacoes.availableForProcess.invalidate(),
       ]);
-      setForm(createGrupoFormState());
+      setForm(createGrupoFormState(singleAgent));
       setEditing(false);
       setFeedback(`${title} salvo.`);
       setError(null);
@@ -176,7 +191,9 @@ export function GruposInstitucionaisPanel({
       vigenciaInicio: toDateInput(row.vigenciaInicio),
       vigenciaFim: toDateInput(row.vigenciaFim),
       versao: String(row.versao ?? 1),
-      substituiGrupoId: row.substituiGrupoId ? String(row.substituiGrupoId) : "",
+      substituiGrupoId: row.substituiGrupoId
+        ? String(row.substituiGrupoId)
+        : "",
       observacao: row.observacao ?? "",
       ativo: Boolean(row.ativo),
       membros: (row.membros ?? []).map((member: any, index: number) => ({
@@ -196,8 +213,7 @@ export function GruposInstitucionaisPanel({
       secretariaOption: row.secretariaId
         ? {
             id: Number(row.secretariaId),
-            label:
-              row.secretariaNome ?? `Secretaria #${row.secretariaId}`,
+            label: row.secretariaNome ?? `Secretaria #${row.secretariaId}`,
             subtitle: row.secretariaSigla ?? undefined,
             metadata: { sigla: row.secretariaSigla ?? null },
           }
@@ -209,18 +225,27 @@ export function GruposInstitucionaisPanel({
   }
 
   async function save() {
-    if (!form.nome.trim() || !form.atoDesignacaoId || !validMembers.length) {
-      setError("Informe nome, ato e ao menos um membro.");
+    const nome = singleAgent
+      ? (validMembers[0]?.pessoaOption?.label ?? "")
+      : form.nome.trim();
+    if (!nome || !form.atoDesignacaoId || !validMembers.length) {
+      setError(
+        singleAgent
+          ? "Selecione a pessoa responsável e o ato de designação."
+          : "Informe nome, ato e ao menos um membro.",
+      );
       return;
     }
     if (hasDuplicateMembers) {
-      setError("A mesma pessoa nao pode aparecer mais de uma vez na composicao.");
+      setError(
+        "A mesma pessoa nao pode aparecer mais de uma vez na composicao.",
+      );
       return;
     }
     const payload: GrupoInstitucionalSaveInput = {
       id: form.id,
       tipo,
-      nome: form.nome.trim(),
+      nome,
       sigla: form.sigla.trim(),
       secretariaId: form.secretariaId ? Number(form.secretariaId) : null,
       atoDesignacaoId: Number(form.atoDesignacaoId),
@@ -257,7 +282,7 @@ export function GruposInstitucionaisPanel({
             variant="outline"
             icon={<RefreshCcw className="h-4 w-4" />}
             onClick={() => {
-              setForm(createGrupoFormState());
+              setForm(createGrupoFormState(singleAgent));
               setEditing(false);
             }}
           >
@@ -265,19 +290,25 @@ export function GruposInstitucionaisPanel({
           </Button>
         }
       >
-        <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_150px_220px_220px]">
-          <FormField label="Nome">
-            <Input
-              value={form.nome}
-              onChange={(event) => patch({ nome: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Sigla">
-            <Input
-              value={form.sigla}
-              onChange={(event) => patch({ sigla: event.target.value })}
-            />
-          </FormField>
+        <div
+          className={`grid gap-3 ${singleAgent ? "md:grid-cols-2" : "lg:grid-cols-[minmax(240px,1fr)_150px_220px_220px]"}`}
+        >
+          {!singleAgent && (
+            <>
+              <FormField label="Nome">
+                <Input
+                  value={form.nome}
+                  onChange={(event) => patch({ nome: event.target.value })}
+                />
+              </FormField>
+              <FormField label="Sigla">
+                <Input
+                  value={form.sigla}
+                  onChange={(event) => patch({ sigla: event.target.value })}
+                />
+              </FormField>
+            </>
+          )}
           <FormField label="Secretaria ou escopo">
             <AsyncCombobox<SecretariaOption>
               value={form.secretariaId ? Number(form.secretariaId) : null}
@@ -300,7 +331,10 @@ export function GruposInstitucionaisPanel({
               }}
               getOptionValue={(secretaria) => secretaria.id}
               getOptionLabel={(secretaria) =>
-                [secretaria.metadata?.sigla ?? secretaria.subtitle, secretaria.label]
+                [
+                  secretaria.metadata?.sigla ?? secretaria.subtitle,
+                  secretaria.label,
+                ]
                   .filter(Boolean)
                   .join(" - ")
               }
@@ -332,7 +366,9 @@ export function GruposInstitucionaisPanel({
             <Input
               type="date"
               value={form.vigenciaInicio}
-              onChange={(event) => patch({ vigenciaInicio: event.target.value })}
+              onChange={(event) =>
+                patch({ vigenciaInicio: event.target.value })
+              }
             />
           </FormField>
           <FormField label="Vigencia fim">
@@ -360,6 +396,7 @@ export function GruposInstitucionaisPanel({
 
         <div className="mt-4">
           <MembrosEditor
+            singleAgent={singleAgent}
             value={form.membros}
             onChange={(membros) => patch({ membros })}
           />
@@ -385,7 +422,11 @@ export function GruposInstitucionaisPanel({
       </Card>
 
       <Card
-        title={`${title}s cadastrados`}
+        title={
+          singleAgent
+            ? "Agentes de contratação cadastrados"
+            : `${title}s cadastrados`
+        }
         action={
           <div className="flex items-center gap-2">
             <Input
@@ -418,8 +459,12 @@ export function GruposInstitucionaisPanel({
                       {row.ato?.label ?? "Ato nao informado"}
                     </p>
                     <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                      {row.membros?.length ?? 0} membro(s)
-                      {row.secretariaNome ? ` | ${row.secretariaNome}` : " | escopo geral"}
+                      {singleAgent
+                        ? row.membros?.[0]?.pessoaNome
+                        : `${row.membros?.length ?? 0} membro(s)`}
+                      {row.secretariaNome
+                        ? ` | ${row.secretariaNome}`
+                        : " | escopo geral"}
                     </p>
                   </div>
                   <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
@@ -428,8 +473,16 @@ export function GruposInstitucionaisPanel({
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {row.ato?.arquivoUrl ? (
-                    <a href={row.ato.arquivoUrl} target="_blank" rel="noreferrer">
-                      <Button size="sm" variant="outline" icon={<FileText className="h-4 w-4" />}>
+                    <a
+                      href={row.ato.arquivoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<FileText className="h-4 w-4" />}
+                      >
                         Ver ato
                       </Button>
                     </a>
@@ -447,7 +500,9 @@ export function GruposInstitucionaisPanel({
                     variant="destructive"
                     icon={<Trash2 className="h-4 w-4" />}
                     loading={inactivateMutation.isPending}
-                    onClick={() => void inactivateMutation.mutateAsync({ id: row.id })}
+                    onClick={() =>
+                      void inactivateMutation.mutateAsync({ id: row.id })
+                    }
                   >
                     Inativar
                   </Button>

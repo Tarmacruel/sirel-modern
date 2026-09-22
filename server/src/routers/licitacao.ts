@@ -500,6 +500,7 @@ async function buildInternalChecklist(
   const [designacoes] = await db
     .select({
       comissaoId: licitacoes.comissaoId,
+      agenteContratacaoId: licitacoes.agenteContratacaoId,
       equipeApoioId: licitacoes.equipeApoioId,
       ordenadorDespesaId: licitacoes.ordenadorDespesaId,
     })
@@ -507,6 +508,7 @@ async function buildInternalChecklist(
     .where(eq(licitacoes.processoId, processoId))
     .limit(1);
   const catalogCompletionByCategory = new Map<string, boolean>([
+    ["LICITACAO_DECRETO_AGENTE_CONTRATACAO", Boolean(designacoes?.agenteContratacaoId)],
     ["LICITACAO_DECRETO_COMISSAO", Boolean(designacoes?.comissaoId)],
     ["LICITACAO_DECRETO_EQUIPE_APOIO", Boolean(designacoes?.equipeApoioId)],
     [
@@ -1195,6 +1197,7 @@ export const licitacaoRouter = router({
               linkPncpPublico: null,
               fundamentoLegalInciso: null,
               comissaoId: null,
+              agenteContratacaoId: null,
               equipeApoioId: null,
               ordenadorDespesaId: null,
               designacoesSnapshot: null,

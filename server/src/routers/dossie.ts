@@ -107,6 +107,7 @@ function buildInstitutionalDocuments(snapshot: unknown) {
   const payload = snapshot as Record<string, any>;
   const selectedAt = toDateValue(payload.selecionadoEm);
   const specs = [
+    { key: "agenteContratacao", label: "Agente de contratação", category: "INSTITUCIONAL_AGENTE_CONTRATACAO", id: -100004 },
     {
       key: "comissao",
       label: "Comissao de Contratacao",

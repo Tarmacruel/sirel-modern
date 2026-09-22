@@ -10,6 +10,7 @@ export const atoDesignacaoTipoOptions = [
 export const grupoInstitucionalTipoOptions = [
   "COMISSAO_CONTRATACAO",
   "EQUIPE_APOIO",
+  "AGENTE_CONTRATACAO",
 ] as const;
 
 export const grupoInstitucionalMembroFuncaoOptions = [
@@ -37,6 +38,7 @@ export const atoDesignacaoTipoLabels = {
 } as const satisfies Record<(typeof atoDesignacaoTipoOptions)[number], string>;
 
 export const grupoInstitucionalTipoLabels = {
+  AGENTE_CONTRATACAO: "Agente de contratação",
   COMISSAO_CONTRATACAO: "Comissao de Contratacao",
   EQUIPE_APOIO: "Equipe de Apoio",
 } as const satisfies Record<
@@ -146,6 +148,9 @@ export const grupoInstitucionalSaveInputSchema = z
     membros: z.array(grupoInstitucionalMembroInputSchema).min(1),
   })
   .superRefine((value, ctx) => {
+    if (value.tipo === "AGENTE_CONTRATACAO" && (value.membros.length !== 1 || value.membros[0]?.funcao !== "AGENTE_CONTRATACAO" || !value.membros[0]?.ativo)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["membros"], message: "Selecione exatamente um agente de contratação ativo por cadastro." });
+    }
     if (hasDuplicatePositiveNumbers(value.membros.map((member) => member.pessoaId))) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -211,6 +216,7 @@ export const designacoesForProcessInputSchema = z.object({
 
 export const designacoesSelectForLicitacaoInputSchema = z.object({
   processoId: z.number().int().positive(),
+  agenteContratacaoId: z.number().int().positive().optional().nullable(),
   comissaoId: z.number().int().positive().optional().nullable(),
   equipeApoioId: z.number().int().positive().optional().nullable(),
   ordenadorDespesaId: z.number().int().positive().optional().nullable(),

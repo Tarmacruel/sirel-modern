@@ -442,6 +442,13 @@
       "when": 1788890641686,
       "tag": "0062_sirel_folgas",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1790074800000,
+      "tag": "0063_agentes_contratacao",
+      "breakpoints": true
     }
   ]
 }

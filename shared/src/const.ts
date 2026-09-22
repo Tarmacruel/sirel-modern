@@ -737,8 +737,8 @@ export const licitacaoInternalDocumentChecklist = [
   },
   {
     category: "LICITACAO_DECRETO_AGENTE_CONTRATACAO",
-    label: "Decreto do Agente de Contratação",
-    description: "Ato de designação do agente de contratação/pregoeiro.",
+    label: "Agente de contratação",
+    description: "Responsável e ato de designação selecionados no cadastro institucional.",
     tipo: "OUTRO",
     obrigatorio: true,
   },

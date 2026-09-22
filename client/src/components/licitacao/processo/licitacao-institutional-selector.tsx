@@ -1,5 +1,6 @@
 import { Building2, CheckCircle2, FileText, Search, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { grupoInstitucionalMembroFuncaoLabels } from "@sirel/shared/schemas/cadastros-institucionais";
 import { formatShortDateBR } from "@/lib/formatters";
 
 import { Modal } from "@/components/shared/modal";
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { resolveServerAssetUrl } from "@/lib/document-upload";
 
 export type LicitacaoInstitutionalKind =
+  | "agenteContratacao"
   | "comissao"
   | "equipeApoio"
   | "ordenadorDespesa";
@@ -91,7 +93,14 @@ function optionComposition(option: InstitutionalOption) {
     return option.membros
       .slice(0, 4)
       .map((member) =>
-        [member.pessoaNome, member.funcao].filter(Boolean).join(" - "),
+        [
+          member.pessoaNome,
+          grupoInstitucionalMembroFuncaoLabels[
+            member.funcao as keyof typeof grupoInstitucionalMembroFuncaoLabels
+          ] ?? member.funcao,
+        ]
+          .filter(Boolean)
+          .join(" - "),
       )
       .join("; ");
   }
@@ -203,6 +212,12 @@ export function LicitacaoInstitutionalSelector({
         size="xl"
       >
         <div className="space-y-4">
+          {kind === "agenteContratacao" ? (
+            <p className="text-sm text-[var(--text-secondary)]">
+              Ao selecionar um agente, ele será definido como condutor do
+              processo.
+            </p>
+          ) : null}
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
               <Search className="h-4 w-4 text-[var(--text-secondary)]" />
