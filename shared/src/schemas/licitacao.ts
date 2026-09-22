@@ -13,6 +13,7 @@ const optionalDateTimeString = z.string().trim().min(1).max(40).optional();
 const optionalDateString = z.string().trim().min(1).max(20).optional();
 
 export const licitacaoListInputSchema = z.object({
+  situacaoProcedimento: z.enum(["EM_ANDAMENTO","FRACASSADO","DESERTO","REVOGADO","ANULADO","SUSPENSO","CANCELADO_LEGADO"]).optional(),
   page: z.number().int().positive().default(1),
   pageSize: z.number().int().positive().max(100).default(12),
   search: z.string().trim().optional(),

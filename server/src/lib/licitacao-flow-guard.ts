@@ -4,6 +4,8 @@ import type { LicitacaoGuidedPhaseKey } from "@sirel/shared/licitacao-guided-flo
 import type { requireDb } from "../db/client.js";
 import { documentos, itensProcesso, licitacaoChecklistExcecoes, licitacoes, licitantes, modalidades, processos, propostasLicitacao, recursosLicitacao } from "../db/schema.js";
 import { getLicitacaoFlowEnforcement } from "./licitacao-flow-policy.js";
+import { itensProcessoValores } from "../db/schema.js";
+import { resultadoAtual, situacaoAtual } from "@sirel/shared/licitacao-situacao";
 import { evaluateLicitacaoFlow, phaseForLicitacaoStatus, type LicitacaoFlowSnapshot } from "./licitacao-flow-state.js";
 
 type Db = ReturnType<typeof requireDb>;
@@ -15,7 +17,7 @@ export async function loadLicitacaoFlow(db: Db, processoId: number, fields: Reco
   const [docs, exceptions, items] = await Promise.all([
     db.select({ categoria: documentos.categoria, arquivoUrl: documentos.arquivoUrl }).from(documentos).where(eq(documentos.processoId, processoId)),
     db.select().from(licitacaoChecklistExcecoes).where(eq(licitacaoChecklistExcecoes.processoId, processoId)),
-    db.select({ id: itensProcesso.id }).from(itensProcesso).where(eq(itensProcesso.processoId, processoId)),
+    db.select({ id: itensProcesso.id, resultadoLicitacao: itensProcessoValores.resultadoLicitacao, itemFracassado: itensProcessoValores.itemFracassado, itemDeserto: itensProcessoValores.itemDeserto }).from(itensProcesso).leftJoin(itensProcessoValores,eq(itensProcessoValores.itemProcessoId,itensProcesso.id)).where(eq(itensProcesso.processoId, processoId)),
   ]);
   const bidders = licitacao ? await db.select().from(licitantes).where(eq(licitantes.licitacaoId, licitacao.id)) : [];
   const proposals = licitacao ? await db.select({ itemId: propostasLicitacao.itemId, licitanteId: propostasLicitacao.licitanteId, situacao: propostasLicitacao.situacao, classificacao: propostasLicitacao.classificacao })
@@ -30,7 +32,7 @@ export async function loadLicitacaoFlow(db: Db, processoId: number, fields: Reco
       fundamentoLegalInciso: licitacao?.fundamentoLegalInciso, inversaoFasesHabilitada: licitacao?.inversaoFasesHabilitada },
     publicado: base.processo.publicado, homologado: base.processo.homologado,
     status: licitacao?.statusLicitacao ?? "PREPARACAO", fields: effectiveFields,
-    documents: docs, exceptions, bidders, proposals, itemIds: items.map((item) => item.id), pendingAppeals: appeals.length,
+    documents: docs, exceptions, bidders, proposals, itemIds: items.map((item) => item.id), closedItemIds: items.filter((item) => resultadoAtual({ ...item, itemFracassado: !!item.itemFracassado, itemDeserto: !!item.itemDeserto })).map((item) => item.id), pendingAppeals: appeals.length,
   };
   return { snapshot, state: evaluateLicitacaoFlow(snapshot, getLicitacaoFlowEnforcement()) };
 }
@@ -40,6 +42,7 @@ export function assertLicitacaoFlowState(
   action: "publish" | "homologar" | "phase" | "close",
   status?: string,
 ) {
+  if (situacaoAtual(snapshot.fields.situacaoProcedimento,snapshot.status) !== "EM_ANDAMENTO") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Processo suspenso ou encerrado. Solicite retomada ou reabertura." });
   if (state.enforcement !== "BLOCKING") return;
   if (action === "phase" && ["CANCELADA", "FRACASSADA"].includes(status ?? "")) return;
   let target: LicitacaoGuidedPhaseKey | null = action === "close" ? "FECHAMENTO" : phaseForLicitacaoStatus(status ?? "", snapshot.context);
@@ -60,7 +63,6 @@ export function assertLicitacaoFlowState(
 
 export async function assertLicitacaoFlow(db: Db, processoId: number, action: "publish" | "homologar" | "phase" | "close", status?: string, fields?: Record<string, unknown>) {
   // A verificação não cria licitação, documentos nem movimentações.
-  if (getLicitacaoFlowEnforcement() !== "BLOCKING") return;
   const flow = await loadLicitacaoFlow(db, processoId, fields);
   assertLicitacaoFlowState(flow, action, status);
   return flow.state;

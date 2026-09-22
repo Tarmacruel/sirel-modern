@@ -1307,6 +1307,8 @@ export const itensProcessoValores = pgTable(
     }),
     itemHomologado: boolean("item_homologado").notNull().default(false),
     itemDeserto: boolean("item_deserto").notNull().default(false),
+    resultadoLicitacao: varchar("resultado_licitacao", { length: 32 }),
+    resultadoDecisao: jsonb("resultado_decisao"),
     itemFracassado: boolean("item_fracassado").notNull().default(false),
     motivoFracasso: text("motivo_fracasso"),
     dataHomologacao: date("data_homologacao"),
@@ -1528,6 +1530,7 @@ export const licitacoes = pgTable(
       { onDelete: "restrict" },
     ),
     agenteContratacaoId: integer("agente_contratacao_id").references(() => gruposInstitucionais.id),
+    situacaoProcedimento: jsonb("situacao_procedimento"),
     designacoesSnapshot: jsonb("designacoes_snapshot"),
     designacoesSelecionadasPor: integer(
       "designacoes_selecionadas_por",
@@ -3380,3 +3383,14 @@ export const folgaAuditLog = pgTable("folga_audit_log", {
   usuarioAtorId: integer("usuario_ator_id").references(()=>users.id,{onDelete:"set null"}), usuarioAlvoId: integer("usuario_alvo_id").references(()=>users.id,{onDelete:"set null"}),
   acao: varchar("acao",{length:80}).notNull(),payload:jsonb("payload").notNull().default({}),ipOrigem:varchar("ip_origem",{length:45}),criadoEm:timestamp("criado_em",{withTimezone:true}).notNull().defaultNow(),
 },t=>[index("folga_audit_log_campanha_idx").on(t.campanhaId,t.criadoEm.desc()),index("folga_audit_log_ator_idx").on(t.usuarioAtorId,t.criadoEm.desc())]);
+
+export const licitacaoDecisoes = pgTable("licitacao_decisoes", {
+  id: serial("id").primaryKey(),
+  processoId: integer("processo_id").notNull().references(() => processos.id),
+  acao: varchar("acao", { length: 32 }).notNull(),
+  itemIds: jsonb("item_ids").notNull().default([]),
+  decisao: jsonb("decisao").notNull(),
+  anterior: jsonb("anterior"),
+  usuarioId: integer("usuario_id").references(() => users.id),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ idxProcesso: index("licitacao_decisoes_processo_idx").on(table.processoId,table.id) }));

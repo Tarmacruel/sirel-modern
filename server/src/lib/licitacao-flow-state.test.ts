@@ -18,6 +18,23 @@ function ready(): LicitacaoFlowSnapshot {
 const evaluate = (snapshot: LicitacaoFlowSnapshot) => ({ snapshot, state: evaluateLicitacaoFlow(snapshot, "BLOCKING") });
 
 describe("completude do fluxo da licitacao", () => {
+  it("prossegue com o vencedor dos itens ativos sem exigir vencedor do item encerrado", () => {
+    const snapshot = ready(); snapshot.itemIds.push(2);
+    expect(evaluate(snapshot).state.actions.homologar.allowed).toBe(false);
+    snapshot.closedItemIds = [2];
+    expect(evaluate(snapshot).state.actions.homologar.allowed).toBe(true);
+    snapshot.closedItemIds = [1,2];
+    expect(evaluate(snapshot).state.phases.flatMap((p) => p.pending).some((p) => p.category === "global-result")).toBe(true);
+  });
+  it.each(["SUSPENSO","FRACASSADO","DESERTO","REVOGADO","ANULADO"])("%s preserva consulta e bloqueia avanço mesmo em modo orientativo", (situacao) => {
+    const snapshot = ready(); snapshot.fields.situacaoProcedimento = { situacao };
+    const state = evaluateLicitacaoFlow(snapshot,"ADVISORY");
+    expect(state.phases.every((phase) => phase.accessible)).toBe(true);
+    expect(state.actions.publish.allowed).toBe(false);
+    expect(state.actions.homologar.allowed).toBe(false);
+    expect(state.phases.flatMap((p) => p.pending)).toHaveLength(0);
+    expect(() => assertLicitacaoFlowState({ snapshot,state },"close")).toThrow(/reabertura/);
+  });
   it("exige agente cadastrado e preserva decretos anexados antes da mudança", () => {
     const snapshot = ready();
     snapshot.context = { modalidadeCodigo: "DISPENSA_ELETRONICA", modoDisputa: "ABERTO" };

@@ -3,6 +3,7 @@ import {
   hasLicitacaoDispute, licitacaoGuidedPhaseCatalog,
   type LicitacaoFlowContext, type LicitacaoFlowEnforcement, type LicitacaoGuidedPhaseKey,
 } from "@sirel/shared/licitacao-guided-flow";
+import { situacaoAtual, situacaoLabels } from "@sirel/shared/licitacao-situacao";
 
 export interface FlowException {
   categoria: string;
@@ -21,6 +22,7 @@ export function isCompletedFlowException(exception?: FlowException) {
 }
 
 export interface LicitacaoFlowSnapshot {
+  closedItemIds?: number[];
   context: LicitacaoFlowContext;
   publicado: boolean;
   homologado: boolean;
@@ -44,6 +46,8 @@ export function phaseForLicitacaoStatus(status: string, context: LicitacaoFlowCo
 }
 
 export function evaluateLicitacaoFlow(snapshot: LicitacaoFlowSnapshot, enforcement: LicitacaoFlowEnforcement) {
+  const situacao = situacaoAtual(snapshot.fields.situacaoProcedimento,snapshot.status);
+  const interrompido = situacao !== "EM_ANDAMENTO";
   const sequence = getLicitacaoGuidedPhaseSequence(snapshot.context);
   const phases = sequence.map((phase) => phase.key);
   const requirements = getLicitacaoDocumentRequirements(snapshot.context);
@@ -76,24 +80,27 @@ export function evaluateLicitacaoFlow(snapshot: LicitacaoFlowSnapshot, enforceme
   if (!snapshot.fields.dataPublicacaoEdital) add("PUBLICACAO", "publication-date", "Informe a data de publicacao");
   if (!snapshot.publicado) add("PUBLICACAO", "publication-record", "Registre a publicacao do processo");
 
-  const selected = snapshot.itemIds.map((id) => {
+  const activeItemIds = snapshot.itemIds.filter((id) => !snapshot.closedItemIds?.includes(id));
+  const selected = activeItemIds.map((id) => {
     const proposals = snapshot.proposals.filter((item) => item.itemId === id &&
       !["DESCLASSIFICADA", "INABILITADA"].includes(item.situacao) &&
       snapshot.bidders.some((bidder) => bidder.id === item.licitanteId && bidder.ativo !== false));
     return proposals.find((item) => item.situacao === "VENCEDORA") ?? proposals.find((item) => item.classificacao === 1);
   });
-  if (!selected.length || selected.some((item) => !item)) add("JULGAMENTO", "judgment-ranking", "Defina a proposta selecionada para cada item do processo");
+  if (!activeItemIds.length && snapshot.closedItemIds?.length) add("JULGAMENTO", "global-result", "Todos os itens estão encerrados. Defina a situação global do processo.");
+  else if (!selected.length || selected.some((item) => !item)) add("JULGAMENTO", "judgment-ranking", "Defina a proposta selecionada para cada item do processo");
   const inverted = Boolean(snapshot.context.inversaoFasesHabilitada && hasLicitacaoDispute(snapshot.context));
   const qualification = inverted
     ? snapshot.bidders.some((bidder) => bidder.ativo !== false && bidder.statusHabilitacao === "HABILITADO")
     : selected.length > 0 && selected.every((proposal) => proposal && snapshot.bidders.some((bidder) =>
       bidder.id === proposal.licitanteId && bidder.ativo !== false && bidder.statusHabilitacao === "HABILITADO"));
-  if (!qualification) add("HABILITACAO", "qualification-review", "Conclua a habilitacao favoravel do fornecedor selecionado");
+  if (!qualification && activeItemIds.length) add("HABILITACAO", "qualification-review", "Conclua a habilitacao favoravel do fornecedor selecionado");
   if (inverted && selected.some((proposal) => proposal && !snapshot.bidders.some((bidder) => bidder.id === proposal.licitanteId && bidder.statusHabilitacao === "HABILITADO"))) {
     add("JULGAMENTO", "judgment-qualified", "Selecione apenas propostas de fornecedores habilitados");
   }
   if (snapshot.pendingAppeals) add(phases.includes("RECURSOS") ? "RECURSOS" : "HOMOLOGACAO", "appeals", `${snapshot.pendingAppeals} recurso(s) sem decisao final`);
   if (!snapshot.homologado) add("HOMOLOGACAO", "homologation", "Registre a homologacao do processo");
+  if (interrompido) pending.length = 0;
 
   const recordedPhase = snapshot.homologado ? "FECHAMENTO" : !snapshot.publicado ? "PREPARACAO"
     : phaseForLicitacaoStatus(snapshot.status, snapshot.context) ?? "PREPARACAO";
@@ -101,18 +108,19 @@ export function evaluateLicitacaoFlow(snapshot: LicitacaoFlowSnapshot, enforceme
   const firstPending = phases.findIndex((phase) => pending.some((item) => item.phase === phase));
   const states = sequence.map((phase, index) => ({
     ...phase, pending: pending.filter((item) => item.phase === phase.key),
-    accessible: enforcement === "ADVISORY" || index <= Math.max(phases.indexOf(currentPhase), firstPending < 0 ? phases.length - 1 : firstPending),
-    complete: !pending.some((item) => item.phase === phase.key),
+    accessible: interrompido || enforcement === "ADVISORY" || index <= Math.max(phases.indexOf(currentPhase), firstPending < 0 ? phases.length - 1 : firstPending),
+    complete: !interrompido && !pending.some((item) => item.phase === phase.key),
   }));
   const blockersFor = (target: LicitacaoGuidedPhaseKey, inclusive = false, ignored: string[] = []) => {
+    if (interrompido) return [{ category: "situacao-procedimento", label: `Processo ${situacaoLabels[situacao]}. Solicite retomada ou reabertura.`, detalhe: "", phase: currentPhase }];
     const index = phases.indexOf(target);
     return pending.filter((item) => !ignored.includes(item.category) && (inclusive ? phases.indexOf(item.phase) <= index : phases.indexOf(item.phase) < index));
   };
   return {
-    enforcement, currentPhase, phases: states, evidence,
+    enforcement, currentPhase, phases: states, evidence, situacao,
     actions: {
-      publish: { allowed: enforcement === "ADVISORY" || blockersFor("PUBLICACAO", true, ["publication-record"]).length === 0, blockers: blockersFor("PUBLICACAO", true, ["publication-record"]) },
-      homologar: { allowed: enforcement === "ADVISORY" || blockersFor("HOMOLOGACAO", true, ["homologation"]).length === 0, blockers: blockersFor("HOMOLOGACAO", true, ["homologation"]) },
+      publish: { allowed: !interrompido && (enforcement === "ADVISORY" || blockersFor("PUBLICACAO", true, ["publication-record"]).length === 0), blockers: blockersFor("PUBLICACAO", true, ["publication-record"]) },
+      homologar: { allowed: !interrompido && (enforcement === "ADVISORY" || blockersFor("HOMOLOGACAO", true, ["homologation"]).length === 0), blockers: blockersFor("HOMOLOGACAO", true, ["homologation"]) },
     },
   };
 }

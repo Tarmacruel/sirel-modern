@@ -74,6 +74,7 @@ import {
   getSystemParamStringArray,
 } from "../lib/system-params.js";
 import { operadorProcedure, publicProcedure, router } from "../trpc.js";
+import { licitacaoSituacaoRouter } from "./licitacao-situacao.js";
 
 type DbClient = ReturnType<typeof requireDb>;
 type LicitacaoStatus = (typeof licitacaoStatusEnum.enumValues)[number];
@@ -772,6 +773,7 @@ async function getBaseProcesso(db: DbClient, processoId: number) {
 }
 
 export const licitacaoRouter = router({
+  situacao: licitacaoSituacaoRouter,
   saveJustificativaAuditoria: operadorProcedure
     .input(z.object({ processoId: z.number().int().positive(), justificativa: z.string().trim().min(1).max(4000) }))
     .mutation(async ({ ctx, input }) => {
@@ -861,8 +863,9 @@ export const licitacaoRouter = router({
         filters.push(eq(processos.secretariaId, input.secretariaId));
       }
       if (input.statusLicitacao) {
-        filters.push(eq(licitacoes.statusLicitacao, input.statusLicitacao));
+        filters.push(input.statusLicitacao === "FRACASSADA" ? or(eq(licitacoes.statusLicitacao,"FRACASSADA"),sql`${licitacoes.situacaoProcedimento}->>'situacao' = 'FRACASSADO'`) : eq(licitacoes.statusLicitacao, input.statusLicitacao));
       }
+      if (input.situacaoProcedimento) filters.push(sql`coalesce(${licitacoes.situacaoProcedimento}->>'situacao',case when ${licitacoes.statusLicitacao}='FRACASSADA' then 'FRACASSADO' when ${licitacoes.statusLicitacao}='CANCELADA' then 'CANCELADO_LEGADO' else 'EM_ANDAMENTO' end) = ${input.situacaoProcedimento}`);
       if (input.modalidadeGrupo) {
         const modalidadeGrupoFilter = buildModalidadeGrupoFilter(
           modalidades.codigo,
@@ -903,6 +906,7 @@ export const licitacaoRouter = router({
           tipoObjeto: processos.tipoObjeto,
           etapaAtual: workflowProcesso.etapaAtual,
           situacaoWorkflow: workflowProcesso.situacao,
+          situacaoProcedimento: licitacoes.situacaoProcedimento,
           atualizadoEm: workflowProcesso.atualizadoEm,
           statusLicitacao: licitacoes.statusLicitacao,
           publicado: processos.publicado,

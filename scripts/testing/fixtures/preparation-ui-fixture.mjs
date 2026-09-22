@@ -70,6 +70,7 @@ export function createPreparationFixture() {
       case "dashboard.summary": return {};
       case "notificacoes.summary": return { unread: 0, total: 0 };
       case "licitacao.detail": return detail();
+      case "licitacao.situacao.get": return { situacao: "EM_ANDAMENTO", decisao: null, itens: [], sugestao: null, todosEncerrados: false, historico: [] };
       case "documentos.listByProcesso": return documents;
       case "cadastros.formOptions": return { statusProcesso: [{ id: 9001, nome: "Em preparação" }], pessoas: [], fornecedores: [], secretarias: [], modalidades: [] };
       case "parametros.obterValor": return null;

@@ -1,3 +1,4 @@
+import { LicitacaoSituacaoPanel } from "@/components/licitacao/processo/licitacao-situacao-panel";
 import {
   LicitacaoAppealsList,
   type AppealRecord,
@@ -731,6 +732,7 @@ export function LicitacaoProcessoPage({
     null,
   );
   const [showAllDocsModal, setShowAllDocsModal] = useState(false);
+  const [situacaoOpen, setSituacaoOpen] = useState(false);
   const [includeOtherDesignationSecretariats, setIncludeOtherDesignationSecretariats] = useState(false);
   const [showCIReservaModal, setShowCIReservaModal] = useState(false);
   const [contractTransitionOpen, setContractTransitionOpen] = useState(false);
@@ -3196,6 +3198,7 @@ export function LicitacaoProcessoPage({
   };
   const canAccessLegalPhase = (phase: LicitacaoLinearPhaseKey) =>
     serverFlow?.phases.find((item) => item.key === phase)?.accessible ?? false;
+  const canAdvanceLegalPhase = (phase: LicitacaoLinearPhaseKey) => serverFlow?.situacao === "EM_ANDAMENTO" && canAccessLegalPhase(phase);
   const selectLegalPhase = (phase: LicitacaoLinearPhaseKey) => {
     if (!canAccessLegalPhase(phase)) return;
     const targetSection = getDefaultSectionForPhase(phase);
@@ -3262,6 +3265,9 @@ export function LicitacaoProcessoPage({
   const phaseHasBlockingPendencies = (phase: LicitacaoLinearPhaseKey) =>
     isBlockingFlow && phasePendingCounts[phase] > 0;
   const primaryPhaseAction = (() => {
+    if (serverFlow?.situacao && serverFlow.situacao !== "EM_ANDAMENTO") return {
+      label: "Andamento interrompido", helper: "Solicite retomada ou reabertura para continuar.", disabled: true, onClick: () => {},
+    };
     if (currentPhase === "PREPARACAO") {
       return {
         label: "Avancar para publicacao",
@@ -5229,7 +5235,7 @@ export function LicitacaoProcessoPage({
                 aria-describedby="qualification-advance-hint"
                 disabled={
                   qualificationAlreadyAdvanced
-                    ? !canAccessLegalPhase(qualificationNextPhase)
+                    ? !canAdvanceLegalPhase(qualificationNextPhase)
                     : primaryPhaseAction.disabled
                 }
                 loading={advanceStageMutation.isPending}
@@ -5318,7 +5324,7 @@ export function LicitacaoProcessoPage({
   const alreadyInContracts =
     contractGateQuery.data?.moduloAtual === "CONTRATOS";
   const finalActionDisabled =
-    currentPhase === "FECHAMENTO"
+    serverFlow?.situacao !== "EM_ANDAMENTO" || (currentPhase === "FECHAMENTO"
       ? !alreadyInContracts &&
         (contractGateQuery.isFetching ||
           !contractGateQuery.data ||
@@ -5327,11 +5333,11 @@ export function LicitacaoProcessoPage({
       : currentPhase === "HOMOLOGACAO"
         ? homologarMutation.isPending ||
           (detalhe.processo.homologado
-            ? !canAccessLegalPhase("FECHAMENTO")
+            ? !canAdvanceLegalPhase("FECHAMENTO")
             : isBlockingFlow && !serverFlow?.actions.homologar.allowed)
         : finalAlreadyAdvanced
-          ? !finalNextPhase || !canAccessLegalPhase(finalNextPhase)
-          : primaryPhaseAction.disabled;
+          ? !finalNextPhase || !canAdvanceLegalPhase(finalNextPhase)
+          : primaryPhaseAction.disabled);
   function openHomologation() {
     homologarMutation.reset();
     setOperationModal("homologacao");
@@ -5398,7 +5404,7 @@ export function LicitacaoProcessoPage({
           variant="outline"
           size="sm"
           className="rounded-lg"
-          disabled={!canAccessLegalPhase("JULGAMENTO")}
+          disabled={!canAdvanceLegalPhase("JULGAMENTO")}
           onClick={() => {
             setJudgmentTab("ranking");
             selectLegalPhase("JULGAMENTO");
@@ -5503,6 +5509,7 @@ export function LicitacaoProcessoPage({
             }
           />
 
+          <LicitacaoSituacaoPanel processoId={processoId} open={situacaoOpen} onOpenChange={setSituacaoOpen} documentos={detalhe.documentos} onSaved={refreshAll} />
           <LicitacaoPhaseStepper
             compact={usesCompactWorkspace}
             phases={guidedProcessModel.phases}
@@ -5784,7 +5791,7 @@ export function LicitacaoProcessoPage({
                   checklistItems.filter((item) => item.concluido).length
                 }
                 totalCount={checklistItems.length}
-                canAdvance={canAccessLegalPhase("PUBLICACAO")}
+                canAdvance={canAdvanceLegalPhase("PUBLICACAO")}
                 advanceHint={
                   phasePendingCounts.PREPARACAO
                     ? `${phasePendingCounts.PREPARACAO} requisitos pendentes para liberar a próxima etapa.`
@@ -5883,7 +5890,7 @@ export function LicitacaoProcessoPage({
                         aria-describedby="dispute-advance-hint"
                         disabled={
                           disputeAlreadyAdvanced
-                            ? !canAccessLegalPhase(disputeNextPhase)
+                            ? !canAdvanceLegalPhase(disputeNextPhase)
                             : primaryPhaseAction.disabled
                         }
                         loading={advanceStageMutation.isPending}
@@ -6614,10 +6621,12 @@ export function LicitacaoProcessoPage({
                       icon: ListOrdered,
                       count: detalhe.propostas.length,
                       content: (
+                        <>
+                        <Button variant="outline" className="mb-4" disabled={serverFlow?.situacao !== "EM_ANDAMENTO"} onClick={() => setSituacaoOpen(true)}>Definir situação</Button>
                         <LicitacaoJudgmentRanking
                           items={detalhe.itens}
                           proposals={detalhe.propostas}
-                          saving={savePropostaMutation.isPending}
+                          saving={savePropostaMutation.isPending || serverFlow?.situacao !== "EM_ANDAMENTO"}
                           canCreate={
                             detalhe.licitantes.some((item) => item.ativo) &&
                             detalhe.itens.length > 0
@@ -6648,7 +6657,7 @@ export function LicitacaoProcessoPage({
                                 : undefined,
                             });
                           }}
-                        />
+                        /></>
                       ),
                     },
                     ...(!showCompetitivoSteps
@@ -6713,7 +6722,7 @@ export function LicitacaoProcessoPage({
                         aria-describedby="judgment-advance-hint"
                         disabled={
                           judgmentAlreadyAdvanced
-                            ? !canAccessLegalPhase(judgmentNextPhase)
+                            ? !canAdvanceLegalPhase(judgmentNextPhase)
                             : primaryPhaseAction.disabled
                         }
                         loading={advanceStageMutation.isPending}

@@ -1,3 +1,4 @@
+import { situacaoAtual, situacaoLabels } from "@sirel/shared/licitacao-situacao";
 import { Link } from "wouter";
 import { ArrowRight, CalendarClock, FileText, Search, X } from "lucide-react";
 
@@ -35,6 +36,7 @@ export type LicitacaoModalidadeGrupoFilter = "" | LicitacaoModalidadeGrupo;
 export type OverlayIntensity = "soft" | "default" | "strong";
 
 export interface LicitacaoProcessListRow {
+  situacaoProcedimento?: unknown;
   processoId: number;
   numeroSirel: string;
   dataEntradaLicitacao: string | Date | null;
@@ -72,6 +74,8 @@ interface LicitacaoProcessListProps {
   onSearchChange: (value: string) => void;
   statusFilter: LicitacaoStatusFilter;
   onStatusFilterChange: (value: LicitacaoStatusFilter) => void;
+  situacaoFilter?: string;
+  onSituacaoFilterChange?: (value: string) => void;
   secretariaId: string;
   onSecretariaIdChange: (value: string) => void;
   secretarias: Array<{ id: number; nome: string }>;
@@ -144,6 +148,8 @@ export function LicitacaoProcessList({
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
+  situacaoFilter = "",
+  onSituacaoFilterChange,
   secretariaId,
   onSecretariaIdChange,
   secretarias,
@@ -223,7 +229,7 @@ export function LicitacaoProcessList({
             </div>
 
             <div className="w-[220px]">
-              <FormField label="Status">
+              <FormField label="Fase">
                 <Select
                   value={statusFilter}
                   onChange={(event) =>
@@ -242,6 +248,7 @@ export function LicitacaoProcessList({
               </FormField>
             </div>
 
+            {onSituacaoFilterChange && <div className="w-[220px]"><FormField label="Situação do processo"><Select value={situacaoFilter} onChange={(event) => onSituacaoFilterChange(event.target.value)}><option value="">Todas</option>{Object.entries(situacaoLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</Select></FormField></div>}
             <div className="w-[240px]">
               <FormField label="Secretaria">
                 <Select
@@ -373,7 +380,7 @@ export function LicitacaoProcessList({
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(row.statusLicitacao)}`}
                       >
-                        {licitacaoStatusLabels[row.statusLicitacao]}
+                        {situacaoAtual(row.situacaoProcedimento,row.statusLicitacao) === "EM_ANDAMENTO" ? licitacaoStatusLabels[row.statusLicitacao] : situacaoLabels[situacaoAtual(row.situacaoProcedimento,row.statusLicitacao)]}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -526,7 +533,7 @@ export function LicitacaoProcessList({
                   Status
                 </p>
                 <p className="mt-1 text-base font-semibold text-[var(--text-primary)]">
-                  {licitacaoStatusLabels[selectedRow.statusLicitacao]}
+                  {situacaoAtual(selectedRow.situacaoProcedimento,selectedRow.statusLicitacao) === "EM_ANDAMENTO" ? licitacaoStatusLabels[selectedRow.statusLicitacao] : situacaoLabels[situacaoAtual(selectedRow.situacaoProcedimento,selectedRow.statusLicitacao)]}
                 </p>
               </div>
 

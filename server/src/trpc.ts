@@ -8,6 +8,7 @@ import { requireDb } from "./db/client.js";
 import { users } from "./db/schema.js";
 import { requireSubsystemAccess } from "./lib/subsystem-access.js";
 import { hasValidCsrfToken } from "./lib/csrf.js";
+import { guardOperationalMutation } from "./lib/licitacao-operational-guard.js";
 
 export function sanitizeTrpcErrorMessage(code: string, message: string) {
   if (code === "INTERNAL_SERVER_ERROR") {
@@ -66,7 +67,7 @@ async function loadSessionGuardUser(userId: number) {
   }
 }
 
-export const protectedProcedure = t.procedure.use(async ({ ctx, next, path }) => {
+export const protectedProcedure = t.procedure.use(async ({ ctx, next, path, type, getRawInput }) => {
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "Login obrigatorio" });
   }
@@ -89,6 +90,7 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next, path }) =>
   if (method && method !== "GET" && method !== "HEAD" && !hasValidCsrfToken(ctx.req)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Validacao CSRF obrigatoria." });
   }
+  if (type === "mutation") await guardOperationalMutation(path, await getRawInput());
   return next({ ctx });
 });
 

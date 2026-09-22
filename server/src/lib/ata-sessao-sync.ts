@@ -1,4 +1,5 @@
 import { isLicitacaoFlowBlocking } from "./licitacao-flow-policy.js";
+import { assertProcessOperational } from "./licitacao-operational-guard.js";
 import {
   copyFileSync,
   existsSync,
@@ -2492,6 +2493,10 @@ export async function applyAtaSessaoPreview(params: {
 }): Promise<AtaSessaoApplyResult> {
   const db = requireDb();
   const run = await loadRun(params.runId);
+  if (run.processoId) {
+    const affectedItems = await db.select({ id: itensProcesso.id }).from(itensProcesso).where(eq(itensProcesso.processoId,run.processoId));
+    await assertProcessOperational(db,run.processoId,affectedItems.map((i) => i.id));
+  }
   if (!run.processoId) {
     throw new Error(
       "A execução da ata ainda não está vinculada a um processo.",

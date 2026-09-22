@@ -61,6 +61,7 @@ export function LicitacaoPage() {
   const [pageSize, setPageSize] = useState(12);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<LicitacaoStatusFilter>("");
+  const [situacaoFilter, setSituacaoFilter] = useState<"" | "EM_ANDAMENTO" | "FRACASSADO" | "DESERTO" | "REVOGADO" | "ANULADO" | "SUSPENSO" | "CANCELADO_LEGADO">("");
   const [secretariaId, setSecretariaId] = useState("");
   const [modalidadeGrupo, setModalidadeGrupo] =
     useState<LicitacaoModalidadeGrupoFilter>("");
@@ -82,6 +83,7 @@ export function LicitacaoPage() {
       pageSize,
       search: deferredSearch || undefined,
       statusLicitacao: statusFilter || undefined,
+      situacaoProcedimento: situacaoFilter || undefined,
       secretariaId: secretariaId ? Number(secretariaId) : undefined,
       modalidadeGrupo: effectiveModalidadeGrupo || undefined,
       somenteObrasServicosEngenharia:
@@ -95,6 +97,7 @@ export function LicitacaoPage() {
       secretariaId,
       somenteObrasServicosEngenharia,
       statusFilter,
+      situacaoFilter,
     ],
   );
 
@@ -289,6 +292,8 @@ export function LicitacaoPage() {
       search={search}
       onSearchChange={setSearch}
       statusFilter={statusFilter}
+      situacaoFilter={situacaoFilter}
+      onSituacaoFilterChange={(value) => { setSituacaoFilter(value as typeof situacaoFilter); setPage(1); }}
       onStatusFilterChange={(value) => {
         if (value === "" || licitacaoStatusOptions.includes(value)) {
           setStatusFilter(value);

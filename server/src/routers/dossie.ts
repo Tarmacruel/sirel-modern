@@ -1692,7 +1692,7 @@ export const dossieRouter = router({
             itemFracassado: itemValues?.itemFracassado ?? false,
             motivoFracasso: itemValues?.motivoFracasso ?? null,
             dataHomologacao: toDateValue(itemValues?.dataHomologacao),
-            statusResumo: buildResultadoItemStatus({
+            statusResumo: itemValues?.resultadoLicitacao ?? buildResultadoItemStatus({
               itemHomologado: itemValues?.itemHomologado ?? false,
               itemDeserto: itemValues?.itemDeserto ?? false,
               itemFracassado: itemValues?.itemFracassado ?? false,

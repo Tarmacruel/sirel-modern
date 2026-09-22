@@ -129,6 +129,10 @@
     "./document-templates/dossie": {
       "types": "./dist/document-templates/dossie.d.ts",
       "import": "./dist/document-templates/dossie.js"
+    },
+    "./licitacao-situacao": {
+      "types": "./dist/licitacao-situacao.d.ts",
+      "import": "./dist/licitacao-situacao.js"
     }
   },
   "scripts": {
