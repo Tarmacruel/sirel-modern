@@ -883,6 +883,8 @@ export const licitacaoRouter = router({
         filters.push(
           or(
             ilike(processos.numeroSirel, `%${input.search}%`),
+            ilike(processos.numeroAdministrativo, `%${input.search}%`),
+            ilike(processos.numeroEdital, `%${input.search}%`),
             ilike(processos.objeto, `%${input.search}%`),
             ilike(secretarias.nome, `%${input.search}%`),
             ilike(modalidades.nome, `%${input.search}%`),
@@ -896,6 +898,7 @@ export const licitacaoRouter = router({
         .select({
           processoId: processos.id,
           numeroSirel: processos.numeroSirel,
+          numeroAdministrativo: processos.numeroAdministrativo,
           dataEntradaLicitacao: processos.dataEntradaLicitacao,
           numeroEdital: processos.numeroEdital,
           objeto: processos.objeto,

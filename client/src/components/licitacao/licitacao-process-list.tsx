@@ -24,7 +24,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@/components/ui/table";
-import { formatShortDateBR, formatShortDateTimeBR } from "@/lib/formatters";
+import { formatShortDateBR } from "@/lib/formatters";
 import { cleanDisplayText } from "@/lib/text";
 import type { LicitacaoModalidadeGrupo } from "@/lib/licitacao-workspaces";
 
@@ -40,6 +40,7 @@ export interface LicitacaoProcessListRow {
   situacaoProcedimento?: unknown;
   processoId: number;
   numeroSirel: string;
+  numeroAdministrativo?: string | null;
   dataEntradaLicitacao: string | Date | null;
   numeroEdital?: string | null;
   objeto?: string | null;
@@ -193,7 +194,7 @@ export function LicitacaoProcessList({
           aria-label="Buscar processo"
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Processo, objeto ou secretaria"
+          placeholder="Número, objeto ou secretaria"
           className="min-w-0 w-full border-none bg-transparent py-1 text-sm text-[var(--text-primary)] outline-none"
         />
       </div>
@@ -326,7 +327,7 @@ export function LicitacaoProcessList({
                       </div>
                       <p className="line-clamp-2 break-words text-sm text-[var(--text-primary)]">{cleanDisplayText(row.objeto || "Sem objeto informado")}</p>
                       <p className="break-words text-xs text-[var(--text-secondary)]">
-                        {[row.secretaria, row.condutorNome, row.proximaData && formatShortDateBR(row.proximaData)].filter(Boolean).join(" · ")}
+                        {[row.numeroAdministrativo, row.secretaria, row.condutorNome, row.proximaData && formatShortDateBR(row.proximaData)].filter(Boolean).join(" · ")}
                       </p>
                     </div>
                     <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--accent-color)]" aria-hidden />
@@ -345,7 +346,6 @@ export function LicitacaoProcessList({
                   <TableHeaderCell>Etapa</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
                   <TableHeaderCell>Proxima data</TableHeaderCell>
-                  <TableHeaderCell>Atualizado</TableHeaderCell>
                   <TableHeaderCell className="text-right">
                     Acoes
                   </TableHeaderCell>
@@ -363,7 +363,7 @@ export function LicitacaoProcessList({
                         {row.numeroSirel}
                       </div>
                       <div className="text-xs text-[var(--text-secondary)]">
-                        {row.modalidade ?? "Licitacao"}
+                        {[row.numeroAdministrativo, row.modalidade].filter(Boolean).join(" · ")}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -407,9 +407,6 @@ export function LicitacaoProcessList({
                           Sem data prevista
                         </span>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      {formatShortDateTimeBR(row.atualizadoEm)}
                     </TableCell>
                     <TableCell className="text-right">
                       <div
