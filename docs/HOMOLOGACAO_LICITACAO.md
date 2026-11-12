@@ -38,11 +38,13 @@ BLL_SYNC_ENABLED=false
 ```powershell
 npm run db:migrate
 npm run build
-$env:SIREL_TESTE_ADMIN_PASSWORD = Read-Host 'Senha inicial de admin.teste (mínimo de 16 caracteres)' -MaskInput
+$senhaTeste = Read-Host 'Senha inicial de admin.teste (mínimo de 16 caracteres)' -AsSecureString
+$env:SIREL_TESTE_ADMIN_PASSWORD = [System.Net.NetworkCredential]::new('', $senhaTeste).Password
 try {
-  node --env-file=.env --import tsx server/src/scripts/seed-homologacao.ts
+  node --env-file=.env server/dist/server/src/scripts/seed-homologacao.js
 } finally {
   Remove-Item Env:SIREL_TESTE_ADMIN_PASSWORD
+  Remove-Variable senhaTeste
 }
 node --env-file=.env server/dist/server/src/index.js
 ```
