@@ -15,13 +15,18 @@ const items: PreparationWorkspaceItem[] = [
 
 afterEach(cleanup);
 
-function WorkspaceHost({ onAdvance = vi.fn(), canAdvance = false }: { onAdvance?: () => void; canAdvance?: boolean }) {
+function WorkspaceHost({ onAdvance = vi.fn(), canAdvance = false, nextRequirementCategory }: {
+  onAdvance?: () => void;
+  canAdvance?: boolean;
+  nextRequirementCategory?: string;
+}) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   return <LicitacaoPreparationWorkspace
     items={items}
     activeCategory={activeCategory}
     onSelectCategory={setActiveCategory}
+    nextRequirementCategory={nextRequirementCategory}
     editor={<><h3>Editor de {activeCategory}</h3><label>Arquivo do requisito<input type="file" /></label></>}
     itemsContent={<label>Solicitação de despesa<input type="file" /></label>}
     configurationContent={<label>Observação da configuração<input /></label>}
@@ -32,6 +37,15 @@ function WorkspaceHost({ onAdvance = vi.fn(), canAdvance = false }: { onAdvance?
 }
 
 describe("LicitacaoPreparationWorkspace", () => {
+  it("abre a próxima pendência mesmo quando está em outra aba", async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceHost nextRequirementCategory="agente" />);
+
+    await user.click(screen.getByRole("button", { name: /Próxima ação/ }));
+    expect(screen.getByRole("tab", { name: /Responsáveis/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Editor de agente" })).toBeInTheDocument();
+  });
+
   it("organiza todos os documentos em uma lista e separa os responsáveis", async () => {
     const user = userEvent.setup();
     render(<WorkspaceHost />);

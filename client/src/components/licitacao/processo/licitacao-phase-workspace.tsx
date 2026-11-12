@@ -78,6 +78,7 @@ export interface LicitacaoPhaseWorkspaceProps {
   objectDescription?: string;
   progressCount?: number;
   totalCount?: number;
+  nextRequirementCategory?: string;
   canAdvance?: boolean;
   advanceHint?: string;
   onAdvance?: () => void;
@@ -146,6 +147,7 @@ export function LicitacaoPhaseWorkspace({
   objectDescription,
   progressCount = items.filter((item) => item.concluido).length,
   totalCount = items.length,
+  nextRequirementCategory,
   canAdvance,
   advanceHint,
   onAdvance,
@@ -232,6 +234,7 @@ export function LicitacaoPhaseWorkspace({
     totalCount > 0
       ? Math.min(100, Math.max(0, (progressCount / totalCount) * 100))
       : 0;
+  const nextRequirement = items.find((item) => item.category === nextRequirementCategory);
 
   // Keep selection meaningful when requirements arrive or their applicability changes.
   // Merely refreshing a document must not move the user's focus or scroll position.
@@ -409,6 +412,25 @@ export function LicitacaoPhaseWorkspace({
           </div>
         ) : null}
       </header>
+
+      {nextRequirement ? (
+        <div className="px-5 pb-4 sm:px-6">
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2 text-left text-sm text-[var(--text-primary)] hover:border-[var(--border-strong)]"
+            onClick={() => {
+              selectTab(nextRequirement.institutional ? "people" : "documents");
+              openItem(nextRequirement.category);
+            }}
+          >
+            <span className="min-w-0 break-words">
+              <span className="mr-2 text-xs text-[var(--text-secondary)]">Próxima ação</span>
+              <strong>{nextRequirement.label}</strong>
+            </span>
+            <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
+          </button>
+        </div>
+      ) : null}
 
       <div
         role="tablist"

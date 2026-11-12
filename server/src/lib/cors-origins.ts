@@ -3,6 +3,7 @@ import { subsystemDefinitions } from "@sirel/shared/subsystems";
 type CorsOriginOptions = {
   readonly clientUrl?: string;
   readonly nodeEnv?: string;
+  readonly useSubsystemOrigins?: boolean;
 };
 
 function normalizeOrigin(origin: string) {
@@ -84,7 +85,7 @@ export function isAllowedCorsOrigin(
   const normalizedOrigin = normalizeOrigin(origin);
   const allowedOrigins = [
     ...resolveAllowedOrigins(options.clientUrl ?? ""),
-    ...resolveSubsystemProductionOrigins(),
+    ...(options.useSubsystemOrigins === false ? [] : resolveSubsystemProductionOrigins()),
   ];
 
   if (allowedOrigins.includes(normalizedOrigin)) {

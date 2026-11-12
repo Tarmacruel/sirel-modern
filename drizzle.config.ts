@@ -7,6 +7,14 @@ const integrationTestsEnabled =
 const testConnectionString = process.env.TEST_DATABASE_URL?.trim() ?? "";
 const operationalConnectionString = process.env.DATABASE_URL?.trim() ?? "";
 
+if (process.env.SIREL_HOMOLOGACAO === "true") {
+  const url = operationalConnectionString ? new URL(operationalConnectionString) : null;
+  if (integrationTestsEnabled || !url || url.pathname !== "/sirel_teste" ||
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+    throw new Error("As migrações de homologação devem usar o banco local sirel_teste.");
+  }
+}
+
 function databaseIdentity(connectionUrl: string) {
   const url = new URL(connectionUrl);
   const port =

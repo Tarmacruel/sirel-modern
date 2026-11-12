@@ -897,6 +897,7 @@ const internalCors = cors({
       isAllowedCorsOrigin(origin, {
         clientUrl,
         nodeEnv: process.env.NODE_ENV,
+        useSubsystemOrigins: process.env.SIREL_HOMOLOGACAO !== "true",
       })
     ) {
       callback(null, true);

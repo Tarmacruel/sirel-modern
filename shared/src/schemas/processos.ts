@@ -79,6 +79,17 @@ export const processoSetAtivoInputSchema = z.object({
   ativo: z.boolean(),
 });
 
+export const processoReceberNaLicitacaoInputSchema = z.object({
+  recebidoDe: z.enum(["COMPRAS", "PLANEJAMENTO"]),
+  dataEntradaLicitacao: z.string().date(),
+  numeroAdministrativo: z.string().trim().min(1).max(64),
+  anoReferencia: z.number().int().gte(2020).lte(2100),
+  secretariaId: z.number().int().positive(),
+  modalidadeId: z.number().int().positive(),
+  tipoObjeto: z.enum(processoTipoObjetoOptions),
+  objeto: z.string().trim().min(10),
+});
+
 export const processoUpdateDataInputSchema = z.object({
   processoId: z.number().int().positive(),
   foraDoFluxo: z.boolean().optional(),

@@ -1,4 +1,5 @@
 import { situacaoAtual, situacaoLabels } from "@sirel/shared/licitacao-situacao";
+import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { ArrowRight, CalendarClock, FileText, Search, X } from "lucide-react";
 
@@ -58,8 +59,7 @@ export interface LicitacaoProcessListRow {
 
 interface LicitacaoProcessListProps {
   title: string;
-  subtitle: string;
-  activeChip: string;
+  action?: ReactNode;
   total: number;
   rows: LicitacaoProcessListRow[];
   isLoading: boolean;
@@ -114,16 +114,16 @@ function overlayClass(intensity: OverlayIntensity) {
 }
 
 function getActiveFilterCount(params: {
-  search: string;
   statusFilter: LicitacaoStatusFilter;
+  situacaoFilter: string;
   secretariaId: string;
   modalidadeGrupo: LicitacaoModalidadeGrupoFilter;
   somenteObrasServicosEngenharia: boolean;
   modalidadeGrupoLocked?: boolean;
 }) {
   return [
-    params.search.trim(),
     params.statusFilter,
+    params.situacaoFilter,
     params.secretariaId,
     params.modalidadeGrupoLocked ? "" : params.modalidadeGrupo,
     params.somenteObrasServicosEngenharia ? "obra" : "",
@@ -132,8 +132,7 @@ function getActiveFilterCount(params: {
 
 export function LicitacaoProcessList({
   title,
-  subtitle,
-  activeChip,
+  action,
   total,
   rows,
   isLoading,
@@ -166,8 +165,8 @@ export function LicitacaoProcessList({
   onOverlayIntensityChange,
 }: LicitacaoProcessListProps) {
   const activeFilterCount = getActiveFilterCount({
-    search,
     statusFilter,
+    situacaoFilter,
     secretariaId,
     modalidadeGrupo,
     somenteObrasServicosEngenharia,
@@ -176,35 +175,34 @@ export function LicitacaoProcessList({
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-[28px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-5 py-5 shadow-[var(--shadow-card)] lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary-600)]">
-              {activeChip}
-            </span>
-            <span className="rounded-full bg-[var(--surface-soft)] px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
-              {total} processo(s)
-            </span>
-          </div>
-          <h1 className="mt-3 text-2xl font-black tracking-tight text-[var(--text-primary)]">
+          <Button type="button" variant="ghost" size="sm" onClick={onBackToHub}>
+            ‹ Modalidades
+          </Button>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--text-primary)]">
             {title}
           </h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            {subtitle}
-          </p>
         </div>
+        {action}
+      </div>
 
-        <Button type="button" variant="outline" onClick={onBackToHub}>
-          Voltar as modalidades
-        </Button>
+      <div className="flex min-w-0 items-center gap-2 rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] px-3 py-2">
+        <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden />
+        <input
+          aria-label="Buscar processo"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Processo, objeto ou secretaria"
+          className="min-w-0 w-full border-none bg-transparent py-1 text-sm text-[var(--text-primary)] outline-none"
+        />
       </div>
 
       <details
-        open
         className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 py-3 shadow-[var(--shadow-card)]"
       >
         <summary className="cursor-pointer text-sm font-bold text-[var(--text-primary)]">
-          Filtros secundarios
+          Filtros
           {activeFilterCount ? (
             <span className="ml-2 rounded-full bg-[var(--surface-soft)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">
               {activeFilterCount}
@@ -214,20 +212,6 @@ export function LicitacaoProcessList({
 
         <div className="mt-4 space-y-3">
           <div className="flex flex-wrap gap-3">
-            <div className="min-w-[260px] flex-1">
-              <FormField label="Busca textual">
-                <div className="flex items-center gap-2 rounded-lg border border-[var(--input-border)] bg-[var(--input-bg)] px-3 py-2">
-                  <Search className="h-4 w-4 text-[var(--text-muted)]" />
-                  <input
-                    value={search}
-                    onChange={(event) => onSearchChange(event.target.value)}
-                    placeholder="Processo, objeto ou secretaria"
-                    className="w-full border-none bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-                  />
-                </div>
-              </FormField>
-            </div>
-
             <div className="w-[220px]">
               <FormField label="Fase">
                 <Select
@@ -328,8 +312,31 @@ export function LicitacaoProcessList({
         </div>
       ) : rows.length ? (
         <div className="space-y-4">
-          <div className="overflow-x-auto rounded-[26px] border border-[var(--table-border)] bg-[var(--surface-card)]">
-            <Table className="min-w-[1160px]">
+          <ul className="divide-y divide-[var(--border-subtle)] rounded-2xl border border-[var(--table-border)] bg-[var(--surface-card)] lg:hidden">
+            {rows.map((row) => {
+              const situacao = situacaoAtual(row.situacaoProcedimento, row.statusLicitacao);
+              const status = situacao === "EM_ANDAMENTO" ? licitacaoStatusLabels[row.statusLicitacao] : situacaoLabels[situacao];
+              return (
+                <li key={row.processoId}>
+                  <Link href={`/licitacao/${row.processoId}`} className="flex min-w-0 items-start gap-3 p-4 hover:bg-[var(--surface-soft)]">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-bold text-[var(--text-primary)]">{row.numeroSirel}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(situacao === "EM_ANDAMENTO" ? row.statusLicitacao : situacao)}`}>{status}</span>
+                      </div>
+                      <p className="line-clamp-2 break-words text-sm text-[var(--text-primary)]">{cleanDisplayText(row.objeto || "Sem objeto informado")}</p>
+                      <p className="break-words text-xs text-[var(--text-secondary)]">
+                        {[row.secretaria, row.condutorNome, row.proximaData && formatShortDateBR(row.proximaData)].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--accent-color)]" aria-hidden />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-[26px] border border-[var(--table-border)] bg-[var(--surface-card)] lg:block">
+            <Table>
               <TableHead>
                 <tr>
                   <TableHeaderCell>Processo</TableHeaderCell>

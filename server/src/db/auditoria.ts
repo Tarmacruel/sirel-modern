@@ -12,8 +12,11 @@ interface AuditEntry {
   descricao?: string;
 }
 
-export async function logAuditoria(ctx: AppContext, payload: AuditEntry) {
-  const db = requireDb();
+export async function logAuditoria(
+  ctx: AppContext,
+  payload: AuditEntry,
+  db: Pick<ReturnType<typeof requireDb>, "insert"> = requireDb(),
+) {
   await db.insert(auditoriaLog).values({
     usuarioId: ctx.user?.id ?? null,
     tabela: payload.tabela,

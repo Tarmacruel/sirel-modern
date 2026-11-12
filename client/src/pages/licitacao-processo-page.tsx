@@ -5769,6 +5769,7 @@ export function LicitacaoProcessoPage({
             >
               <LicitacaoPreparationWorkspace
                 key={processoId}
+                nextRequirementCategory={pendingRequired[0]?.category}
                 objectDescription={detalhe.processo.objeto ?? undefined}
                 items={checklistItems.map((item) => ({
                   category: item.category,

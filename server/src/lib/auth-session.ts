@@ -3,7 +3,8 @@ import type { Request, Response } from "express";
 
 const TOKEN_VERSION = 1;
 export const SESSION_TTL_SECONDS = 60 * 60 * 12;
-export const SESSION_COOKIE_NAME = "sirel_session";
+const isHomologacao = process.env.SIREL_HOMOLOGACAO === "true";
+export const SESSION_COOKIE_NAME = isHomologacao ? "sirel_teste_session" : "sirel_session";
 
 interface SessionPayload {
   sub: number;
@@ -58,6 +59,8 @@ function resolveRequestHost(req: Request | undefined) {
 function shouldUseProductionCookieDomain(req: Request | undefined) {
   const host = resolveRequestHost(req);
   return (
+    !isHomologacao &&
+    host !== "teste.sirel.com.br" &&
     process.env.NODE_ENV === "production" &&
     (host === "sirel.com.br" || host.endsWith(".sirel.com.br"))
   );

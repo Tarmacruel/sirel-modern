@@ -1,8 +1,11 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { Inbox } from "lucide-react";
 
 import { licitacaoStatusOptions } from "@sirel/shared/const";
 import { LicitacaoProcessList } from "@/components/licitacao/licitacao-process-list";
+import { LicitacaoReceberProcessoModal } from "@/components/licitacao/licitacao-receber-processo-modal";
+import { Button } from "@/components/ui/button";
 import type {
   LicitacaoModalidadeGrupoFilter,
   LicitacaoProcessListRow,
@@ -40,8 +43,9 @@ function getSearchFromLocation(location: string) {
   return window.location.search;
 }
 
-export function LicitacaoPage() {
+export function LicitacaoPage({ canReceive = false }: { canReceive?: boolean }) {
   const [location, setLocation] = useLocation();
+  const [receiveOpen, setReceiveOpen] = useState(false);
   const [routeSearch, setRouteSearch] = useState(() =>
     getSearchFromLocation(location),
   );
@@ -255,30 +259,41 @@ export function LicitacaoPage() {
     setLocation(href);
   }
 
+  const receiveAction = canReceive ? (
+    <Button icon={<Inbox className="h-4 w-4" />} onClick={() => setReceiveOpen(true)}>
+      Receber processo
+    </Button>
+  ) : null;
+  const receiveModal = receiveOpen && canReceive ? (
+    <LicitacaoReceberProcessoModal
+      secretarias={catalogosQuery.data?.secretarias ?? []}
+      modalidades={catalogosQuery.data?.modalidades ?? []}
+      onClose={() => setReceiveOpen(false)}
+      onCreated={(id) => {
+        setReceiveOpen(false);
+        setLocation(`/licitacao/${id}`);
+      }}
+    />
+  ) : null;
+
   if (routeState.showHub) {
     return (
-      <LicitacaoWorkspaceHub
-        cards={workspaceCards}
-        onSelect={handleSelectWorkspace}
-      />
+      <>
+        <LicitacaoWorkspaceHub cards={workspaceCards} onSelect={handleSelectWorkspace} action={receiveAction} />
+        {receiveModal}
+      </>
     );
   }
 
   const listTitle = selectedWorkspace?.title ?? "Todos os processos";
-  const listSubtitle = selectedWorkspace?.modalidadeGrupo
-    ? "Fila filtrada por modalidade."
-    : selectedWorkspace?.customFilter
-      ? "Fila dedicada aguardando classificacao."
-      : "Consulta geral da licitacao.";
-  const activeChip = selectedWorkspace?.shortTitle ?? "Todos";
   const visibleModalidadeGrupo =
     workspaceModalidadeGrupo ?? modalidadeGrupo ?? "";
 
   return (
+    <>
     <LicitacaoProcessList
       title={listTitle}
-      subtitle={listSubtitle}
-      activeChip={activeChip}
+      action={receiveAction}
       total={total}
       rows={rows}
       isLoading={listQuery.isLoading}
@@ -314,5 +329,7 @@ export function LicitacaoPage() {
       overlayIntensity={overlayIntensity}
       onOverlayIntensityChange={setOverlayIntensity}
     />
+    {receiveModal}
+    </>
   );
 }

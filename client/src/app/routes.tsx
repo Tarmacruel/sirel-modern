@@ -484,7 +484,10 @@ export const appRoutes: readonly AppRouteDefinition[] = [
     id: "licitacao",
     path: "/licitacao",
     subsystemKeys: ["hub", "licitacao", "workflow", "consultas"] as const,
-    render: () => <LicitacaoPage />,
+    render: (_params, { user }) => (
+      <LicitacaoPage canReceive={["admin", "gestor"].includes(user.role) &&
+        user.availableSubsystems.some(({ key, accessLevel }) => key === "licitacao" && accessLevel !== "VIEWER")} />
+    ),
   },
   {
     id: "documentos",

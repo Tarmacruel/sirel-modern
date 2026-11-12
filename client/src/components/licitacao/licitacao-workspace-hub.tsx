@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   BadgeCheck,
   FileKey2,
@@ -23,6 +24,7 @@ export interface LicitacaoWorkspaceHubCard {
 interface LicitacaoWorkspaceHubProps {
   cards: LicitacaoWorkspaceHubCard[];
   onSelect: (workspace: LicitacaoWorkspaceKey) => void;
+  action?: ReactNode;
 }
 
 const iconMap = {
@@ -38,19 +40,15 @@ const iconMap = {
 export function LicitacaoWorkspaceHub({
   cards,
   onSelect,
+  action,
 }: LicitacaoWorkspaceHubProps) {
   return (
     <section className="space-y-5">
-      <div>
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-primary-600)]">
-          Licitacao
-        </div>
-        <h1 className="mt-2 text-2xl font-black tracking-tight text-[var(--text-primary)] sm:text-3xl">
-          Escolha a fila de trabalho
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-black tracking-tight text-[var(--text-primary)]">
+          Licitação
         </h1>
-        <p className="mt-2 text-sm text-[var(--text-secondary)]">
-          Filtre a licitacao por modalidade.
-        </p>
+        {action}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

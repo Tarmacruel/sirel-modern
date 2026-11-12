@@ -2,7 +2,7 @@ import { isLicitacaoFlowBlocking } from "../lib/licitacao-flow-policy.js";
 import { getCriticalStatusKind } from "../lib/process-status-critical.js";
 import { assertLicitacaoFlow } from "../lib/licitacao-flow-guard.js";
 ﻿import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -10,6 +10,7 @@ import {
   processoCreateInputSchema,
   processoMacroPhaseGateInputSchema,
   processoListInputSchema,
+  processoReceberNaLicitacaoInputSchema,
   processoSetAtivoInputSchema,
   processoUpdateDataInputSchema,
 } from "@sirel/shared/schemas/processos";
@@ -35,6 +36,7 @@ import {
 } from "../db/schema.js";
 import { buildModalidadeGrupoFilter } from "../lib/modalidade-grupo.js";
 import { getNextNumeroSirel } from "../lib/processo-identity.js";
+import { requireSubsystemAccess } from "../lib/subsystem-access.js";
 import { getSystemParamNumber } from "../lib/system-params.js";
 import { gestorProcedure, publicProcedure, router } from "../trpc.js";
 
@@ -618,6 +620,72 @@ export const processosRouter = router({
 
     return created;
   }),
+
+  receberNaLicitacao: gestorProcedure
+    .input(processoReceberNaLicitacaoInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSubsystemAccess(ctx, "licitacao", "OPERATOR");
+      const db = requireDb();
+      const { recebidoDe, ...dados } = input;
+      const origem = recebidoDe === "COMPRAS" ? "Compras" : "Planejamento";
+
+      return db.transaction(async (tx) => {
+        // Serializa os recebimentos do ano para conferir duplicidade e gerar o número.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('sirel:processo'), ${dados.anoReferencia})`);
+        const [existente] = await tx.select({ numeroSirel: processos.numeroSirel })
+          .from(processos)
+          .where(and(
+            eq(processos.anoReferencia, dados.anoReferencia),
+            sql`lower(trim(${processos.numeroAdministrativo})) = lower(${dados.numeroAdministrativo})`,
+          ))
+          .limit(1);
+        if (existente) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `O processo administrativo já está cadastrado como ${existente.numeroSirel}.`,
+          });
+        }
+
+        const [secretaria] = await tx.select({ id: secretarias.id }).from(secretarias)
+          .where(and(eq(secretarias.id, dados.secretariaId), eq(secretarias.ativo, true)))
+          .limit(1);
+        const [modalidade] = await tx.select({ id: modalidades.id }).from(modalidades)
+          .where(and(eq(modalidades.id, dados.modalidadeId), eq(modalidades.ativo, true)))
+          .limit(1);
+        if (!secretaria || !modalidade) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Selecione uma secretaria e uma modalidade ativas." });
+        }
+
+        const numeroSirel = await getNextNumeroSirel(tx, dados.anoReferencia);
+        const [created] = await tx.insert(processos)
+          .values({ ...dados, numeroSirel, origemCadastro: "MANUAL", criadoPor: ctx.user?.id })
+          .returning({ id: processos.id, numeroSirel: processos.numeroSirel });
+
+        await tx.insert(workflowProcesso).values({
+          processoId: created.id,
+          moduloAtual: "LICITACAO",
+          situacao: "EM_ANDAMENTO",
+          etapaAtual: "Preparação",
+        });
+        await tx.insert(licitacoes).values({ processoId: created.id });
+        await tx.insert(movimentacoesWorkflow).values({
+          processoId: created.id,
+          moduloOrigem: recebidoDe,
+          moduloDestino: "LICITACAO",
+          descricao: `Processo recebido de ${origem}`,
+          observacao: `Recebimento externo registrado em ${dados.dataEntradaLicitacao}.`,
+          usuarioId: ctx.user?.id,
+        });
+        await logAuditoria(ctx, {
+          tabela: "processos",
+          registroId: created.id,
+          acao: "CREATE",
+          dadosNovos: { ...created, ...dados, recebidoDe },
+          descricao: `Recebimento do processo ${numeroSirel} de ${origem}`,
+        }, tx);
+        return created;
+      });
+    }),
 
   setAtivo: gestorProcedure.input(processoSetAtivoInputSchema).mutation(async ({ ctx, input }) => {
     const db = requireDb();
