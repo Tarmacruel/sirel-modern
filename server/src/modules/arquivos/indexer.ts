@@ -113,7 +113,7 @@ async function walk(
         const unchanged = Boolean(
           existing &&
             existing.size === info.size &&
-            existing.modifiedAt?.getTime() === info.mtimeMs &&
+            existing.modifiedAt?.getTime() === info.mtime.getTime() &&
             existing.contentIndexedAt,
         );
         out.push({
@@ -247,10 +247,11 @@ async function performIndex() {
   console.info("[SIREL Arquivos] Indexação iniciada.");
   await walk(rootReal, rootReal, "", items, counters, new Set<string>(), existingIndex);
   const stamp = new Date();
-  const batchSize = 300;
+  const batchSize = 50;
   const contentResult = { contentIndexed: 0, contentSkipped: 0 };
   for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
+    // Keep extracted text in the current batch so it can be collected after the write.
+    const batch = items.slice(i, i + batchSize).map((item) => ({ ...item }));
     const batchContentResult = await indexChangedContent(batch);
     contentResult.contentIndexed += batchContentResult.contentIndexed;
     contentResult.contentSkipped += batchContentResult.contentSkipped;
